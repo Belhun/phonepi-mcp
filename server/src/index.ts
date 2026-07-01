@@ -9,6 +9,13 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { WebSocket, WebSocketServer, VerifyClientCallbackSync } from "ws";
 import { IncomingMessage } from "http";
+import {
+  GM_TOOL_SCHEMAS,
+  ensureGmessagesSidecar,
+  gmessagesClient,
+  isGmTool,
+  stopGmessagesSidecar,
+} from "./gmessages/index.js";
 
 // Toggle this to true to enable debug logging for websocket
 const DEBUG_WEBSOCKET = false;
@@ -737,24 +744,36 @@ class PhonePiMCPServer {
             required: ["id"],
           },
         },
-        {
-          name: "send_sms",
-          description: "Send an SMS message",
-          inputSchema: {
-            type: "object",
-            properties: {
-              to: {
-                type: "string",
-                description: "Phone number to send to",
-              },
-              message: {
-                type: "string",
-                description: "Message content",
-              },
-            },
-            required: ["to", "message"],
-          },
-        },
+        // Legacy carrier SMS — superseded by Google Messages bridge (gm_send_message, gm_get_messages, etc.)
+        // {
+        //   name: "send_sms",
+        //   description: "Send an SMS message",
+        //   inputSchema: {
+        //     type: "object",
+        //     properties: {
+        //       to: { type: "string", description: "Phone number to send to" },
+        //       message: { type: "string", description: "Message content" },
+        //     },
+        //     required: ["to", "message"],
+        //   },
+        // },
+        // {
+        //   name: "get_sms_messages",
+        //   description: "Read SMS via Telephony provider (no RCS). Use gm_get_conversation instead.",
+        //   inputSchema: {
+        //     type: "object",
+        //     properties: {
+        //       contactName: { type: "string" },
+        //       contactId: { type: "string" },
+        //       from: { type: "string" },
+        //       hours: { type: "number" },
+        //       since: { type: "number" },
+        //       limit: { type: "number" },
+        //       includeSent: { type: "boolean" },
+        //     },
+        //     required: [],
+        //   },
+        // },
         {
           name: "make_call",
           description: "Make a phone call",
@@ -869,6 +888,25 @@ class PhonePiMCPServer {
             type: "object",
             properties: {},
             required: [],
+          },
+        },
+        {
+          name: "search_contacts",
+          description:
+            "Search contacts by name. Use before gm_list_conversations or gm_get_conversation when you need to find someone.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              query: {
+                type: "string",
+                description: "Name or partial name to search (e.g. \"Celia Griffiths\")",
+              },
+              limit: {
+                type: "number",
+                description: "Max results (default 10)",
+              },
+            },
+            required: ["query"],
           },
         },
         {
@@ -1265,11 +1303,32 @@ class PhonePiMCPServer {
             required: ["title", "body"],
           },
         },
+        ...GM_TOOL_SCHEMAS,
       ],
     }));
 
     // Handle tool calls
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
+      if (isGmTool(request.params.name)) {
+        try {
+          const result = await gmessagesClient.callTool(
+            request.params.name,
+            (request.params.arguments || {}) as Record<string, unknown>
+          );
+          if (result.isError) {
+            throw new McpError(ErrorCode.InternalError, result.text);
+          }
+          return {
+            content: [{ type: "text", text: result.text }],
+          };
+        } catch (error: unknown) {
+          throw new McpError(
+            ErrorCode.InternalError,
+            error instanceof Error ? error.message : "Google Messages tool failed"
+          );
+        }
+      }
+
       if (!this.phoneConnection) {
         throw new McpError(
           ErrorCode.InvalidParams,
@@ -1428,6 +1487,7 @@ class PhonePiMCPServer {
 
   private async cleanup() {
     console.error("Cleaning up server...");
+    stopGmessagesSidecar();
 
     // Clear ping interval if set
     if (this._pingIntervalId) {
@@ -1469,6 +1529,8 @@ class PhonePiMCPServer {
       await this.cleanup();
       process.exit(0);
     });
+
+    await ensureGmessagesSidecar();
 
     // Start the server with the appropriate transport
     if (useStdio) {

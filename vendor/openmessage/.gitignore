@@ -1,0 +1,9 @@
+/openmessages
+*.db
+session.json
+.vercel/
+macos/build/
+macos/OpenMessages/.build/
+.vercel
+.env*.local
+.build/

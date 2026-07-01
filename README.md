@@ -27,6 +27,17 @@ Security is a high concern. Here are a few aspects taken into account around sec
 For detailed documentation, features, and setup instructions, please visit:
 [phonepimcp.com](https://phonepimcp.com)
 
+### Google Messages bridge (SMS + RCS)
+
+To pair or run the Google Messages sync server from the repo root:
+
+```powershell
+.\pair-gmessages.ps1    # one-time QR pairing
+.\serve-gmessages.ps1   # sync server + web UI
+```
+
+See [messages-bridge/README.md](messages-bridge/README.md) for build prerequisites and details.
+
 ## Support & Issues
 
 If you encounter any bugs or have feature requests, please [open an issue](https://github.com/yourusername/phone-mcp/issues) on our GitHub repository. We actively monitor and respond to issues.

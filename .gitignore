@@ -1,2 +1,6 @@
 node_modules
 dist
+.idea/
+*.exe
+*.exe~
+Inspect/
