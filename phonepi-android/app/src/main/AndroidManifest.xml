@@ -1,0 +1,164 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+
+
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
+
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+
+    <!-- Required by Google Clock to accept SET_TIMER from third-party apps (Android 14+) -->
+    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
+
+    <!-- Legacy carrier SMS — disabled; use Google Messages gm_* tools on desktop -->
+    <!-- <uses-permission android:name="android.permission.SEND_SMS" /> -->
+    <!-- <uses-permission android:name="android.permission.READ_SMS" /> -->
+    <!-- <uses-permission android:name="android.permission.READ_PHONE_STATE" /> -->
+
+    <uses-permission android:name="android.permission.CALL_PHONE" />
+
+    <uses-permission android:name="android.permission.READ_CALL_LOG" />
+
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+
+    <uses-permission android:name="android.permission.WRITE_CONTACTS" />
+
+
+
+    <uses-feature android:name="android.hardware.telephony" android:required="false" />
+
+    <!-- Required on Android 11+ so we can find the Clock app for SET_TIMER -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.SET_TIMER" />
+        </intent>
+        <package android:name="com.google.android.deskclock" />
+    </queries>
+
+    <application
+
+        android:name=".PhonePiApp"
+
+        android:allowBackup="true"
+
+        android:icon="@drawable/ic_stat_link"
+
+        android:label="@string/app_name"
+
+        android:networkSecurityConfig="@xml/network_security_config"
+
+        android:supportsRtl="true"
+
+        android:theme="@style/Theme.PhonePiCompanion">
+
+
+
+        <activity
+
+            android:name=".ui.MainActivity"
+
+            android:exported="true">
+
+            <intent-filter>
+
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="android.intent.category.LAUNCHER" />
+
+            </intent-filter>
+
+        </activity>
+
+
+
+        <activity
+
+            android:name=".ui.MessageReplyActivity"
+
+            android:exported="false" />
+
+
+
+        <activity
+
+            android:name=".ui.FindPhoneDismissActivity"
+
+            android:exported="false"
+
+            android:showWhenLocked="true"
+
+            android:turnScreenOn="true" />
+
+
+
+        <activity
+
+            android:name=".ui.TimerBridgeActivity"
+
+            android:exported="false"
+
+            android:excludeFromRecents="true"
+
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+
+
+        <service
+
+            android:name=".findphone.FindPhoneService"
+
+            android:exported="false"
+
+            android:foregroundServiceType="mediaPlayback" />
+
+
+
+        <service
+
+            android:name=".connection.ConnectionService"
+
+            android:exported="false"
+
+            android:foregroundServiceType="connectedDevice" />
+
+
+
+        <receiver
+
+            android:name=".receiver.MessageActionReceiver"
+
+            android:exported="false" />
+
+
+
+        <receiver
+
+            android:name=".receiver.TimerReceiver"
+
+            android:exported="false" />
+
+    </application>
+
+</manifest>
+

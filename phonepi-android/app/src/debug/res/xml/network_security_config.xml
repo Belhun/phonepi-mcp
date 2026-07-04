@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug only: allow ws:// to any host (LAN IP testing). Release blocks cleartext by default. -->
+<network-security-config xmlns:tools="http://schemas.android.com/tools"
+    tools:ignore="InsecureBaseConfiguration">
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

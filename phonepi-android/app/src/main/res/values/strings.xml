@@ -1,0 +1,6 @@
+<resources>
+    <string name="app_name">PhonePi</string>
+    <string name="find_phone_notification_title">Find phone ringing</string>
+    <string name="find_phone_notification_body">Tap Stop to silence the alarm.</string>
+    <string name="find_phone_stop">Stop</string>
+</resources>

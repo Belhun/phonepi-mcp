@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Release: cleartext only for loopback/emulator hosts used with adb reverse.
+  Debug builds use src/debug/res/xml/network_security_config.xml for LAN testing.
+  Future WSS version pins a local CA; see design/06-security-roadmap.md.
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <domain includeSubdomains="false">localhost</domain>
+        <domain includeSubdomains="false">10.0.2.2</domain>
+    </domain-config>
+    <base-config cleartextTrafficPermitted="false" />
+</network-security-config>

@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PhonePi Test Console</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header>
+    <div>
+      <h1>PhonePi Test Console</h1>
+      <p class="sub">Edit params, run one tool, or run the full safe suite. Check the live log and issue banner for permission / handoff errors.</p>
+    </div>
+    <div class="status-wrap">
+      <span id="phone-status" class="badge off">Phone: checking…</span>
+      <button type="button" id="btn-refresh-status" class="ghost">Refresh</button>
+    </div>
+  </header>
+
+  <div id="issue-banner" class="issue-banner hidden" role="alert"></div>
+
+  <div id="sim-panel" class="sim-panel hidden">
+    <div class="sim-panel-head">
+      <h2>Known SIMs</h2>
+      <button type="button" id="btn-refresh-sims" class="ghost" disabled>Refresh from phone</button>
+    </div>
+    <p id="sim-panel-hint" class="muted">Run <strong>List SMS SIMs</strong> to load carrier names for Send SMS.</p>
+    <div id="sim-list" class="sim-list"></div>
+  </div>
+
+  <div id="contact-panel" class="sim-panel contact-panel">
+    <div class="sim-panel-head">
+      <h2>Known contacts</h2>
+      <button type="button" id="btn-refresh-contacts" class="ghost" disabled>Refresh from phone</button>
+    </div>
+    <p id="contact-panel-hint" class="muted">Run <strong>List contacts</strong> to load names. Use <strong>gm_*</strong> tools in MCP for SMS/RCS threads.</p>
+    <div id="contact-list" class="contact-list"></div>
+  </div>
+
+  <div id="gm-panel" class="sim-panel contact-panel">
+    <div class="sim-panel-head">
+      <h2>Google Messages (RCS)</h2>
+      <a class="ghost" href="http://127.0.0.1:11042" target="_blank" rel="noopener">Open web UI ↗</a>
+    </div>
+    <p class="muted">SMS + RCS via <code>phonepi-gmessages serve</code> on port 11042. Pair once, then use <strong>gm_*</strong> tools in MCP (not this console).</p>
+    <p class="muted">See <code>messages-bridge/README.md</code> and <code>design/08-google-messages-pairing.md</code>.</p>
+  </div>
+
+  <main>
+    <aside id="tool-list"></aside>
+
+    <section class="panel">
+      <div id="tool-header">
+        <h2 id="tool-title">Pick a tool</h2>
+        <p id="tool-desc" class="muted"></p>
+      </div>
+      <form id="tool-form" class="hidden">
+        <div id="fields"></div>
+        <div class="actions">
+          <button type="submit" class="primary" id="btn-run">Run on phone</button>
+          <button type="button" class="ghost" id="btn-reset">Reset defaults</button>
+        </div>
+      </form>
+      <pre id="last-response" class="response hidden"></pre>
+    </section>
+
+    <section class="panel log-panel">
+      <div class="log-header">
+        <h2>Live log</h2>
+        <div>
+          <button type="button" id="btn-run-suite" class="secondary">Run all (safe)</button>
+          <button type="button" id="btn-clear-log" class="ghost">Clear</button>
+        </div>
+      </div>
+      <div id="log" class="log"></div>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,18 @@
+*.iml
+.gradle/
+/local.properties
+/.idea/
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+*.keystore
+!debug.keystore
+app/build/
+
+# Local test run output
+testing/last-run.log
+testing/last-run.err
+testing/last-run.log.err

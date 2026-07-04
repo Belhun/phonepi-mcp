@@ -1,0 +1,4 @@
+<resources>
+    <!-- Compose draws the UI; this base theme only needs to be a valid no-action-bar app theme. -->
+    <style name="Theme.PhonePiCompanion" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>
