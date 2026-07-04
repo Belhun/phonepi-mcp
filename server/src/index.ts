@@ -759,7 +759,8 @@ class PhonePiMCPServer {
         // },
         // {
         //   name: "get_sms_messages",
-        //   description: "Read SMS via Telephony provider (no RCS). Use gm_get_conversation instead.",
+        //   description:
+        //     "Read SMS via Telephony provider (no RCS). Default limit is 100; 200 is the soft cap for routine queries — pass a higher limit when the user explicitly asks for more. Use gm_get_conversation instead.",
         //   inputSchema: {
         //     type: "object",
         //     properties: {
@@ -768,7 +769,11 @@ class PhonePiMCPServer {
         //       from: { type: "string" },
         //       hours: { type: "number" },
         //       since: { type: "number" },
-        //       limit: { type: "number" },
+        //       limit: {
+        //         type: "number",
+        //         description:
+        //           "Max messages (default 100). 200 is a soft cap for routine use; higher values are allowed when explicitly requested.",
+        //       },
         //       includeSent: { type: "boolean" },
         //     },
         //     required: [],
@@ -786,6 +791,49 @@ class PhonePiMCPServer {
               },
             },
             required: ["to"],
+          },
+        },
+        {
+          name: "get_recent_calls",
+          description:
+            "Read recent phone call history from the device (incoming, outgoing, missed, etc.). Default limit is 50; 200 is the soft cap for routine queries — pass a higher limit when the user explicitly asks for more.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              hours: {
+                type: "number",
+                description: "How many hours back to search (default 168 = 7 days)",
+              },
+              since: {
+                type: "number",
+                description: "Unix epoch ms — overrides hours when set",
+              },
+              limit: {
+                type: "number",
+                description:
+                  "Max calls to return (default 50). 200 is a soft cap for routine use; higher values are allowed when explicitly requested.",
+              },
+              type: {
+                type: "string",
+                description:
+                  "Filter by one call type: incoming, outgoing, missed, voicemail, rejected, blocked, answered_externally",
+              },
+              types: {
+                type: "array",
+                items: { type: "string" },
+                description: "Filter by multiple call types",
+              },
+              number: {
+                type: "string",
+                description: "Filter to calls with this phone number",
+              },
+              includeContactNames: {
+                type: "boolean",
+                description:
+                  "Resolve contact names for numbers (default true; needs READ_CONTACTS)",
+              },
+            },
+            required: [],
           },
         },
         {

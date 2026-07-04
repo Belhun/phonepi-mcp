@@ -33,39 +33,53 @@ export const GM_TOOL_SCHEMAS = [
   {
     name: "gm_get_messages",
     description:
-      "Get recent Google Messages (SMS + RCS) with optional phone/date filters. Requires phonepi-gmessages serve.",
+      "Get recent Google Messages (SMS + RCS) with optional phone/date filters. Default limit is 20; 200 is the soft cap for routine queries — pass a higher limit when the user explicitly asks for more. Requires phonepi-gmessages serve.",
     inputSchema: {
       type: "object",
       properties: {
         phone_number: { type: "string", description: "Filter by sender phone number" },
         after: { type: "string", description: "ISO date YYYY-MM-DD — messages after this day" },
         before: { type: "string", description: "ISO date YYYY-MM-DD — messages before this day" },
-        limit: { type: "number", description: "Max messages (default 20)" },
+        limit: {
+          type: "number",
+          description:
+            "Max messages (default 20). 200 is a soft cap for routine use; higher values are allowed when explicitly requested.",
+        },
       },
       required: [],
     },
   },
   {
     name: "gm_get_conversation",
-    description: "Get messages in a Google Messages conversation by ID (full SMS/RCS thread).",
+    description:
+      "Get messages in a Google Messages conversation by ID (full SMS/RCS thread). Default limit is 50; 200 is the soft cap for routine queries — pass a higher limit when the user explicitly asks for more.",
     inputSchema: {
       type: "object",
       properties: {
         conversation_id: { type: "string", description: "Conversation ID from gm_list_conversations" },
-        limit: { type: "number", description: "Max messages (default 50)" },
+        limit: {
+          type: "number",
+          description:
+            "Max messages (default 50). 200 is a soft cap for routine use; higher values are allowed when explicitly requested.",
+        },
       },
       required: ["conversation_id"],
     },
   },
   {
     name: "gm_search_messages",
-    description: "Full-text search across all Google Messages (SMS + RCS).",
+    description:
+      "Full-text search across all Google Messages (SMS + RCS). Default limit is 20; 200 is the soft cap for routine queries — pass a higher limit when the user explicitly asks for more.",
     inputSchema: {
       type: "object",
       properties: {
         query: { type: "string", description: "Search text" },
         phone_number: { type: "string", description: "Optional phone filter" },
-        limit: { type: "number", description: "Max results (default 20)" },
+        limit: {
+          type: "number",
+          description:
+            "Max results (default 20). 200 is a soft cap for routine use; higher values are allowed when explicitly requested.",
+        },
       },
       required: ["query"],
     },

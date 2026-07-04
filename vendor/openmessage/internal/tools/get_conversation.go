@@ -14,9 +14,9 @@ import (
 
 func getConversationTool() mcp.Tool {
 	return mcp.NewTool("get_conversation",
-		mcp.WithDescription("Get messages in a specific conversation by ID"),
+		mcp.WithDescription("Get messages in a specific conversation by ID. Default limit is 50; 200 is the soft cap for routine queries — pass a higher limit when the user explicitly asks for more."),
 		mcp.WithString("conversation_id", mcp.Required(), mcp.Description("The conversation ID")),
-		mcp.WithNumber("limit", mcp.Description("Maximum messages to return (default 50)")),
+		mcp.WithNumber("limit", mcp.Description("Maximum messages to return (default 50). 200 is a soft cap for routine use; higher values are allowed when explicitly requested.")),
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithDestructiveHintAnnotation(false),
 	)
@@ -29,7 +29,10 @@ func getConversationHandler(a *app.App) server.ToolHandlerFunc {
 		if convID == "" {
 			return errorResult("conversation_id is required"), nil
 		}
-		limit := intArg(args, "limit", 50)
+		limit, exceedsSoftCap, limitErr := messageLimitArg(args, "limit", 50)
+		if limitErr != "" {
+			return errorResult(limitErr), nil
+		}
 
 		msgs, err := a.Store.GetMessagesByConversation(convID, limit)
 		if err != nil {
@@ -68,6 +71,7 @@ func getConversationHandler(a *app.App) server.ToolHandlerFunc {
 			display := formatMessageBody(m.Body, m.MediaID, m.MimeType, m.MessageID)
 			fmt.Fprintf(&sb, "[%s] %s %s: «%s»\n", ts, direction, sender, display)
 		}
+		appendMessageLimitNotes(&sb, limit, len(msgs), exceedsSoftCap)
 		return textResult(sb.String()), nil
 	}
 }

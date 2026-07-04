@@ -10,6 +10,8 @@ import (
 	"github.com/maxghenis/openmessage/internal/app"
 )
 
+const messageSoftCap = 200
+
 func Register(s *server.MCPServer, a *app.App) {
 	s.AddTool(getMessagesTool(), getMessagesHandler(a))
 	s.AddTool(getConversationTool(), getConversationHandler(a))
@@ -42,6 +44,39 @@ func intArg(args map[string]any, key string, defaultVal int) int {
 		}
 	}
 	return defaultVal
+}
+
+func messageLimitArg(args map[string]any, key string, defaultVal int) (limit int, exceedsSoftCap bool, errMsg string) {
+	limit = intArg(args, key, defaultVal)
+	if limit < 1 {
+		return 0, false, "limit must be at least 1"
+	}
+	return limit, limit > messageSoftCap, ""
+}
+
+func appendMessageLimitNotes(sb *strings.Builder, limit, returned int, exceedsSoftCap bool) {
+	var notes []string
+	if returned >= limit {
+		notes = append(notes, fmt.Sprintf(
+			"Result capped at the requested limit of %d; narrow the date range or raise limit",
+			limit,
+		))
+	}
+	if exceedsSoftCap {
+		notes = append(notes, fmt.Sprintf(
+			"limit (%d) is above the %d soft cap — allowed because explicitly requested; large results may be slow",
+			limit,
+			messageSoftCap,
+		))
+	}
+	if len(notes) == 0 {
+		return
+	}
+	sb.WriteString("\n\n---\n")
+	for _, note := range notes {
+		sb.WriteString(note)
+		sb.WriteByte('\n')
+	}
 }
 
 // messagePreamble is prepended to tool results containing SMS/RCS message
