@@ -18,6 +18,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -31,11 +32,13 @@ import dev.phonepi.companion.connection.ConnectionController
 import dev.phonepi.companion.connection.ConnectionPrefs
 import dev.phonepi.companion.connection.ConnectionService
 import dev.phonepi.companion.connection.ConnectionState
+import dev.phonepi.companion.connection.SetupBus
 
 @Composable
 fun ConnectScreen() {
     val context = LocalContext.current
     val state by ConnectionController.state.collectAsState()
+    val setup by SetupBus.pending.collectAsState()
 
     val saved = remember { ConnectionPrefs.getLastSuccessful(context.applicationContext) }
     var host by remember {
@@ -49,6 +52,37 @@ fun ConnectScreen() {
         ActivityResultContracts.RequestPermission(),
     ) { /* The link works without it; only the status notification is affected. */ }
 
+    fun ensureNotifThen(block: () -> Unit) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS,
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        block()
+    }
+
+    fun connectNow(nextHost: String, nextPort: String, nextToken: String = "") {
+        ensureNotifThen {
+            ConnectionService.start(
+                context,
+                nextHost.trim(),
+                nextPort.toIntOrNull() ?: ConnectionPrefs.DEFAULT_PORT,
+                nextToken,
+            )
+        }
+    }
+
+    LaunchedEffect(setup) {
+        val target = setup ?: return@LaunchedEffect
+        host = target.host
+        port = target.port.toString()
+        connectNow(target.host, target.port.toString(), target.wsToken)
+        SetupBus.consume()
+    }
+
     Column(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(0.dp),
@@ -61,10 +95,23 @@ fun ConnectScreen() {
         ) {
             Text("PhonePi companion", style = MaterialTheme.typography.headlineSmall)
             Text("Status: ${state.label()}", style = MaterialTheme.typography.bodyLarge)
+            Text(
+                "Scan the Odysseus Settings → Phone QR, or paste the Tailscale host. " +
+                    "Serve uses port 443. Disconnect keeps the saved host; Forget saved host wipes it.",
+                style = MaterialTheme.typography.bodySmall,
+            )
 
             OutlinedTextField(
                 value = host,
-                onValueChange = { host = it },
+                onValueChange = { input ->
+                    host = input
+                    val lower = input.lowercase()
+                    if (lower.contains("https://") || lower.contains(".ts.net")) {
+                        if (port == "11041" || port.isEmpty()) {
+                            port = "443"
+                        }
+                    }
+                },
                 label = { Text("Host") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
@@ -78,27 +125,21 @@ fun ConnectScreen() {
             )
 
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button(onClick = {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                        ContextCompat.checkSelfPermission(
-                            context,
-                            Manifest.permission.POST_NOTIFICATIONS,
-                        ) != PackageManager.PERMISSION_GRANTED
-                    ) {
-                        notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-                    }
-                    ConnectionService.start(
-                        context,
-                        host.trim(),
-                        port.toIntOrNull() ?: ConnectionPrefs.DEFAULT_PORT,
-                    )
-                }) {
+                Button(onClick = { connectNow(host, port) }) {
                     Text("Connect")
                 }
 
                 OutlinedButton(onClick = { ConnectionService.stop(context) }) {
                     Text("Disconnect")
                 }
+            }
+            OutlinedButton(onClick = {
+                ConnectionService.stop(context)
+                ConnectionPrefs.clear(context.applicationContext)
+                host = ConnectionPrefs.DEFAULT_HOST
+                port = ConnectionPrefs.DEFAULT_PORT.toString()
+            }) {
+                Text("Forget saved host")
             }
         }
 

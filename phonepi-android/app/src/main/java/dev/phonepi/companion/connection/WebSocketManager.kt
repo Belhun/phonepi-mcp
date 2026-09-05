@@ -8,6 +8,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
+import okhttp3.Protocol
 import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
@@ -24,9 +25,12 @@ private const val TAG = "PhonePiWS"
 class WebSocketManager(
     private val scope: CoroutineScope,
     private val router: ToolRouter,
-    private val onConnected: (host: String, port: Int) -> Unit = { _, _ -> },
+    private val onConnected: (host: String, port: Int, wsToken: String) -> Unit = { _, _, _ -> },
 ) {
     private val client = OkHttpClient.Builder()
+        .dns(TailscaleDns)
+        .socketFactory(TailscaleSocketFactory())
+        .protocols(listOf(Protocol.HTTP_1_1))
         .pingInterval(0, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.SECONDS)
         .build()
@@ -34,12 +38,15 @@ class WebSocketManager(
     private var socket: WebSocket? = null
     private var host = "127.0.0.1"
     private var port = 11041
+    private var wsToken = ""
+    private var lastUrl = "ws://127.0.0.1:11041/phonepi"
     private var attempt = 0
     @Volatile private var manualClose = false
 
-    fun connect(host: String, port: Int) {
+    fun connect(host: String, port: Int, wsToken: String = "") {
         this.host = host
         this.port = port
+        this.wsToken = wsToken
         manualClose = false
         attempt = 0
         open()
@@ -54,16 +61,22 @@ class WebSocketManager(
 
     private fun open() {
         ConnectionController.update(ConnectionState.Connecting)
-        val request = Request.Builder().url("ws://$host:$port").build()
+        val target = ConnectEndpoint.parse(host, port.toString(), wsToken)
+        this.host = target.host
+        this.port = target.port
+        this.lastUrl = target.url
+        Log.i(TAG, "opening $lastUrl (sni=${target.host})")
+        ActivityLog.logConnection("Connecting", lastUrl, "info")
+        val request = Request.Builder().url(target.url).build()
         socket = client.newWebSocket(request, listener)
     }
 
     private val listener = object : WebSocketListener() {
         override fun onOpen(webSocket: WebSocket, response: Response) {
             attempt = 0
-            Log.i(TAG, "connected to ws://$host:$port")
-            ActivityLog.logConnection("Connected", "ws://$host:$port", "success")
-            onConnected(host, port)
+            Log.i(TAG, "connected to $lastUrl")
+            ActivityLog.logConnection("Connected", lastUrl, "success")
+            onConnected(host, port, wsToken)
             ConnectionController.update(ConnectionState.Connected)
         }
 

@@ -26,7 +26,19 @@ $ErrorActionPreference = "Stop"
 $androidDir = Split-Path $PSScriptRoot -Parent
 $apk = Join-Path $androidDir "app\build\outputs\apk\debug\app-debug.apk"
 
-$env:JAVA_HOME = if ($env:JAVA_HOME) { $env:JAVA_HOME } else { "C:\Program Files\Android\Android Studio\jbr" }
+function Resolve-PhonePiJavaHome {
+    $candidates = @()
+    if ($env:JAVA_HOME) { $candidates += $env:JAVA_HOME }
+    $candidates += Get-ChildItem 'F:\Java' -Directory -ErrorAction SilentlyContinue | Sort-Object Name -Descending | ForEach-Object { $_.FullName }
+    $candidates += 'F:\AndroidStudio\android-studio\jbr'
+    $candidates += 'C:\Program Files\Android\Android Studio\jbr'
+    foreach ($c in $candidates) {
+        if ($c -and (Test-Path (Join-Path $c 'bin\java.exe'))) { return $c }
+    }
+    return $null
+}
+$resolvedJava = Resolve-PhonePiJavaHome
+if ($resolvedJava) { $env:JAVA_HOME = $resolvedJava }
 $env:ANDROID_SDK_ROOT = if ($env:ANDROID_SDK_ROOT) { $env:ANDROID_SDK_ROOT } else { "F:\AndroidSDKManager" }
 $env:PATH = "$env:ANDROID_SDK_ROOT\platform-tools;$env:PATH"
 

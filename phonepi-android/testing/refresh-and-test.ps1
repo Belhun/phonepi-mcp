@@ -24,9 +24,23 @@ Stop-PortListener 11041
 Stop-PortListener 8765
 Start-Sleep -Seconds 1
 
+function Resolve-PhonePiJavaHome {
+    $candidates = @()
+    if ($env:JAVA_HOME) { $candidates += $env:JAVA_HOME }
+    $candidates += Get-ChildItem 'F:\Java' -Directory -ErrorAction SilentlyContinue | Sort-Object Name -Descending | ForEach-Object { $_.FullName }
+    $candidates += 'F:\AndroidStudio\android-studio\jbr'
+    $candidates += 'C:\Program Files\Android\Android Studio\jbr'
+    foreach ($c in $candidates) {
+        if ($c -and (Test-Path (Join-Path $c 'bin\java.exe'))) { return $c }
+    }
+    return $null
+}
+
 Write-Host ""
 Write-Host "=== 2. Building debug APK ===" -ForegroundColor Cyan
-$env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
+$resolvedJava = Resolve-PhonePiJavaHome
+if (-not $resolvedJava) { throw "JAVA_HOME not found. Install JDK 17 under F:\Java or Android Studio." }
+$env:JAVA_HOME = $resolvedJava
 $env:ANDROID_SDK_ROOT = "F:\AndroidSDKManager"
 Push-Location $androidDir
 try {

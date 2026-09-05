@@ -92,8 +92,8 @@ class ConnectionService : Service() {
                 DeleteContactTool(ctx),
             ),
         )
-        manager = WebSocketManager(scope, router) { host, port ->
-            ConnectionPrefs.saveSuccessfulConnection(applicationContext, host, port)
+        manager = WebSocketManager(scope, router) { host, port, token ->
+            ConnectionPrefs.saveSuccessfulConnection(applicationContext, host, port, token)
         }
         createChannel()
     }
@@ -109,9 +109,11 @@ class ConnectionService : Service() {
             applicationContext,
             intent?.getStringExtra(EXTRA_HOST),
             intent?.getIntExtra(EXTRA_PORT, -1)?.takeIf { it > 0 },
+            intent?.getStringExtra(EXTRA_WS_TOKEN),
         )
+        ConnectionPrefs.saveEndpoint(applicationContext, endpoint.host, endpoint.port, endpoint.wsToken)
         startForegroundNotification()
-        manager.connect(endpoint.host, endpoint.port)
+        manager.connect(endpoint.host, endpoint.port, endpoint.wsToken)
         return START_STICKY
     }
 
@@ -160,11 +162,13 @@ class ConnectionService : Service() {
         private const val ACTION_STOP = "dev.phonepi.companion.action.STOP"
         private const val EXTRA_HOST = "host"
         private const val EXTRA_PORT = "port"
+        private const val EXTRA_WS_TOKEN = "ws_token"
 
-        fun start(context: Context, host: String, port: Int) {
+        fun start(context: Context, host: String, port: Int, wsToken: String = "") {
             val intent = Intent(context, ConnectionService::class.java).apply {
                 putExtra(EXTRA_HOST, host)
                 putExtra(EXTRA_PORT, port)
+                putExtra(EXTRA_WS_TOKEN, wsToken)
             }
             context.startForegroundService(intent)
         }
