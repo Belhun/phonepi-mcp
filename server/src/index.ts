@@ -7,8 +7,7 @@ import {
   ListToolsRequestSchema,
   McpError,
 } from "@modelcontextprotocol/sdk/types.js";
-import { WebSocket, WebSocketServer, VerifyClientCallbackSync } from "ws";
-import { IncomingMessage } from "http";
+import { WebSocket, WebSocketServer } from "ws";
 import {
   GM_TOOL_SCHEMAS,
   ensureGmessagesSidecar,
@@ -16,6 +15,14 @@ import {
   isGmTool,
   stopGmessagesSidecar,
 } from "./gmessages/index.js";
+import {
+  LoopbackHttpHandle,
+  resolveHttpPort,
+  startLoopbackHttp,
+} from "./loopback-http.js";
+import { requestPhoneTool } from "./phone-request.js";
+import { createPhoneWebSocketServer } from "./phone-ws.js";
+import { createPhoneVerifyClient } from "./ws-token.js";
 
 // Toggle this to true to enable debug logging for websocket
 const DEBUG_WEBSOCKET = false;
@@ -24,6 +31,7 @@ const DEBUG_WEBSOCKET = false;
 const args = process.argv.slice(2);
 let port = 11041; // Default port
 let useStdio = false;
+const httpPort = resolveHttpPort(args, process.env);
 
 // Process arguments
 for (let i = 0; i < args.length; i++) {
@@ -48,8 +56,12 @@ class PhonePiMCPServer {
   private requestCounter = 0;
   private lastPing: number = 0;
   private _pingIntervalId: NodeJS.Timeout | null = null;
+  private httpApi: Promise<LoopbackHttpHandle | null> | null = null;
 
-  constructor(private serverPort: number = 11041) {
+  constructor(
+    private serverPort: number = 11041,
+    private httpApiPort: number = 11043
+  ) {
     // Initialize MCP Server
     this.server = new Server(
       {
@@ -65,7 +77,47 @@ class PhonePiMCPServer {
 
     // Try to initialize WebSocket Server, or connect to existing one
     this.initializeWebSocketServer();
+    this.startLocalHttpApi();
     this.setupMcpHandlers();
+  }
+
+  private startLocalHttpApi() {
+    if (this.httpApiPort === this.serverPort) {
+      console.error(
+        `Local HTTP API port ${this.httpApiPort} matches the phone WebSocket port. Continuing without the HTTP API.`
+      );
+      return;
+    }
+    this.httpApi = startLoopbackHttp({
+      port: this.httpApiPort,
+      wsPort: this.serverPort,
+      bridge: {
+        isPhoneConnected: () => this.isPhoneOpen(),
+        callPhoneTool: (name, args) => this.callPhoneTool(name, args),
+      },
+    });
+  }
+
+  private isPhoneOpen(): boolean {
+    return (
+      this.phoneConnection != null &&
+      this.phoneConnection.readyState === WebSocket.OPEN
+    );
+  }
+
+  private callPhoneTool(
+    name: string,
+    args: Record<string, unknown>
+  ): Promise<unknown> {
+    const requestId = `req-${++this.requestCounter}`;
+    return requestPhoneTool({
+      connection: this.phoneConnection,
+      pending: this.pendingRequests,
+      requestId,
+      tool: name,
+      params: args,
+      debug: DEBUG_WEBSOCKET,
+    });
   }
 
   private initializeWebSocketServer() {
@@ -75,24 +127,10 @@ class PhonePiMCPServer {
     try {
       // Initialize WebSocket Server with debug logging
       console.error(`Starting WebSocket server on port ${this.serverPort}...`);
-      this.wss = new WebSocketServer({
+      this.wss = createPhoneWebSocketServer({
         port: this.serverPort,
         host: "0.0.0.0", // Explicitly listen on all interfaces
-        verifyClient: (info: { req: IncomingMessage }) => {
-          const address = info.req.socket.remoteAddress;
-          console.error(`Connection attempt from ${address || "unknown"}`);
-          return true;
-        },
-        clientTracking: true,
-        perMessageDeflate: {
-          zlibDeflateOptions: {
-            level: 6, // Higher level = more compression but slower
-          },
-          zlibInflateOptions: {
-            chunkSize: 10 * 1024, // Larger chunk size for faster inflation
-          },
-          threshold: 1024, // Only compress messages larger than this
-        },
+        verifyClient: createPhoneVerifyClient(),
       });
 
       this.wss.on("error", (error: any) => {
@@ -1391,70 +1429,11 @@ class PhonePiMCPServer {
         );
       }
 
-      const requestId = `req-${++this.requestCounter}`;
-      const message = {
-        type: "request",
-        requestId,
-        tool: request.params.name,
-        params: request.params.arguments || {},
-      };
-
       try {
-        const response = await new Promise((resolve, reject) => {
-          const timeout = setTimeout(() => {
-            this.pendingRequests.delete(requestId);
-            reject(new Error("Request timed out after 30 seconds"));
-          }, 30000);
-
-          this.pendingRequests.set(requestId, (response) => {
-            clearTimeout(timeout);
-            if (DEBUG_WEBSOCKET) {
-              console.error(
-                `[WebSocket] Received response for request ${requestId}: ${JSON.stringify(
-                  response
-                )}`
-              );
-            }
-            resolve(response);
-          });
-
-          if (
-            this.phoneConnection &&
-            this.phoneConnection.readyState === WebSocket.OPEN
-          ) {
-            try {
-              const messageStr = JSON.stringify(message);
-              if (DEBUG_WEBSOCKET) {
-                console.error(
-                  `[WebSocket] Sending request to phone: ${messageStr}`
-                );
-              }
-              this.phoneConnection.send(messageStr);
-            } catch (err) {
-              clearTimeout(timeout);
-              this.pendingRequests.delete(requestId);
-              console.error(
-                `[WebSocket] Failed to send message: ${
-                  err instanceof Error ? err.message : String(err)
-                }`
-              );
-              reject(
-                new Error(
-                  `Failed to send message: ${
-                    err instanceof Error ? err.message : String(err)
-                  }`
-                )
-              );
-            }
-          } else {
-            clearTimeout(timeout);
-            this.pendingRequests.delete(requestId);
-            console.error(
-              `[WebSocket] Cannot send message: Phone not connected (readyState: ${this.phoneConnection?.readyState})`
-            );
-            reject(new Error("Phone not connected or connection not ready"));
-          }
-        });
+        const response = await this.callPhoneTool(
+          request.params.name,
+          (request.params.arguments || {}) as Record<string, unknown>
+        );
 
         // Check if this is a photo response with image data
         if (
@@ -1553,6 +1532,18 @@ class PhonePiMCPServer {
       }
     }
 
+    if (this.httpApi) {
+      try {
+        const started = await this.httpApi;
+        if (started) {
+          await new Promise<void>((resolve) => started.server.close(() => resolve()));
+          console.error("Local HTTP API closed");
+        }
+      } catch (error) {
+        console.error("Error closing local HTTP API:", error);
+      }
+    }
+
     // Close phone connection if it exists
     if (this.phoneConnection) {
       try {
@@ -1600,7 +1591,7 @@ class PhonePiMCPServer {
 }
 
 // Create server instance with the specified port
-const server = new PhonePiMCPServer(port);
+const server = new PhonePiMCPServer(port, httpPort);
 
 // Run the server
 async function main() {
