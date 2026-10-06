@@ -1,0 +1,306 @@
+import http, { IncomingMessage, Server, ServerResponse } from "http";
+import { isReadOnlyHttpTool } from "./read-only-tools.js";
+
+export const DEFAULT_HTTP_PORT = 11043;
+const LOOPBACK_HOST = "127.0.0.1";
+const MAX_BODY_BYTES = 1_000_000;
+
+export interface PhoneHttpBridge {
+  isPhoneConnected(): boolean;
+  callPhoneTool(
+    name: string,
+    args: Record<string, unknown>
+  ): Promise<unknown>;
+}
+
+export interface LoopbackHttpHandle {
+  server: Server;
+  port: number;
+}
+
+export interface StartLoopbackHttpOptions {
+  port: number;
+  wsPort: number;
+  bridge: PhoneHttpBridge;
+  log?: (line: string) => void;
+}
+
+type ToolBody = {
+  text: string;
+  isError: boolean;
+};
+
+export function resolveHttpPort(
+  argv: string[],
+  env: NodeJS.ProcessEnv,
+  log: (line: string) => void = console.error
+): number {
+  const flagged = readFlag(argv, "--http-port");
+  if (flagged.present) {
+    const parsed = parsePort(flagged.value);
+    if (parsed == null) {
+      log(
+        `Invalid --http-port. Using default port ${DEFAULT_HTTP_PORT}.`
+      );
+      return DEFAULT_HTTP_PORT;
+    }
+    return parsed;
+  }
+
+  const fromEnv = env.PHONEPI_HTTP_PORT;
+  if (fromEnv == null || fromEnv === "") return DEFAULT_HTTP_PORT;
+  const parsed = parsePort(fromEnv);
+  if (parsed == null) {
+    log(
+      `Invalid PHONEPI_HTTP_PORT. Using default port ${DEFAULT_HTTP_PORT}.`
+    );
+    return DEFAULT_HTTP_PORT;
+  }
+  return parsed;
+}
+
+/**
+ * Loopback HTTP API in the same process as the phone WebSocket.
+ * Binds 127.0.0.1 only. If the port is taken, logs and returns null so the
+ * MCP server keeps running.
+ */
+export function startLoopbackHttp(
+  options: StartLoopbackHttpOptions
+): Promise<LoopbackHttpHandle | null> {
+  const log = options.log ?? ((line: string) => console.error(line));
+  const server = http.createServer((req, res) => {
+    void handleRequest(req, res, server, options).catch((err) => {
+      log(
+        `Local HTTP API error: ${
+          err instanceof Error ? err.message : String(err)
+        }`
+      );
+      if (!res.headersSent) {
+        sendJson(res, 500, { text: "Internal error", isError: true });
+      }
+    });
+  });
+
+  return new Promise((resolve) => {
+    const onError = (err: NodeJS.ErrnoException) => {
+      if (err.code === "EADDRINUSE") {
+        log(
+          `Local HTTP API port ${options.port} is already in use. Continuing without the HTTP API.`
+        );
+      } else {
+        log(
+          `Local HTTP API failed to start (${err.code || "error"}). Continuing without the HTTP API.`
+        );
+      }
+      resolve(null);
+    };
+
+    server.once("error", onError);
+    try {
+      server.listen(options.port, LOOPBACK_HOST, () => {
+        server.removeListener("error", onError);
+        server.on("error", (err) => {
+          log(
+            `Local HTTP API error: ${
+              err instanceof Error ? err.message : String(err)
+            }`
+          );
+        });
+        const bound = boundPort(server, options.port);
+        log(`Local read-only HTTP API listening on http://${LOOPBACK_HOST}:${bound}`);
+        resolve({ server, port: bound });
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      log(
+        `Local HTTP API failed to start (${message}). Continuing without the HTTP API.`
+      );
+      resolve(null);
+    }
+  });
+}
+
+async function handleRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  server: Server,
+  options: StartLoopbackHttpOptions
+): Promise<void> {
+  const path = requestPath(req);
+  if (path === "/api/health") {
+    if (req.method !== "GET") {
+      sendJson(res, 405, { text: "Method not allowed", isError: true });
+      return;
+    }
+    sendJson(res, 200, {
+      ok: true,
+      phoneConnected: options.bridge.isPhoneConnected(),
+      wsPort: options.wsPort,
+      httpPort: boundPort(server, options.port),
+    });
+    return;
+  }
+
+  if (path === "/api/tool") {
+    if (req.method !== "POST") {
+      sendJson(res, 405, { text: "Method not allowed", isError: true });
+      return;
+    }
+    await handleTool(req, res, options.bridge);
+    return;
+  }
+
+  sendJson(res, 404, { text: "Not found", isError: true });
+}
+
+async function handleTool(
+  req: IncomingMessage,
+  res: ServerResponse,
+  bridge: PhoneHttpBridge
+): Promise<void> {
+  let parsed: unknown;
+  try {
+    const raw = await readBody(req);
+    if (!raw.trim()) {
+      sendJson(res, 400, { text: "Expected a JSON body", isError: true });
+      return;
+    }
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    const status = (err as { statusCode?: number }).statusCode === 413 ? 413 : 400;
+    sendJson(res, status, {
+      text: status === 413 ? "Request body too large" : "Invalid JSON",
+      isError: true,
+    });
+    return;
+  }
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    sendJson(res, 400, { text: "Expected a JSON object", isError: true });
+    return;
+  }
+
+  const body = parsed as { tool?: unknown; arguments?: unknown };
+  if (typeof body.tool !== "string" || body.tool.trim() === "") {
+    sendJson(res, 400, { text: "Expected a tool name", isError: true });
+    return;
+  }
+
+  if (
+    body.arguments !== undefined &&
+    (body.arguments === null ||
+      typeof body.arguments !== "object" ||
+      Array.isArray(body.arguments))
+  ) {
+    sendJson(res, 400, {
+      text: "Expected arguments to be an object",
+      isError: true,
+    });
+    return;
+  }
+
+  const args = (body.arguments ?? {}) as Record<string, unknown>;
+  if (!isReadOnlyHttpTool(body.tool)) {
+    sendJson(res, 403, {
+      text: `Tool "${body.tool}" is not on the read-only HTTP allowlist`,
+      isError: true,
+    });
+    return;
+  }
+
+  if (!bridge.isPhoneConnected()) {
+    sendJson(res, 503, { text: "Phone not connected", isError: true });
+    return;
+  }
+
+  try {
+    const result = await bridge.callPhoneTool(body.tool, args);
+    sendJson(res, 200, {
+      text: JSON.stringify(result, null, 2),
+      isError: false,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const unavailable =
+      /phone not connected|connection is not open|connection not ready/i.test(
+        message
+      );
+    sendJson(res, unavailable ? 503 : 502, { text: message, isError: true });
+  }
+}
+
+function readBody(req: IncomingMessage): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    let settled = false;
+    const finish = (err?: Error & { statusCode?: number }) => {
+      if (settled) return;
+      settled = true;
+      if (err) reject(err);
+      else resolve(Buffer.concat(chunks).toString("utf8"));
+    };
+
+    req.on("data", (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > MAX_BODY_BYTES) {
+        const err = Object.assign(new Error("Request body too large"), {
+          statusCode: 413,
+        });
+        finish(err);
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("end", () => finish());
+    req.on("error", (err) => finish(err));
+    req.on("close", () => {
+      if (!req.complete) {
+        finish(Object.assign(new Error("Request aborted"), { statusCode: 400 }));
+      }
+    });
+  });
+}
+
+function sendJson(res: ServerResponse, status: number, body: ToolBody | Record<string, unknown>) {
+  const payload = JSON.stringify(body);
+  res.writeHead(status, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Content-Length": Buffer.byteLength(payload),
+    "Cache-Control": "no-store",
+  });
+  res.end(payload);
+}
+
+function requestPath(req: IncomingMessage): string {
+  try {
+    return new URL(req.url || "/", "http://127.0.0.1").pathname;
+  } catch {
+    return "/";
+  }
+}
+
+function boundPort(server: Server, fallback: number): number {
+  const address = server.address();
+  if (address && typeof address === "object") return address.port;
+  return fallback;
+}
+
+function readFlag(
+  argv: string[],
+  name: string
+): { present: boolean; value?: string } {
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] !== name) continue;
+    return { present: true, value: argv[i + 1] };
+  }
+  return { present: false };
+}
+
+function parsePort(value: string | undefined): number | null {
+  if (value == null || !/^\d+$/.test(value)) return null;
+  const port = Number(value);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return null;
+  return port;
+}
