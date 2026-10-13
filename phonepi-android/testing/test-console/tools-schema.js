@@ -258,6 +258,42 @@ const TOOLS = [
   //   ],
   // },
   {
+    id: "phone_list_locations",
+    label: "List saved locations",
+    group: "Navigation",
+    description: "Destinations stored on the phone for phone_navigate.",
+    fields: [],
+  },
+  {
+    id: "phone_add_location",
+    label: "Add saved location",
+    group: "Navigation",
+    fields: [
+      { key: "name", label: "Name", type: "text", required: true, default: "home" },
+      { key: "address", label: "Address", type: "text", default: "1600 Amphitheatre Parkway, Mountain View" },
+      { key: "mapsUrl", label: "Maps URL (optional)", type: "text", default: "" },
+    ],
+  },
+  {
+    id: "phone_remove_location",
+    label: "Remove saved location",
+    group: "Navigation",
+    fields: [
+      { key: "name", label: "Name", type: "text", required: true, default: "home" },
+    ],
+  },
+  {
+    id: "phone_navigate",
+    label: "Navigate",
+    group: "Navigation",
+    description: "Opens Google Maps navigation. Uses a saved name, address, or Maps link. Does not skip Android Auto Start now.",
+    fields: [
+      { key: "name", label: "Saved name", type: "text", default: "home" },
+      { key: "address", label: "Address (if no name)", type: "text", default: "" },
+      { key: "mapsUrl", label: "Maps URL (if no name)", type: "text", default: "" },
+    ],
+  },
+  {
     id: "make_call",
     label: "Make call",
     group: "Telephony",

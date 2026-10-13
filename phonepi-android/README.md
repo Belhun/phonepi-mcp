@@ -113,10 +113,47 @@ node ..\phonepi-android\testing\fake-server.js
 
 Watch the phone with `adb logcat -s PhonePiWS:*`. You should see the battery response printed by the fake server.
 
+## Phone navigation
+
+The app stores named destinations locally (Room) and starts Google Maps when the server sends `phone_navigate`. It never runs a caller-supplied intent, action, or shell command.
+
+### What to install and grant
+
+1. Install this companion APK (sideload) and **Google Maps**.
+2. In PhonePi, set the same WebSocket token as `PHONEPI_WS_TOKEN` on the PC, then Connect. Notifications permission is requested on connect.
+3. Grant **full-screen notifications** (Android 14+): PhonePi → Tool permissions → Maps navigation, or Settings → Apps → PhonePi → Full screen notifications. Android 10+ blocks background `startActivity`; the connectedDevice foreground service tries first, then a full-screen notification opens Maps.
+4. Optional: keep PhonePi's link notification visible so the socket stays up while Maps takes the foreground.
+
+No extra Maps API key. No Display-over-other-apps permission is required for the default path.
+
+### How to test
+
+With the phone linked and Maps installed:
+
+```powershell
+# PC
+$env:PHONEPI_WS_TOKEN = "choose-a-long-secret"
+cd server
+npm test
+node dist/index.js --stdio --http-port 11043
+```
+
+On the phone, add a destination from the test console (`phone_add_location`, name `home`) or from MCP, then run `phone_navigate` with `{ "name": "home" }`. Maps should open driving navigation. If the phone is in Android Auto, confirm Maps' **Start now** prompt appears.
+
+Activity log on the phone records list/add/remove/navigate.
+
+Unit tests (no device):
+
+```powershell
+cd phonepi-android
+.\gradlew.bat test
+```
+
 ## Adding a tool
 
 1. Create `tools/YourTool.kt` implementing `ToolHandler`.
 2. Return `success { put("key", value) }` or `toolError("reason")`.
 3. Register it in `ConnectionService.onCreate()`.
+4. For a new **phone action** (navigate-style), also add the same name to `commands/PhoneCommands.kt` and `server/src/commands.ts` so MCP, HTTP `/api/command`, and the phone rate-limit share one allowlist.
 
 The router catches any exception and returns an error payload, so a tool bug never drops the socket.

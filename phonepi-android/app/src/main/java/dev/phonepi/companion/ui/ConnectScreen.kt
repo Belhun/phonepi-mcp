@@ -17,6 +17,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -47,6 +48,7 @@ fun ConnectScreen() {
     var port by remember {
         mutableStateOf((saved?.port ?: ConnectionPrefs.DEFAULT_PORT).toString())
     }
+    var wsToken by remember { mutableStateOf(saved?.wsToken.orEmpty()) }
 
     val notifPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -123,9 +125,17 @@ fun ConnectScreen() {
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
+            OutlinedTextField(
+                value = wsToken,
+                onValueChange = { wsToken = it },
+                label = { Text("WebSocket token") },
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                modifier = Modifier.fillMaxWidth(),
+            )
 
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button(onClick = { connectNow(host, port) }) {
+                Button(onClick = { connectNow(host, port, wsToken) }) {
                     Text("Connect")
                 }
 
@@ -138,6 +148,7 @@ fun ConnectScreen() {
                 ConnectionPrefs.clear(context.applicationContext)
                 host = ConnectionPrefs.DEFAULT_HOST
                 port = ConnectionPrefs.DEFAULT_PORT.toString()
+                wsToken = ""
             }) {
                 Text("Forget saved host")
             }

@@ -6,14 +6,20 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 
 @Database(
-    entities = [SnippetEntity::class, MessageEntity::class, ActivityLogEntity::class],
-    version = 3,
+    entities = [
+        SnippetEntity::class,
+        MessageEntity::class,
+        ActivityLogEntity::class,
+        SavedLocationEntity::class,
+    ],
+    version = 4,
     exportSchema = false,
 )
 abstract class PhonePiDatabase : RoomDatabase() {
     abstract fun snippetDao(): SnippetDao
     abstract fun messageDao(): MessageDao
     abstract fun activityLogDao(): ActivityLogDao
+    abstract fun savedLocationDao(): SavedLocationDao
 
     companion object {
         @Volatile

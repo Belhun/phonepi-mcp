@@ -1,5 +1,10 @@
 package dev.phonepi.companion.ui
 
+import android.app.NotificationManager
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -45,10 +50,12 @@ fun PermissionsPanel(modifier: Modifier = Modifier) {
     ) {
         Text("Tool permissions", style = MaterialTheme.typography.titleMedium)
         Text(
-            "Grant access before running SMS, call, contact, or location tools.",
+            "Grant access before running call, contact, location, or navigation tools.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+
+        NavigationPermissionRow()
 
         tiers.forEach { (tier, granted) ->
             PermissionTierRow(
@@ -92,4 +99,31 @@ private fun PermissionTierRow(
             }
         }
     }
+}
+
+@Composable
+private fun NavigationPermissionRow() {
+    val context = LocalContext.current
+    val manager = context.getSystemService(NotificationManager::class.java)
+    val fsiOk = if (Build.VERSION.SDK_INT >= 34) {
+        manager?.canUseFullScreenIntent() == true
+    } else {
+        true
+    }
+    PermissionTierRow(
+        label = if (fsiOk) "Maps navigation — full-screen intents granted" else "Maps navigation — full-screen intents",
+        granted = fsiOk,
+        onGrant = {
+            val intent = if (Build.VERSION.SDK_INT >= 34) {
+                Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT).apply {
+                    data = Uri.parse("package:${context.packageName}")
+                }
+            } else {
+                Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                    putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                }
+            }
+            context.startActivity(intent)
+        },
+    )
 }

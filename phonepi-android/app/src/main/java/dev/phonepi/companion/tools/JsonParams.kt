@@ -32,6 +32,11 @@ fun JsonObject.optionalLong(key: String): Long? =
 fun JsonObject.optionalBool(key: String, default: Boolean): Boolean =
     this[key]?.jsonPrimitive?.booleanOrNull ?: default
 
+fun JsonObject.optionalDouble(key: String): Double? =
+    this[key]?.jsonPrimitive?.let { p ->
+        p.doubleOrNull ?: p.contentOrNull?.toDoubleOrNull()
+    }
+
 fun JsonObject.requireObject(key: String): JsonObject? =
     this[key]?.jsonObject
 

@@ -189,7 +189,7 @@ test("running server exposes loopback HTTP, keeps stdout clean, and upgrades /ph
 
     const { stdout, stderr } = started.output();
     assert.equal(stdout, "");
-    assert.match(stderr, /Local read-only HTTP API listening/);
+    assert.match(stderr, /Local HTTP API listening/);
   } finally {
     await stopServer(started.child);
   }

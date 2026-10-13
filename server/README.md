@@ -130,6 +130,57 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:11043/api/tool `
 
 Use `127.0.0.1`, not a hostname that might resolve to IPv6.
 
+`phone_navigate` and saved-location tools are **not** on this read-only list. Use `POST /api/command` (below) or MCP.
+
+### `POST /api/command`
+
+Allowlisted phone actions. This is the extensible command surface: new phone actions register in `src/commands.ts` and as a phone-side handler of the same name. Unknown names return 403 and are not sent to the phone. The server never runs Android intents or shell.
+
+`PHONEPI_WS_TOKEN` is required. Send it as `Authorization: Bearer <token>`, `X-PhonePi-Token: <token>`, or `?token=`.
+
+Body:
+
+```json
+{ "command": "phone_navigate", "arguments": { "name": "home" } }
+```
+
+| Command | Kind | Budget |
+| --- | --- | --- |
+| `phone_list_locations` | read | 60/min |
+| `phone_add_location` | write | 20/min |
+| `phone_remove_location` | write | 20/min |
+| `phone_navigate` | action | 6/min |
+
+MCP exposes the same four names. Rate limits are shared between MCP and HTTP.
+
+```powershell
+$env:PHONEPI_WS_TOKEN = "choose-a-long-secret"
+
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:11043/api/command `
+  -Headers @{ "X-PhonePi-Token" = $env:PHONEPI_WS_TOKEN } `
+  -ContentType "application/json" `
+  -Body '{"command":"phone_list_locations","arguments":{}}'
+
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:11043/api/command `
+  -Headers @{ Authorization = "Bearer $env:PHONEPI_WS_TOKEN" } `
+  -ContentType "application/json" `
+  -Body '{"command":"phone_add_location","arguments":{"name":"home","address":"1600 Amphitheatre Parkway, Mountain View, CA"}}'
+
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:11043/api/command `
+  -Headers @{ Authorization = "Bearer $env:PHONEPI_WS_TOKEN" } `
+  -ContentType "application/json" `
+  -Body '{"command":"phone_navigate","arguments":{"name":"home"}}'
+```
+
+| Status | When |
+| --- | --- |
+| 200 | Allowlisted command ran on the phone |
+| 401 | Token missing, wrong, or `PHONEPI_WS_TOKEN` unset |
+| 403 | Name is not on the command allowlist (includes `make_call`, `shell`, arbitrary intents) |
+| 429 | Over the per-command rate limit |
+| 503 | Phone socket is not open |
+| 502 | Phone request failed |
+
 ### Phone WebSocket token
 
 If `PHONEPI_WS_TOKEN` is unset or empty, the phone socket accepts every client (same as before). If it is set, the upgrade must include a matching `token` query parameter. The comparison is constant-time. The Android app already appends `?token=` when a token is configured.

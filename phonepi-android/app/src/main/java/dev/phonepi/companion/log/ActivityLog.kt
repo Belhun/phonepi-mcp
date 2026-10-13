@@ -122,6 +122,20 @@ object ActivityLog {
         "search_contacts" -> "Found ${data["count"]?.jsonPrimitive?.contentOrNull ?: "?"} contacts"
         "add_contact", "update_contact", "get_contact_by_id" -> "Contact updated"
         "delete_contact" -> "Deleted contact"
+        "phone_list_locations" -> "${data["count"]?.jsonPrimitive?.contentOrNull ?: "?"} saved locations"
+        "phone_add_location" -> "Saved ${data["location"]?.toString()?.take(80) ?: "location"}"
+        "phone_remove_location" -> "Removed ${data["removed"]?.jsonPrimitive?.contentOrNull ?: "location"}"
+        "phone_navigate" -> {
+            val query = data["display"]?.jsonPrimitive?.contentOrNull
+                ?: data["query"]?.jsonPrimitive?.contentOrNull
+                ?: "?"
+            val method = data["method"]?.jsonPrimitive?.contentOrNull ?: "unknown"
+            "Navigate $query via $method"
+        }
         else -> "OK"
+    }
+
+    fun logNavigation(detail: String, status: String) {
+        write(category = "navigation", title = "phone_navigate", detail = detail, status = status)
     }
 }
