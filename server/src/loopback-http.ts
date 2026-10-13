@@ -1,5 +1,11 @@
 import http, { IncomingMessage, Server, ServerResponse } from "http";
+import { RateLimitError, getPhoneCommand, isPhoneCommand } from "./commands.js";
 import { isReadOnlyHttpTool } from "./read-only-tools.js";
+import {
+  authorizeCommandToken,
+  tokenFromHttpRequest,
+  wsTokenFromEnv,
+} from "./ws-token.js";
 
 export const DEFAULT_HTTP_PORT = 11043;
 const LOOPBACK_HOST = "127.0.0.1";
@@ -23,6 +29,8 @@ export interface StartLoopbackHttpOptions {
   wsPort: number;
   bridge: PhoneHttpBridge;
   log?: (line: string) => void;
+  /** Defaults to PHONEPI_WS_TOKEN. Commands over HTTP always require it. */
+  commandToken?: string | null;
 }
 
 type ToolBody = {
@@ -107,7 +115,9 @@ export function startLoopbackHttp(
           );
         });
         const bound = boundPort(server, options.port);
-        log(`Local read-only HTTP API listening on http://${LOOPBACK_HOST}:${bound}`);
+        log(
+          `Local HTTP API listening on http://${LOOPBACK_HOST}:${bound} (read-only /api/tool, commands /api/command)`
+        );
         resolve({ server, port: bound });
       });
     } catch (err) {
@@ -147,6 +157,15 @@ async function handleRequest(
       return;
     }
     await handleTool(req, res, options.bridge);
+    return;
+  }
+
+  if (path === "/api/command") {
+    if (req.method !== "POST") {
+      sendJson(res, 405, { text: "Method not allowed", isError: true });
+      return;
+    }
+    await handleCommand(req, res, options);
     return;
   }
 
@@ -220,6 +239,106 @@ async function handleTool(
       isError: false,
     });
   } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const unavailable =
+      /phone not connected|connection is not open|connection not ready/i.test(
+        message
+      );
+    sendJson(res, unavailable ? 503 : 502, { text: message, isError: true });
+  }
+}
+
+async function handleCommand(
+  req: IncomingMessage,
+  res: ServerResponse,
+  options: StartLoopbackHttpOptions
+): Promise<void> {
+  const expected =
+    options.commandToken !== undefined
+      ? options.commandToken
+      : wsTokenFromEnv();
+  const auth = authorizeCommandToken(tokenFromHttpRequest(req), expected);
+  if (!auth.ok) {
+    sendJson(res, auth.status, { text: auth.text, isError: true });
+    return;
+  }
+
+  let parsed: unknown;
+  try {
+    const raw = await readBody(req);
+    if (!raw.trim()) {
+      sendJson(res, 400, { text: "Expected a JSON body", isError: true });
+      return;
+    }
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    const status = (err as { statusCode?: number }).statusCode === 413 ? 413 : 400;
+    sendJson(res, status, {
+      text: status === 413 ? "Request body too large" : "Invalid JSON",
+      isError: true,
+    });
+    return;
+  }
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    sendJson(res, 400, { text: "Expected a JSON object", isError: true });
+    return;
+  }
+
+  const body = parsed as { command?: unknown; tool?: unknown; arguments?: unknown };
+  const commandName =
+    typeof body.command === "string"
+      ? body.command
+      : typeof body.tool === "string"
+        ? body.tool
+        : "";
+  if (!commandName.trim()) {
+    sendJson(res, 400, { text: "Expected a command name", isError: true });
+    return;
+  }
+
+  if (
+    body.arguments !== undefined &&
+    (body.arguments === null ||
+      typeof body.arguments !== "object" ||
+      Array.isArray(body.arguments))
+  ) {
+    sendJson(res, 400, {
+      text: "Expected arguments to be an object",
+      isError: true,
+    });
+    return;
+  }
+
+  if (!isPhoneCommand(commandName)) {
+    sendJson(res, 403, {
+      text: `Command "${commandName}" is not on the phone command allowlist`,
+      isError: true,
+    });
+    return;
+  }
+
+  if (!options.bridge.isPhoneConnected()) {
+    sendJson(res, 503, { text: "Phone not connected", isError: true });
+    return;
+  }
+
+  const spec = getPhoneCommand(commandName);
+  const args = (body.arguments ?? {}) as Record<string, unknown>;
+  try {
+    const result = await options.bridge.callPhoneTool(
+      spec?.phoneTool ?? commandName,
+      args
+    );
+    sendJson(res, 200, {
+      text: JSON.stringify(result, null, 2),
+      isError: false,
+    });
+  } catch (err) {
+    if (err instanceof RateLimitError) {
+      sendJson(res, 429, { text: err.message, isError: true });
+      return;
+    }
     const message = err instanceof Error ? err.message : String(err);
     const unavailable =
       /phone not connected|connection is not open|connection not ready/i.test(

@@ -22,6 +22,21 @@ Security is a high concern. Here are a few aspects taken into account around sec
 - It is highly recommended you use this app over a secure network. Avoid public networks like airports and restaurants.
 - Tailscale is highly recommended for creating a private & secure VPN to connect your phone and desktops
 
+## Phone navigation (Maps)
+
+The MCP server can ask the PhonePi Android app to open Google Maps navigation. Destinations live on the phone. The PC never fires Android intents.
+
+MCP tools:
+
+- `phone_list_locations`
+- `phone_add_location`
+- `phone_remove_location`
+- `phone_navigate`
+
+`phone_navigate` starts Maps with `google.navigation:q=<encoded>` (then `geo:0,0?q=` / a Maps HTTPS URL). Package is `com.google.android.apps.maps`. On Android Auto, Maps shows its usual **Start now** prompt; PhonePi does not skip that.
+
+See [server/README.md](server/README.md) for the loopback `POST /api/command` API and [phonepi-android/README.md](phonepi-android/README.md) for what to install and grant on the phone.
+
 ## Getting Started
 
 For detailed documentation, features, and setup instructions, please visit:

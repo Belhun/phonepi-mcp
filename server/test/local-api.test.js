@@ -31,6 +31,8 @@ const FORBIDDEN = [
   "gm_send_message",
   "gm_get_messages",
   "gm_list_conversations",
+  "phone_navigate",
+  "phone_add_location",
   "not_a_real_tool",
 ];
 

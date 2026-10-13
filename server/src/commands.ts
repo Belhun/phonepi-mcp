@@ -1,0 +1,148 @@
+/**
+ * Allowlisted phone commands. MCP tools and POST /api/command share this
+ * registry. Unknown names never reach the phone. To add a future action,
+ * append a spec here, handle it on the phone, and keep the same name.
+ */
+
+export type PhoneCommandKind = "read" | "write" | "action";
+
+export interface PhoneCommand {
+  name: string;
+  kind: PhoneCommandKind;
+  /** WebSocket tool name sent to the phone. Always the MCP name. */
+  phoneTool: string;
+  maxPerMinute: number;
+  description: string;
+  inputSchema: {
+    type: "object";
+    properties: Record<string, unknown>;
+    required: string[];
+  };
+}
+
+export const PHONE_COMMANDS: readonly PhoneCommand[] = [
+  {
+    name: "phone_list_locations",
+    kind: "read",
+    phoneTool: "phone_list_locations",
+    maxPerMinute: 60,
+    description:
+      "List saved navigation destinations stored on the phone (name, address, coordinates, optional Maps URL).",
+    inputSchema: {
+      type: "object",
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: "phone_add_location",
+    kind: "write",
+    phoneTool: "phone_add_location",
+    maxPerMinute: 20,
+    description:
+      "Save a named destination on the phone. Provide an address, lat/lng, and/or a Google Maps place URL. Same name overwrites.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: {
+          type: "string",
+          description: "Short label, for example home or Costco",
+        },
+        address: {
+          type: "string",
+          description: "Street address or place name Maps can search",
+        },
+        latitude: {
+          type: "number",
+          description: "Latitude in decimal degrees",
+        },
+        longitude: {
+          type: "number",
+          description: "Longitude in decimal degrees",
+        },
+        mapsUrl: {
+          type: "string",
+          description: "Optional Google Maps place, search, or directions URL",
+        },
+      },
+      required: ["name"],
+    },
+  },
+  {
+    name: "phone_remove_location",
+    kind: "write",
+    phoneTool: "phone_remove_location",
+    maxPerMinute: 20,
+    description: "Delete a saved destination by name (case-insensitive).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: {
+          type: "string",
+          description: "Saved location name to remove",
+        },
+      },
+      required: ["name"],
+    },
+  },
+  {
+    name: "phone_navigate",
+    kind: "action",
+    phoneTool: "phone_navigate",
+    maxPerMinute: 6,
+    description:
+      "Open Google Maps navigation on the phone to a saved name, address, coordinates, or Maps link. Uses google.navigation with geo/https fallbacks. Does not skip Android Auto's Start now prompt.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: {
+          type: "string",
+          description: "Saved location name",
+        },
+        address: {
+          type: "string",
+          description: "Address or place query when not using a saved name",
+        },
+        latitude: {
+          type: "number",
+          description: "Latitude in decimal degrees",
+        },
+        longitude: {
+          type: "number",
+          description: "Longitude in decimal degrees",
+        },
+        mapsUrl: {
+          type: "string",
+          description: "Google Maps place, search, or directions URL",
+        },
+      },
+      required: [],
+    },
+  },
+];
+
+const BY_NAME = new Map(PHONE_COMMANDS.map((command) => [command.name, command]));
+
+export function getPhoneCommand(name: string): PhoneCommand | undefined {
+  return BY_NAME.get(name);
+}
+
+export function isPhoneCommand(name: string): boolean {
+  return BY_NAME.has(name);
+}
+
+export const PHONE_COMMAND_NAMES = PHONE_COMMANDS.map((command) => command.name);
+
+export const PHONE_COMMAND_SCHEMAS = PHONE_COMMANDS.map((command) => ({
+  name: command.name,
+  description: command.description,
+  inputSchema: command.inputSchema,
+}));
+
+export class RateLimitError extends Error {
+  readonly statusCode = 429;
+  constructor(command: string, retryAfterSec: number) {
+    super(`Rate limited: ${command}. Try again in ${retryAfterSec}s`);
+    this.name = "RateLimitError";
+  }
+}

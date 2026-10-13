@@ -15,6 +15,13 @@ import {
   isGmTool,
   stopGmessagesSidecar,
 } from "./gmessages/index.js";
+import { commandRateLimiter } from "./command-rate-limit.js";
+import {
+  PHONE_COMMAND_SCHEMAS,
+  RateLimitError,
+  getPhoneCommand,
+  isPhoneCommand,
+} from "./commands.js";
 import {
   LoopbackHttpHandle,
   resolveHttpPort,
@@ -109,12 +116,23 @@ class PhonePiMCPServer {
     name: string,
     args: Record<string, unknown>
   ): Promise<unknown> {
+    if (isPhoneCommand(name)) {
+      const spec = getPhoneCommand(name);
+      if (spec) {
+        const budget = commandRateLimiter.allow(spec.name, spec.maxPerMinute);
+        if (!budget.ok) {
+          return Promise.reject(
+            new RateLimitError(spec.name, budget.retryAfterSec)
+          );
+        }
+      }
+    }
     const requestId = `req-${++this.requestCounter}`;
     return requestPhoneTool({
       connection: this.phoneConnection,
       pending: this.pendingRequests,
       requestId,
-      tool: name,
+      tool: getPhoneCommand(name)?.phoneTool ?? name,
       params: args,
       debug: DEBUG_WEBSOCKET,
     });
@@ -1389,6 +1407,7 @@ class PhonePiMCPServer {
             required: ["title", "body"],
           },
         },
+        ...PHONE_COMMAND_SCHEMAS,
         ...GM_TOOL_SCHEMAS,
       ],
     }));
@@ -1502,6 +1521,9 @@ class PhonePiMCPServer {
           ],
         };
       } catch (error: unknown) {
+        if (error instanceof RateLimitError) {
+          throw new McpError(ErrorCode.InvalidRequest, error.message);
+        }
         throw new McpError(
           ErrorCode.InternalError,
           `Failed to execute ${request.params.name}: ${
