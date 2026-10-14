@@ -138,6 +138,32 @@ export const PHONE_COMMANDS: readonly PhoneCommand[] = [
       required: [],
     },
   },
+  {
+    name: "phone_set_volume",
+    kind: "write",
+    phoneTool: "phone_set_volume",
+    maxPerMinute: 20,
+    description:
+      "Set a phone volume stream (alarm, ring, notification, media, voice/call, system) to a level or 'max'. max_all sets every stream to max and restores ringer mode to normal. While Do Not Disturb is on, ring/notification changes need Do Not Disturb access on the phone; alarm volume still works.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        stream: {
+          type: "string",
+          description:
+            "alarm | ring | notification | media | voice (or call) | system. Ignored when max_all is true.",
+        },
+        level: {
+          description: "Integer 0..max for that stream, or the string 'max'",
+        },
+        max_all: {
+          type: "boolean",
+          description: "Set every stream to its max (default false)",
+        },
+      },
+      required: [],
+    },
+  },
 ];
 
 const BY_NAME = new Map(PHONE_COMMANDS.map((command) => [command.name, command]));

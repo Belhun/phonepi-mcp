@@ -25,6 +25,8 @@ import dev.phonepi.companion.tools.GetContactsTool
 import dev.phonepi.companion.tools.AddLocationTool
 import dev.phonepi.companion.tools.GetLocationTool
 import dev.phonepi.companion.tools.GetNotificationsTool
+import dev.phonepi.companion.tools.GetVolumesTool
+import dev.phonepi.companion.tools.SetVolumeTool
 import dev.phonepi.companion.tools.ListLocationsTool
 import dev.phonepi.companion.tools.ListNotificationAppsTool
 import dev.phonepi.companion.tools.NavigateTool
@@ -98,6 +100,8 @@ class ConnectionService : Service() {
                 GetRecentCallsTool(ctx),
                 GetNotificationsTool(ctx),
                 ListNotificationAppsTool(ctx),
+                GetVolumesTool(ctx),
+                SetVolumeTool(ctx),
                 GetContactsTool(ctx),
                 SearchContactsTool(ctx),
                 GetContactByIdTool(ctx),

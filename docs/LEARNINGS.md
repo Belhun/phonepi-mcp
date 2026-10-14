@@ -2,7 +2,7 @@
 
 Standing log for this PR branch (`cursor/phone-navigate-locations-1ceb`). Update this file in the same change as every future PhonePi feature, bugfix, or device lesson. Do not merge this branch from this log. Never commit secrets (`PHONEPI_WS_TOKEN`, command tokens, hostnames with tokens in the URL, APK signing keystores, or personal MagicDNS names that are not already public in the repo).
 
-Current companion: **0.2.6** (versionCode **8**).
+Current companion: **0.2.7** (versionCode **9**).
 
 ## How to update
 
@@ -80,6 +80,16 @@ Alex approved two items from the security review (nothing else from that review)
 
 **One-time debug → release:** uninstall debug PhonePi, sideload the release APK. Android will not in-app-update across signing certs. Details: `docs/release-signing.md`.
 
+### 0.2.7 — volume control and midnight max
+
+Read-only `get_volumes` (on `READ_ONLY_HTTP_TOOLS`, 60/min): alarm, ring, notification, media, voice/call, system with current/max, plus ringer mode and Do Not Disturb state.
+
+Write command `phone_set_volume` (`POST /api/command`, 20/min): `stream` + `level` (int or `"max"`), or `max_all`. While DND is on, ring/notification changes need **Do Not Disturb access** (`ACCESS_NOTIFICATION_POLICY`). The app requests that grant only when the midnight toggle is on or DND is currently on; alarm volume still works without it.
+
+Optional on-phone **Max volumes at midnight** (default off): `AlarmManager.setExactAndAllowWhileIdle` at local 00:00, rescheduled after fire, on boot, on package replace, and on process start. Android 12+ may need Alarms & reminders (`SCHEDULE_EXACT_ALARM`); the toggle opens that settings page only if the permission is missing.
+
+Volume panel sits on the scrolling main screen between Tool permissions and Notification sharing.
+
 ## Mistakes and fixes
 
 | Symptom | Cause | Fix |
@@ -113,6 +123,7 @@ Android-only (do not assume iOS equivalents):
 - Compose edge-to-edge / `WindowInsets.safeDrawing`.
 - ADB wireless debugging and its changing TCP port.
 - Hidden `Notification` extras such as `android.substName`.
+- `AudioManager` streams, Do Not Disturb policy access, and `AlarmManager` exact midnight alarms. iOS volume APIs and Focus modes differ; a nightly max would be a local notification or BG task, not `BOOT_COMPLETED`.
 
 iPhone maps/nav sketch (not implemented): open an Apple Maps or Google Maps iOS URL when the companion is allowed to become foreground. Do not expect to start Maps from a background daemon the way overlay+FSI does on Android. A tap-to-open notification is the likely fallback.
 
@@ -123,4 +134,4 @@ iPhone notification reading sketch (not implemented): without an Apple entitleme
 - Overlay is the grant that actually opens Maps from the background. FSI is the fallback, not a substitute for overlay if you want Maps to appear unprompted.
 - Keep the PhonePi connection notification if the OS otherwise kills the socket when Maps comes to the front.
 - Tailscale Serve terminates TLS on the PC; the phone still needs MagicDNS (or a literal tailnet IP) and the WS token.
-- Sideload **0.2.6 release** once (uninstall debug 0.2.5 first — different signing cert). Later APKs go in `~/.phonepi/updates` (or `PHONEPI_UPDATE_DIR`) and must be signed with `scripts/sign-update-manifest.sh`. After Install, the phone should reconnect on its own; if it does not, open PhonePi once and check Recent activity for an **Update** reconnect line.
+- Sideload **0.2.7 release** (or in-app update from 0.2.6 release). Debug → release is still a one-time uninstall. Later APKs go in `~/.phonepi/updates` and must be signed with `scripts/sign-update-manifest.sh`.

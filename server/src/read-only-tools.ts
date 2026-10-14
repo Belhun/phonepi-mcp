@@ -11,12 +11,14 @@ export const READ_ONLY_HTTP_TOOLS = new Set<string>([
   "search_snippets",
   "get_notifications",
   "list_notification_apps",
+  "get_volumes",
 ]);
 
 /** Sliding-window limits (per minute) for sensitive read tools. */
 export const READ_ONLY_TOOL_RATE_LIMITS: Record<string, number> = {
   get_notifications: 60,
   list_notification_apps: 60,
+  get_volumes: 60,
 };
 
 export function isReadOnlyHttpTool(name: string): boolean {
@@ -55,6 +57,19 @@ export const NOTIFICATION_TOOL_SCHEMAS = [
     name: "list_notification_apps",
     description:
       "List apps that have posted a notification, with whether each is on the share allowlist. Does not include notification bodies. Read-only.",
+    inputSchema: {
+      type: "object",
+      properties: {},
+      required: [],
+    },
+  },
+];
+
+export const VOLUME_TOOL_SCHEMAS = [
+  {
+    name: "get_volumes",
+    description:
+      "Read phone volume streams (alarm, ring, notification, media, voice, system) with current and max, plus ringer mode and Do Not Disturb state. Read-only. Changing volumes is phone_set_volume.",
     inputSchema: {
       type: "object",
       properties: {},

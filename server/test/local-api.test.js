@@ -107,7 +107,7 @@ async function withHttp(bridge, fn) {
   }
 }
 
-test("read-only allowlist is exactly the eleven phone read tools", () => {
+test("read-only allowlist is exactly the twelve phone read tools", () => {
   assert.deepEqual(
     [...READ_ONLY_HTTP_TOOLS].sort(),
     [
@@ -119,6 +119,7 @@ test("read-only allowlist is exactly the eleven phone read tools", () => {
       "get_recent_calls",
       "get_snippet_by_id",
       "get_snippets_by_type",
+      "get_volumes",
       "list_notification_apps",
       "search_contacts",
       "search_snippets",
@@ -485,8 +486,10 @@ test("starting the HTTP API does not write to stdout", async () => {
 test("notification read tools are on the HTTP allowlist and rate-limited", async () => {
   assert.equal(READ_ONLY_HTTP_TOOLS.has("get_notifications"), true);
   assert.equal(READ_ONLY_HTTP_TOOLS.has("list_notification_apps"), true);
+  assert.equal(READ_ONLY_HTTP_TOOLS.has("get_volumes"), true);
   assert.equal(READ_ONLY_TOOL_RATE_LIMITS.get_notifications, 60);
   assert.equal(READ_ONLY_TOOL_RATE_LIMITS.list_notification_apps, 60);
+  assert.equal(READ_ONLY_TOOL_RATE_LIMITS.get_volumes, 60);
 
   const calls = [];
   await withHttp(

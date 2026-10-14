@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import dev.phonepi.companion.connection.SavedConnectionReconnect
+import dev.phonepi.companion.volume.MidnightVolume
 
 /**
  * Optional reconnect after reboot. Off by default in the sense that it only
@@ -16,6 +17,7 @@ class BootReceiver : BroadcastReceiver() {
             return
         }
         SavedConnectionReconnect.startIfSaved(context, SavedConnectionReconnect.Trigger.BOOT)
+        MidnightVolume.rescheduleIfEnabled(context)
     }
 
     companion object {
