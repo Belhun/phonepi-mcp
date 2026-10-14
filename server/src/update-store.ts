@@ -2,15 +2,18 @@ import { createHash } from "crypto";
 import { promises as fs } from "fs";
 import os from "os";
 import path from "path";
+import {
+  DEFAULT_PUB_PATH,
+  SignedManifestFields,
+  verifyManifestSignature,
+} from "./update-sign.js";
 
 export const DEFAULT_UPDATE_DIR = path.join(os.homedir(), ".phonepi", "updates");
 
-export interface UpdateManifest {
-  versionCode: number;
-  versionName: string;
-  sha256: string;
+export interface UpdateManifest extends SignedManifestFields {
   size: number;
   fileName: string;
+  signature: string;
 }
 
 export function updateDirFromEnv(
@@ -21,7 +24,7 @@ export function updateDirFromEnv(
   return DEFAULT_UPDATE_DIR;
 }
 
-/** `phonepi-0.2.5-7.apk` or `anything-1.0.0-12.apk` */
+/** `phonepi-0.2.6-8.apk` or `anything-1.0.0-12.apk` */
 export function parseVersionFromFileName(
   fileName: string
 ): { versionName: string; versionCode: number } | null {
@@ -35,7 +38,8 @@ export function sha256Hex(data: Buffer): string {
 }
 
 export async function loadUpdateBundle(
-  dir: string
+  dir: string,
+  env: NodeJS.ProcessEnv = process.env
 ): Promise<{ apkPath: string; manifest: UpdateManifest } | { error: string }> {
   let entries: string[];
   try {
@@ -54,27 +58,50 @@ export async function loadUpdateBundle(
   }
   const apkPath = path.join(dir, apkName);
   const data = await fs.readFile(apkPath);
+  const fileSha = sha256Hex(data);
   const sidecar = await readSidecar(dir, entries);
-  const fromName = parseVersionFromFileName(apkName);
-  const versionCode = sidecar?.versionCode ?? fromName?.versionCode;
-  const versionName = sidecar?.versionName ?? fromName?.versionName;
-  if (versionCode == null || !versionName) {
+  if (!sidecar) {
     return {
       error:
-        `APK ${apkName} needs versionCode and versionName ` +
-        `(filename like phonepi-0.2.5-7.apk, or ${path.join(dir, "manifest.json")})`,
+        `Signed manifest.json is required in ${dir} ` +
+        `(run scripts/sign-update-manifest.sh)`,
     };
+  }
+  if (sidecar.sha256 !== fileSha) {
+    return {
+      error: `manifest sha256 does not match ${apkName}`,
+    };
+  }
+  const pub = await resolvePublicKeyHex(env);
+  if (pub) {
+    if (!verifyManifestSignature(sidecar, sidecar.signature, pub)) {
+      return { error: "manifest Ed25519 signature is invalid" };
+    }
+  } else if (!/^[0-9a-f]{128}$/.test(sidecar.signature)) {
+    return { error: "manifest missing Ed25519 signature" };
   }
   return {
     apkPath,
     manifest: {
-      versionCode,
-      versionName,
-      sha256: sha256Hex(data),
+      ...sidecar,
       size: data.length,
       fileName: apkName,
     },
   };
+}
+
+async function resolvePublicKeyHex(
+  env: NodeJS.ProcessEnv
+): Promise<string | null> {
+  const inline = env.PHONEPI_UPDATE_PUBKEY?.trim().toLowerCase();
+  if (inline && /^[0-9a-f]{64}$/.test(inline)) return inline;
+  const filePath = env.PHONEPI_UPDATE_PUBKEY_FILE?.trim() || DEFAULT_PUB_PATH;
+  try {
+    const hex = (await fs.readFile(filePath, "utf8")).trim().toLowerCase();
+    return /^[0-9a-f]{64}$/.test(hex) ? hex : null;
+  } catch {
+    return null;
+  }
 }
 
 async function pickApkFile(dir: string, entries: string[]): Promise<string | null> {
@@ -94,19 +121,36 @@ async function pickApkFile(dir: string, entries: string[]): Promise<string | nul
 async function readSidecar(
   dir: string,
   entries: string[]
-): Promise<{ versionCode: number; versionName: string } | null> {
+): Promise<(SignedManifestFields & { signature: string }) | null> {
   if (!entries.includes("manifest.json")) return null;
   try {
     const raw = JSON.parse(
       await fs.readFile(path.join(dir, "manifest.json"), "utf8")
-    ) as { versionCode?: unknown; versionName?: unknown };
+    ) as {
+      versionCode?: unknown;
+      versionName?: unknown;
+      sha256?: unknown;
+      minVersion?: unknown;
+      signature?: unknown;
+    };
     const versionCode = Number(raw.versionCode);
+    const minVersion = Number(raw.minVersion);
     const versionName =
       typeof raw.versionName === "string" ? raw.versionName.trim() : "";
+    const sha256 =
+      typeof raw.sha256 === "string" ? raw.sha256.trim().toLowerCase() : "";
+    const signature =
+      typeof raw.signature === "string" ? raw.signature.trim().toLowerCase() : "";
     if (!Number.isInteger(versionCode) || versionCode < 1 || !versionName) {
       return null;
     }
-    return { versionCode, versionName };
+    if (!Number.isInteger(minVersion) || minVersion < 1) {
+      return null;
+    }
+    if (!/^[0-9a-f]{64}$/.test(sha256) || !/^[0-9a-f]{128}$/.test(signature)) {
+      return null;
+    }
+    return { versionCode, versionName, sha256, minVersion, signature };
   } catch {
     return null;
   }

@@ -15,6 +15,11 @@ import {
   sha256Hex,
   updateDirFromEnv,
 } from "../dist/update-store.js";
+import {
+  generateManifestKeyPair,
+  signManifest,
+  verifyManifestSignature,
+} from "../dist/update-sign.js";
 import { isPhoneCommand, PHONE_COMMAND_NAMES } from "../dist/commands.js";
 
 function get(port, urlPath, headers = {}) {
@@ -40,6 +45,24 @@ function get(port, urlPath, headers = {}) {
   });
 }
 
+function writeSignedBundle(dir, bytes, fields = {}) {
+  const { privateKeyPem, publicKeyHex } = generateManifestKeyPair();
+  const sha256 = sha256Hex(bytes);
+  const signed = {
+    versionCode: fields.versionCode ?? 8,
+    versionName: fields.versionName ?? "0.2.6",
+    sha256,
+    minVersion: fields.minVersion ?? 1,
+  };
+  const signature = signManifest(signed, privateKeyPem);
+  fs.writeFileSync(path.join(dir, fields.apkName ?? "phonepi.apk"), bytes);
+  fs.writeFileSync(
+    path.join(dir, "manifest.json"),
+    JSON.stringify({ ...signed, size: bytes.length, signature })
+  );
+  return { publicKeyHex, signature, sha256 };
+}
+
 test("filename encodes versionName and versionCode", () => {
   assert.deepEqual(parseVersionFromFileName("phonepi-0.2.4-6.apk"), {
     versionName: "0.2.4",
@@ -56,32 +79,69 @@ test("update dir defaults to ~/.phonepi/updates", () => {
   );
 });
 
-test("loadUpdateBundle hashes the apk and prefers sidecar versions", async () => {
+test("Ed25519 golden vector matches the Android verifier", () => {
+  const fields = {
+    versionCode: 8,
+    versionName: "0.2.6",
+    sha256: "ab".repeat(32),
+    minVersion: 1,
+  };
+  const pub = "24101ab91ac7edd8e32b53680314a82b9a85ff966156f7593355a68a2e541393";
+  const sig =
+    "b27c6bef61223aa65a4bc9a762c896ea8a74baf5a9c9932a998e401167a28b5c" +
+    "37a1234acb18cf8253c781a3346d020d228cbab301048f41e31d65f57b7bea0a";
+  assert.equal(verifyManifestSignature(fields, sig, pub), true);
+  assert.equal(
+    verifyManifestSignature({ ...fields, versionCode: 9 }, sig, pub),
+    false
+  );
+});
+
+test("loadUpdateBundle requires a signature and verifies it when a pubkey is set", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "phonepi-upd-"));
   const bytes = Buffer.from("fake-apk-bytes");
-  fs.writeFileSync(path.join(dir, "phonepi.apk"), bytes);
-  fs.writeFileSync(
-    path.join(dir, "manifest.json"),
-    JSON.stringify({ versionCode: 6, versionName: "0.2.4" })
-  );
-  const loaded = await loadUpdateBundle(dir);
+  const { publicKeyHex } = writeSignedBundle(dir, bytes, {
+    versionCode: 8,
+    versionName: "0.2.6",
+  });
+  const loaded = await loadUpdateBundle(dir, { PHONEPI_UPDATE_PUBKEY: publicKeyHex });
   assert.equal("error" in loaded, false);
-  assert.equal(loaded.manifest.versionCode, 6);
-  assert.equal(loaded.manifest.versionName, "0.2.4");
+  assert.equal(loaded.manifest.versionCode, 8);
+  assert.equal(loaded.manifest.versionName, "0.2.6");
+  assert.equal(loaded.manifest.minVersion, 1);
   assert.equal(loaded.manifest.size, bytes.length);
   assert.equal(loaded.manifest.sha256, sha256Hex(bytes));
   assert.equal(loaded.manifest.sha256, createHash("sha256").update(bytes).digest("hex"));
+  assert.equal(loaded.manifest.signature.length, 128);
 });
 
-test("GET /phonepi/update requires the WS token and serves manifest plus apk", async () => {
+test("unsigned sidecar is rejected", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "phonepi-upd-"));
+  fs.writeFileSync(path.join(dir, "phonepi.apk"), Buffer.from("x"));
+  fs.writeFileSync(
+    path.join(dir, "manifest.json"),
+    JSON.stringify({ versionCode: 8, versionName: "0.2.6" })
+  );
+  const loaded = await loadUpdateBundle(dir, { PHONEPI_UPDATE_PUBKEY: "aa".repeat(32) });
+  assert.equal("error" in loaded, true);
+  assert.match(loaded.error, /[Ss]ign/);
+});
+
+test("GET /phonepi/update requires the WS token and serves a signed manifest plus apk", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "phonepi-upd-"));
   const bytes = Buffer.from("pkg-bytes-for-http");
-  fs.writeFileSync(path.join(dir, "phonepi-0.2.4-6.apk"), bytes);
+  const { publicKeyHex } = writeSignedBundle(dir, bytes, {
+    apkName: "phonepi-0.2.6-8.apk",
+    versionCode: 8,
+    versionName: "0.2.6",
+  });
 
   const previousToken = process.env.PHONEPI_WS_TOKEN;
   const previousDir = process.env.PHONEPI_UPDATE_DIR;
+  const previousPub = process.env.PHONEPI_UPDATE_PUBKEY;
   process.env.PHONEPI_WS_TOKEN = "upd-secret";
   process.env.PHONEPI_UPDATE_DIR = dir;
+  process.env.PHONEPI_UPDATE_PUBKEY = publicKeyHex;
 
   const wss = createPhoneWebSocketServer({
     port: 0,
@@ -101,10 +161,12 @@ test("GET /phonepi/update requires the WS token and serves manifest plus apk", a
     const manifest = await get(port, "/phonepi/update/manifest?token=upd-secret");
     assert.equal(manifest.status, 200);
     const json = JSON.parse(manifest.text);
-    assert.equal(json.versionCode, 6);
-    assert.equal(json.versionName, "0.2.4");
+    assert.equal(json.versionCode, 8);
+    assert.equal(json.versionName, "0.2.6");
+    assert.equal(json.minVersion, 1);
     assert.equal(json.size, bytes.length);
     assert.equal(json.sha256, sha256Hex(bytes));
+    assert.equal(json.signature.length, 128);
 
     const apk = await get(port, "/phonepi/update/apk", {
       Authorization: "Bearer upd-secret",
@@ -128,6 +190,8 @@ test("GET /phonepi/update requires the WS token and serves manifest plus apk", a
     else process.env.PHONEPI_WS_TOKEN = previousToken;
     if (previousDir === undefined) delete process.env.PHONEPI_UPDATE_DIR;
     else process.env.PHONEPI_UPDATE_DIR = previousDir;
+    if (previousPub === undefined) delete process.env.PHONEPI_UPDATE_PUBKEY;
+    else process.env.PHONEPI_UPDATE_PUBKEY = previousPub;
   }
 });
 

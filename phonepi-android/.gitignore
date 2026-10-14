@@ -8,7 +8,13 @@
 .externalNativeBuild
 .cxx
 local.properties
+keystore.properties
 *.keystore
+*.jks
+*.p12
+*.pfx
+manifest-ed25519.pem
+*.ed25519
 !debug.keystore
 app/build/
 
