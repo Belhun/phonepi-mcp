@@ -36,11 +36,47 @@ class UpdateManifestTest {
     @Test
     fun parseManifestJson() {
         val parsed = UpdateEngine.parseManifest(
-            """{"versionCode":6,"versionName":"0.2.4","sha256":"${"ab".repeat(32)}","size":12,"fileName":"phonepi.apk"}""",
+            """{"versionCode":8,"versionName":"0.2.6","sha256":"${"ab".repeat(32)}","size":12,"fileName":"phonepi.apk","minVersion":1,"signature":"${"cd".repeat(64)}"}""",
         )
-        assertEquals(6, parsed.versionCode)
-        assertEquals("0.2.4", parsed.versionName)
+        assertEquals(8, parsed.versionCode)
+        assertEquals("0.2.6", parsed.versionName)
         assertEquals(12L, parsed.size)
+        assertEquals(1, parsed.minVersion)
+        assertEquals(128, parsed.signature.length)
+    }
+}
+
+class UpdateCryptoSignatureTest {
+    @Test
+    fun verifiesNodeEd25519GoldenVector() {
+        val manifest = UpdateManifest(
+            versionCode = 8,
+            versionName = "0.2.6",
+            sha256 = "ab".repeat(32),
+            size = 12,
+            minVersion = 1,
+            signature = "b27c6bef61223aa65a4bc9a762c896ea8a74baf5a9c9932a998e401167a28b5c" +
+                "37a1234acb18cf8253c781a3346d020d228cbab301048f41e31d65f57b7bea0a",
+        )
+        val pub = "24101ab91ac7edd8e32b53680314a82b9a85ff966156f7593355a68a2e541393"
+        assertEquals(null, UpdateCrypto.verifyManifestSignature(manifest, pub))
+        assertEquals(
+            "manifest signature is invalid",
+            UpdateCrypto.verifyManifestSignature(manifest.copy(versionCode = 9), pub),
+        )
+        assertEquals(
+            "manifest signature is invalid",
+            UpdateCrypto.verifyManifestSignature(manifest.copy(signature = "ee".repeat(64)), pub),
+        )
+    }
+
+    @Test
+    fun missingPublicKeyIsAHardError() {
+        val manifest = UpdateManifest(8, "0.2.6", "ab".repeat(32), 12, minVersion = 1, signature = "cd".repeat(64))
+        assertEquals(
+            "Update public key is not configured",
+            UpdateCrypto.verifyManifestSignature(manifest, ""),
+        )
     }
 }
 

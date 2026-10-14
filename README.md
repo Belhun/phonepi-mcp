@@ -41,7 +41,7 @@ Standing log of shipped features, mistakes, and iPhone portability: [docs/LEARNI
 
 ## In-app update
 
-The MCP server serves the latest APK at `GET /phonepi/update/manifest` and `GET /phonepi/update/apk` (same host as the phone WebSocket, `PHONEPI_WS_TOKEN` required). Drop files in `PHONEPI_UPDATE_DIR` (default `~/.phonepi/updates`). `phone_push_update` tells the phone to download, verify, and show the system installer; Alex still taps Install.
+The MCP server serves the latest APK at `GET /phonepi/update/manifest` and `GET /phonepi/update/apk` (same host as the phone WebSocket, `PHONEPI_WS_TOKEN` required). Drop a release APK in `PHONEPI_UPDATE_DIR` (default `~/.phonepi/updates`) and sign `manifest.json` with `scripts/sign-update-manifest.sh`. `phone_push_update` verifies the Ed25519 signature, APK sha256, and pinned release cert, then shows the system installer; Alex still taps Install. Debug → release is a one-time uninstall; see [docs/release-signing.md](docs/release-signing.md).
 
 ## Notification reading
 

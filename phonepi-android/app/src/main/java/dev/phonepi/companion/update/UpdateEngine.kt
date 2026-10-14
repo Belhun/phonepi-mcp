@@ -74,7 +74,12 @@ class UpdateEngine(context: Context) {
                 if (!response.isSuccessful) {
                     error(parseError(body, response.code))
                 }
-                parseManifest(body)
+                val parsed = parseManifest(body)
+                UpdateCrypto.verifyManifestSignature(
+                    parsed,
+                    BuildConfig.UPDATE_MANIFEST_PUBLIC_KEY,
+                )?.let { error(it) }
+                parsed
             }
         }
     }
@@ -98,7 +103,10 @@ class UpdateEngine(context: Context) {
                 error = e.message ?: "Could not read update manifest",
             )
         }
-        if (!force && !manifest.isNewerThan(current)) {
+        UpdateCrypto.verifyManifestSignature(
+            manifest,
+            BuildConfig.UPDATE_MANIFEST_PUBLIC_KEY,
+        )?.let { reason ->
             return UpdateRunResult(
                 promptShown = false,
                 method = "none",
@@ -107,8 +115,42 @@ class UpdateEngine(context: Context) {
                 currentVersionCode = current,
                 serverVersionCode = manifest.versionCode,
                 serverVersionName = manifest.versionName,
-                skipped = true,
+                error = reason,
             )
+        }
+        when (
+            val decision = UpdatePolicy.decideVersion(
+                installedVersionCode = current,
+                remoteVersionCode = manifest.versionCode,
+                minVersion = manifest.minVersion,
+                force = force,
+            )
+        ) {
+            UpdateVersionDecision.Allow -> Unit
+            UpdateVersionDecision.SkipAlreadyCurrent -> {
+                return UpdateRunResult(
+                    promptShown = false,
+                    method = "none",
+                    downloaded = false,
+                    verified = false,
+                    currentVersionCode = current,
+                    serverVersionCode = manifest.versionCode,
+                    serverVersionName = manifest.versionName,
+                    skipped = true,
+                )
+            }
+            is UpdateVersionDecision.Reject -> {
+                return UpdateRunResult(
+                    promptShown = false,
+                    method = "none",
+                    downloaded = false,
+                    verified = false,
+                    currentVersionCode = current,
+                    serverVersionCode = manifest.versionCode,
+                    serverVersionName = manifest.versionName,
+                    error = decision.error,
+                )
+            }
         }
         val apk = try {
             downloadAndVerify(manifest, onProgress)
@@ -210,11 +252,14 @@ class UpdateEngine(context: Context) {
         if (info.packageName != app.packageName) {
             error("APK package ${info.packageName} is not ${app.packageName}")
         }
-        val installed = installedSigners()
-        val apk = archiveSigners(info)
-        if (!UpdateCrypto.signingCertsMatch(installed, apk)) {
-            error("APK signing certificate does not match the installed PhonePi app")
-        }
+        val apkSha = archiveSigners(info).map { UpdateCrypto.sha256Hex(it).lowercase() }.toSet()
+        val installedSha = installedSigners().map { UpdateCrypto.sha256Hex(it).lowercase() }.toSet()
+        UpdatePolicy.checkApkCert(
+            apkCertSha256s = apkSha,
+            pinnedReleaseCertSha256 = BuildConfig.PINNED_RELEASE_CERT_SHA256,
+            requirePinnedReleaseCert = BuildConfig.REQUIRE_RELEASE_CERT_PIN,
+            installedCertSha256s = installedSha,
+        )?.let { error(it) }
     }
 
     private fun archiveInfo(pm: PackageManager, file: File): android.content.pm.PackageInfo? {
@@ -343,7 +388,19 @@ class UpdateEngine(context: Context) {
             val size = obj["size"]?.jsonPrimitive?.long
                 ?: error("manifest missing size")
             val fileName = obj["fileName"]?.jsonPrimitive?.content ?: "phonepi.apk"
-            return UpdateManifest(versionCode, versionName, sha256, size, fileName)
+            val minVersion = obj["minVersion"]?.jsonPrimitive?.int
+                ?: error("manifest missing minVersion")
+            val signature = obj["signature"]?.jsonPrimitive?.content?.trim()?.lowercase().orEmpty()
+            if (signature.length != 128) error("manifest missing Ed25519 signature")
+            return UpdateManifest(
+                versionCode = versionCode,
+                versionName = versionName,
+                sha256 = sha256,
+                size = size,
+                fileName = fileName,
+                minVersion = minVersion,
+                signature = signature,
+            )
         }
 
         fun parseError(body: String, code: Int): String {

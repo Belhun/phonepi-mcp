@@ -49,7 +49,7 @@ export async function handleUpdateRequest(
   }
 
   const dir = updateDirFromEnv(env);
-  const loaded = await loadUpdateBundle(dir);
+  const loaded = await loadUpdateBundle(dir, env);
   if ("error" in loaded) {
     sendJson(res, 404, { error: loaded.error });
     return true;

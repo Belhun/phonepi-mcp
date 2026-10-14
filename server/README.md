@@ -161,12 +161,12 @@ MCP exposes the same names. Rate limits are shared between MCP and HTTP.
 
 On the phone WebSocket port (the same host Tailscale Serve publishes):
 
-- `GET /phonepi/update/manifest` — `{ versionCode, versionName, sha256, size, fileName }`
+- `GET /phonepi/update/manifest` — `{ versionCode, versionName, sha256, minVersion, size, fileName, signature }`
 - `GET /phonepi/update/apk` — the APK bytes
 
 `PHONEPI_WS_TOKEN` is required (`Authorization: Bearer`, `X-PhonePi-Token`, or `?token=`).
 
-Directory: `PHONEPI_UPDATE_DIR` (default `~/.phonepi/updates`). Put `phonepi.apk` plus `manifest.json` (`versionCode`, `versionName`), or a file named `phonepi-0.2.5-7.apk`. sha256 and size are computed from the file.
+Directory: `PHONEPI_UPDATE_DIR` (default `~/.phonepi/updates`). Put a release APK named `phonepi-0.2.6-8.apk` (or `phonepi.apk`) and run `scripts/sign-update-manifest.sh` so `manifest.json` is Ed25519-signed. The APK bytes' sha256 must match the signed `sha256`. See [docs/release-signing.md](../docs/release-signing.md).
 
 ```powershell
 $env:PHONEPI_WS_TOKEN = "choose-a-long-secret"

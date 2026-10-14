@@ -2,7 +2,7 @@
 
 Standing log for this PR branch (`cursor/phone-navigate-locations-1ceb`). Update this file in the same change as every future PhonePi feature, bugfix, or device lesson. Do not merge this branch from this log. Never commit secrets (`PHONEPI_WS_TOKEN`, command tokens, hostnames with tokens in the URL, APK signing keystores, or personal MagicDNS names that are not already public in the repo).
 
-Current companion: **0.2.5** (versionCode **7**).
+Current companion: **0.2.6** (versionCode **8**).
 
 ## How to update
 
@@ -18,6 +18,7 @@ Current companion: **0.2.5** (versionCode **7**).
 - Rate limits and the on-phone **Recent activity** log apply to tools and commands.
 - Background `startActivity` on Android 10+ can return success and still do nothing. Trust a start only if PhonePi is in the foreground or `Settings.canDrawOverlays` is true. Otherwise post a full-screen notification and report that method honestly.
 - Sideload/install is never silent. The user taps Install in the system UI.
+- In-app updates: Ed25519-signed manifest (`versionCode`, `versionName`, APK `sha256`, `minVersion`) plus APK sha256 match plus pinned **release** signing-cert SHA-256. Release builds do not accept the debug cert. Keys live under `~/.phonepi/release` (mode 700/600), never in git. Debug → release is a one-time uninstall and sideload; Android will not update across different signing certs.
 
 ## Features shipped
 
@@ -69,6 +70,16 @@ Cause: replacing the APK kills the process. `BootReceiver` only handled `BOOT_CO
 
 Fix: `PackageReplacedReceiver` on `ACTION_MY_PACKAGE_REPLACED` restarts `ConnectionService` from the saved host (same helper as boot). Package replace reconnects whenever a host is saved; it does not use the "Reconnect when the phone boots" toggle. `MY_PACKAGE_REPLACED` is a documented exemption for starting that foreground service. Android-only.
 
+### 0.2.6 — release signing and signed update manifests
+
+Alex approved two items from the security review (nothing else from that review).
+
+**Release signing.** `assembleRelease` signs from a PKCS12 keystore given by `PHONEPI_RELEASE_STORE_FILE` / `PHONEPI_RELEASE_STORE_PASSWORD` / `PHONEPI_RELEASE_KEY_ALIAS` (env or Gradle properties, never committed). `scripts/generate-release-keys.sh` writes `~/.phonepi/release/` at mode 700/600. The updater checks the downloaded APK's signing-cert SHA-256 against a pin computed from that keystore at build time (`BuildConfig.PINNED_RELEASE_CERT_SHA256`) **and** the manifest APK sha256 before showing Install. `REQUIRE_RELEASE_CERT_PIN` is true on release builds, so a debug-signed APK is rejected.
+
+**Signed manifest.** `manifest.json` includes `versionCode`, `versionName`, `sha256`, `minVersion`, and an Ed25519 `signature` over `v1\nversionCode\nversionName\nsha256\nminVersion\n`. The public key is embedded at build time (`UPDATE_MANIFEST_PUBLIC_KEY` from `PHONEPI_UPDATE_PUBKEY` or `~/.phonepi/release/manifest-ed25519.pub`). The app rejects a bad signature and a version downgrade. Force update may reinstall the **same** versionCode only. Box script: `scripts/sign-update-manifest.sh`. Private key stays outside the repo.
+
+**One-time debug → release:** uninstall debug PhonePi, sideload the release APK. Android will not in-app-update across signing certs. Details: `docs/release-signing.md`.
+
 ## Mistakes and fixes
 
 | Symptom | Cause | Fix |
@@ -89,7 +100,7 @@ Portable (keep this contract if an iPhone companion is built):
 - Locations stored on the device; the PC never launches maps itself.
 - Default-deny sharing (notification allowlist empty, Share all off).
 - Honest status: if the OS blocked the action, say so in the tool result. Do not invent `started:true`.
-- Updates: serve a signed artifact + manifest (version, hash, size) over the same host and token; verify hash and signing identity; the human confirms install. Never silent install.
+- Updates: serve a signed artifact + Ed25519-signed manifest (version, hash, minVersion) over the same host and token; verify hash, signature, and a pinned release signing identity; reject downgrades; the human confirms install. Never silent install. Never put private keys in git.
 - Secrets stay in env / phone prefs. Not in git.
 
 Android-only (do not assume iOS equivalents):
@@ -97,7 +108,7 @@ Android-only (do not assume iOS equivalents):
 - `Intent` / URI schemes (`google.navigation:`, `geo:`), package `com.google.android.apps.maps`, Android Auto **Start now**.
 - BAL, `SYSTEM_ALERT_WINDOW`, full-screen intent notifications, `NavigateBridgeActivity`.
 - `NotificationListenerService` reading **other apps'** notifications. iOS has no public equivalent; a Notification Service Extension only sees this app's own notifications unless Apple grants a special entitlement.
-- `PackageInstaller`, `REQUEST_INSTALL_PACKAGES`, **Install unknown apps**, FileProvider APKs. iOS distribution is TestFlight / App Store / MDM, not a local IPA installer from the MCP host.
+- `PackageInstaller`, `REQUEST_INSTALL_PACKAGES`, **Install unknown apps**, FileProvider APKs, and pinning the APK **signing certificate** SHA-256. iOS distribution is TestFlight / App Store / MDM; you cannot swap a debug-signed build for a release-signed one in place on Android either (uninstall once).
 - `RECEIVE_BOOT_COMPLETED` and `ACTION_MY_PACKAGE_REPLACED`. iOS has neither; reconnect on next launch or a background task the OS may not run. After an iOS update the user usually opens the app anyway — restore the socket there from saved endpoint prefs.
 - Compose edge-to-edge / `WindowInsets.safeDrawing`.
 - ADB wireless debugging and its changing TCP port.
@@ -112,4 +123,4 @@ iPhone notification reading sketch (not implemented): without an Apple entitleme
 - Overlay is the grant that actually opens Maps from the background. FSI is the fallback, not a substitute for overlay if you want Maps to appear unprompted.
 - Keep the PhonePi connection notification if the OS otherwise kills the socket when Maps comes to the front.
 - Tailscale Serve terminates TLS on the PC; the phone still needs MagicDNS (or a literal tailnet IP) and the WS token.
-- Sideload **0.2.5** (or use in-app update from 0.2.4). Later APKs go in `~/.phonepi/updates` (or `PHONEPI_UPDATE_DIR`). After Install, the phone should reconnect on its own; if it does not, open PhonePi once and check Recent activity for an **Update** reconnect line.
+- Sideload **0.2.6 release** once (uninstall debug 0.2.5 first — different signing cert). Later APKs go in `~/.phonepi/updates` (or `PHONEPI_UPDATE_DIR`) and must be signed with `scripts/sign-update-manifest.sh`. After Install, the phone should reconnect on its own; if it does not, open PhonePi once and check Recent activity for an **Update** reconnect line.
