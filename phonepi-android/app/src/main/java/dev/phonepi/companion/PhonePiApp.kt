@@ -8,5 +8,6 @@ class PhonePiApp : Application() {
     override fun onCreate() {
         super.onCreate()
         ActivityLog.init(this)
+        AppForeground.register(this)
     }
 }

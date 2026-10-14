@@ -119,12 +119,14 @@ The app stores named destinations locally (Room) and starts Google Maps when the
 
 ### What to install and grant
 
-1. Install this companion APK (sideload) and **Google Maps**.
+1. Install this companion APK (sideload, **0.2.2** or newer) and **Google Maps**.
 2. In PhonePi, set the same WebSocket token as `PHONEPI_WS_TOKEN` on the PC, then Connect. Notifications permission is requested on connect.
-3. Grant **full-screen notifications** (Android 14+): PhonePi → Tool permissions → Maps navigation, or Settings → Apps → PhonePi → Full screen notifications. Android 10+ blocks background `startActivity`; the connectedDevice foreground service tries first, then a full-screen notification opens Maps.
-4. Optional: keep PhonePi's link notification visible so the socket stays up while Maps takes the foreground.
+3. Grant **Display over other apps** (Appear on top): PhonePi → Tool permissions, or Settings → Apps → PhonePi → Appear on top. That is the reliable way to open Maps while PhonePi is in the background or the screen is off. Android can swallow `startActivity` from the background without throwing.
+4. Grant **full-screen notifications** (Android 14+) as the fallback when overlay is off: Settings → Apps → PhonePi → Full screen notifications. Without overlay, PhonePi always posts a high-priority full-screen notification instead of trusting a background start.
+5. Optional: leave **Reconnect when the phone boots** on (default) so the saved host reconnects after reboot. Turn it off on the connect screen if you do not want that.
+6. Optional: keep PhonePi's link notification visible so the socket stays up while Maps takes the foreground.
 
-No extra Maps API key. No Display-over-other-apps permission is required for the default path.
+No extra Maps API key.
 
 ### How to test
 

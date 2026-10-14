@@ -9,7 +9,9 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import androidx.core.app.NotificationCompat
+import dev.phonepi.companion.AppForeground
 import dev.phonepi.companion.R
 import dev.phonepi.companion.ui.NavigateBridgeActivity
 
@@ -18,6 +20,8 @@ data class NavigationLaunchResult(
     val notificationPosted: Boolean,
     val method: String,
     val uri: String,
+    val overlayGranted: Boolean,
+    val inForeground: Boolean,
     val grantNeeded: String? = null,
     val error: String? = null,
 )
@@ -26,54 +30,74 @@ data class NavigationLaunchResult(
  * Starts Google Maps navigation. Never accepts a caller-supplied action or
  * package: the only intents are the allowlisted URI candidates.
  *
- * Android 10+ background activity limits: try startActivity from the already
- * running connectedDevice foreground service, then fall back to a full-screen
- * notification that opens [NavigateBridgeActivity] (which then starts Maps).
+ * Background starts: [Settings.canDrawOverlays] (SYSTEM_ALERT_WINDOW) is the
+ * trusted BAL exemption. A startActivity return from the background is not
+ * trusted without it — Android can drop the launch without throwing.
  */
 object NavigationLauncher {
     const val CHANNEL_ID = "phonepi_navigation"
     private const val NOTIF_ID = 42
     private const val PENDING_REQ = 4201
 
+    fun canDrawOverlays(context: Context): Boolean = Settings.canDrawOverlays(context)
+
     fun launch(context: Context, plan: NavigationPlan): NavigationLaunchResult {
+        val overlayGranted = canDrawOverlays(context)
+        val inForeground = AppForeground.isInForeground()
+        val policy = NavigationLaunchPolicy.decide(overlayGranted, inForeground)
+        val uris = NavigationUris.candidates(plan)
+        val firstUri = uris.first()
+
         if (!mapsInstalled(context)) {
             return NavigationLaunchResult(
                 started = false,
                 notificationPosted = false,
-                method = "none",
-                uri = NavigationUris.candidates(plan).first(),
+                method = NavigationLaunchPolicy.METHOD_NONE,
+                uri = firstUri,
+                overlayGranted = overlayGranted,
+                inForeground = inForeground,
                 error = "Google Maps is not installed",
             )
         }
-        val uris = NavigationUris.candidates(plan)
-        val startedUri = tryStart(context, uris)
-        if (startedUri != null) {
-            return NavigationLaunchResult(
-                started = true,
-                notificationPosted = false,
-                method = "activity",
-                uri = startedUri,
-            )
-        }
-        val grantNeeded = fullScreenGrantNeeded(context)
-        val posted = postFullScreenNotification(context, plan, uris.first())
-        if (posted) {
+
+        val attemptedUri = tryStart(context, uris)
+        val trustedStarted = policy.trustActivityStart && attemptedUri != null
+        val shouldPost = policy.postFullScreenNotification || attemptedUri == null
+        val posted = if (shouldPost) postFullScreenNotification(context, plan, attemptedUri ?: firstUri) else false
+        val method = NavigationLaunchPolicy.method(
+            trustedStartSucceeded = trustedStarted,
+            notificationPosted = posted,
+            overlayGranted = overlayGranted,
+            inForeground = inForeground,
+        )
+        val usedNotification = method == NavigationLaunchPolicy.METHOD_FULL_SCREEN_NOTIFICATION
+        val grantNeeded = NavigationLaunchPolicy.grantNeeded(
+            overlayGranted,
+            fullScreenIntentOk(context),
+            usedNotification = usedNotification || (!trustedStarted && posted),
+        )
+        val uri = if (trustedStarted) attemptedUri!! else (attemptedUri ?: firstUri)
+        if (!trustedStarted && !posted) {
             return NavigationLaunchResult(
                 started = false,
-                notificationPosted = true,
-                method = "full_screen_notification",
-                uri = uris.first(),
-                grantNeeded = grantNeeded,
+                notificationPosted = false,
+                method = NavigationLaunchPolicy.METHOD_NONE,
+                uri = uri,
+                overlayGranted = overlayGranted,
+                inForeground = inForeground,
+                grantNeeded = grantNeeded ?: "notifications",
+                error = "Android blocked starting Maps from the background. " +
+                    "Grant Display over other apps, or notifications and full-screen intents, then retry.",
             )
         }
         return NavigationLaunchResult(
-            started = false,
-            notificationPosted = false,
-            method = "none",
-            uri = uris.first(),
-            grantNeeded = grantNeeded ?: "notifications",
-            error = "Android blocked starting Maps from the background. " +
-                "Grant notifications and full-screen intents, then tap the PhonePi navigation notification.",
+            started = trustedStarted,
+            notificationPosted = posted,
+            method = method,
+            uri = uri,
+            overlayGranted = overlayGranted,
+            inForeground = inForeground,
+            grantNeeded = grantNeeded,
         )
     }
 
@@ -151,14 +175,10 @@ object NavigationLauncher {
         }.toBundle()
     }
 
-    private fun fullScreenGrantNeeded(context: Context): String? {
-        if (Build.VERSION.SDK_INT < 34) return null
-        val manager = context.getSystemService(NotificationManager::class.java) ?: return null
-        return if (!manager.canUseFullScreenIntent()) {
-            "full-screen intents (Settings → Apps → PhonePi → Full screen notifications)"
-        } else {
-            null
-        }
+    fun fullScreenIntentOk(context: Context): Boolean {
+        if (Build.VERSION.SDK_INT < 34) return true
+        val manager = context.getSystemService(NotificationManager::class.java) ?: return false
+        return manager.canUseFullScreenIntent()
     }
 
     private fun ensureChannel(context: Context) {
@@ -169,7 +189,8 @@ object NavigationLauncher {
             NotificationManager.IMPORTANCE_HIGH,
         ).apply {
             description = "Starts Google Maps navigation from PhonePi"
-            setSound(null, null)
+            lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
+            setBypassDnd(true)
         }
         manager.createNotificationChannel(channel)
     }

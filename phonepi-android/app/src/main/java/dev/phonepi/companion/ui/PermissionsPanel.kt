@@ -16,6 +16,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -23,7 +24,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import dev.phonepi.companion.permissions.PermissionTier
 import dev.phonepi.companion.permissions.isGranted
 import dev.phonepi.companion.permissions.missingPermissions
@@ -32,6 +36,22 @@ import dev.phonepi.companion.permissions.missingPermissions
 fun PermissionsPanel(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     var refreshKey by remember { mutableStateOf(0) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) refreshKey++
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    val overlayOk = remember(refreshKey) { Settings.canDrawOverlays(context) }
+    val fsiOk = remember(refreshKey) {
+        if (Build.VERSION.SDK_INT >= 34) {
+            context.getSystemService(NotificationManager::class.java)?.canUseFullScreenIntent() == true
+        } else {
+            true
+        }
+    }
     val tiers = remember(refreshKey) {
         PermissionTier.entries.map { tier ->
             tier to tier.isGranted(context)
@@ -50,12 +70,41 @@ fun PermissionsPanel(modifier: Modifier = Modifier) {
     ) {
         Text("Tool permissions", style = MaterialTheme.typography.titleMedium)
         Text(
-            "Grant access before running call, contact, location, or navigation tools.",
+            "Grant access before running call, contact, location, or navigation tools. " +
+                "Display over other apps is what lets Maps open while PhonePi is in the background.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
-        NavigationPermissionRow()
+        PermissionTierRow(
+            label = "Display over other apps",
+            granted = overlayOk,
+            onGrant = {
+                context.startActivity(
+                    Intent(
+                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        Uri.parse("package:${context.packageName}"),
+                    ),
+                )
+            },
+        )
+
+        PermissionTierRow(
+            label = "Maps navigation — full-screen intents",
+            granted = fsiOk,
+            onGrant = {
+                val intent = if (Build.VERSION.SDK_INT >= 34) {
+                    Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT).apply {
+                        data = Uri.parse("package:${context.packageName}")
+                    }
+                } else {
+                    Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                        putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                    }
+                }
+                context.startActivity(intent)
+            },
+        )
 
         tiers.forEach { (tier, granted) ->
             PermissionTierRow(
@@ -99,31 +148,4 @@ private fun PermissionTierRow(
             }
         }
     }
-}
-
-@Composable
-private fun NavigationPermissionRow() {
-    val context = LocalContext.current
-    val manager = context.getSystemService(NotificationManager::class.java)
-    val fsiOk = if (Build.VERSION.SDK_INT >= 34) {
-        manager?.canUseFullScreenIntent() == true
-    } else {
-        true
-    }
-    PermissionTierRow(
-        label = if (fsiOk) "Maps navigation — full-screen intents granted" else "Maps navigation — full-screen intents",
-        granted = fsiOk,
-        onGrant = {
-            val intent = if (Build.VERSION.SDK_INT >= 34) {
-                Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT).apply {
-                    data = Uri.parse("package:${context.packageName}")
-                }
-            } else {
-                Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
-                    putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
-                }
-            }
-            context.startActivity(intent)
-        },
-    )
 }
