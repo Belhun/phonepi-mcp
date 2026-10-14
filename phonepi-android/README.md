@@ -178,5 +178,6 @@ cd phonepi-android
 2. Return `success { put("key", value) }` or `toolError("reason")`.
 3. Register it in `ConnectionService.onCreate()`.
 4. For a new **phone action** (navigate-style), also add the same name to `commands/PhoneCommands.kt` and `server/src/commands.ts` so MCP, HTTP `/api/command`, and the phone rate-limit share one allowlist.
+5. Update [docs/LEARNINGS.md](../docs/LEARNINGS.md) in the same change (feature, mistake, or iPhone note). Do not put tokens in that file.
 
 The router catches any exception and returns an error payload, so a tool bug never drops the socket.
