@@ -56,11 +56,13 @@ object CommandGate {
     private val limiter = CommandRateLimiter()
 
     fun check(tool: String): String? {
-        val spec = PhoneCommands.byName[tool] ?: return null
-        return when (val result = limiter.allow(spec.name, spec.maxPerMinute)) {
+        val max = PhoneCommands.byName[tool]?.maxPerMinute
+            ?: PhoneReadTools.maxPerMinute(tool)
+            ?: return null
+        return when (val result = limiter.allow(tool, max)) {
             CommandRateLimiter.Result.Allowed -> null
             is CommandRateLimiter.Result.Denied ->
-                "Rate limited: ${spec.name}. Try again in ${result.retryAfterSec}s"
+                "Rate limited: $tool. Try again in ${result.retryAfterSec}s"
         }
     }
 }

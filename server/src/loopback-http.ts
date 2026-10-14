@@ -239,6 +239,10 @@ async function handleTool(
       isError: false,
     });
   } catch (err) {
+    if (err instanceof RateLimitError) {
+      sendJson(res, 429, { text: err.message, isError: true });
+      return;
+    }
     const message = err instanceof Error ? err.message : String(err);
     const unavailable =
       /phone not connected|connection is not open|connection not ready/i.test(

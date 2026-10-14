@@ -181,6 +181,8 @@ fun ConnectScreen() {
         HorizontalDivider()
         PermissionsPanel()
         HorizontalDivider()
+        NotificationSharePanel()
+        HorizontalDivider()
         ActivityLogPanel(modifier = Modifier.weight(1f))
     }
 }

@@ -24,7 +24,9 @@ import dev.phonepi.companion.tools.GetRecentCallsTool
 import dev.phonepi.companion.tools.GetContactsTool
 import dev.phonepi.companion.tools.AddLocationTool
 import dev.phonepi.companion.tools.GetLocationTool
+import dev.phonepi.companion.tools.GetNotificationsTool
 import dev.phonepi.companion.tools.ListLocationsTool
+import dev.phonepi.companion.tools.ListNotificationAppsTool
 import dev.phonepi.companion.tools.NavigateTool
 import dev.phonepi.companion.tools.RemoveLocationTool
 import dev.phonepi.companion.tools.GetMessageResponseTool
@@ -92,6 +94,8 @@ class ConnectionService : Service() {
                 // GetSmsMessagesTool(ctx),
                 MakeCallTool(ctx),
                 GetRecentCallsTool(ctx),
+                GetNotificationsTool(ctx),
+                ListNotificationAppsTool(ctx),
                 GetContactsTool(ctx),
                 SearchContactsTool(ctx),
                 GetContactByIdTool(ctx),
