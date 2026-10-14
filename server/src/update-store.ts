@@ -21,7 +21,7 @@ export function updateDirFromEnv(
   return DEFAULT_UPDATE_DIR;
 }
 
-/** `phonepi-0.2.4-6.apk` or `anything-1.0.0-12.apk` */
+/** `phonepi-0.2.5-7.apk` or `anything-1.0.0-12.apk` */
 export function parseVersionFromFileName(
   fileName: string
 ): { versionName: string; versionCode: number } | null {
@@ -62,7 +62,7 @@ export async function loadUpdateBundle(
     return {
       error:
         `APK ${apkName} needs versionCode and versionName ` +
-        `(filename like phonepi-0.2.4-6.apk, or ${path.join(dir, "manifest.json")})`,
+        `(filename like phonepi-0.2.5-7.apk, or ${path.join(dir, "manifest.json")})`,
     };
   }
   return {
