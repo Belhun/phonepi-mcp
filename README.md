@@ -37,6 +37,10 @@ MCP tools:
 
 See [server/README.md](server/README.md) for the loopback `POST /api/command` API and [phonepi-android/README.md](phonepi-android/README.md) for what to install and grant on the phone.
 
+## In-app update
+
+The MCP server serves the latest APK at `GET /phonepi/update/manifest` and `GET /phonepi/update/apk` (same host as the phone WebSocket, `PHONEPI_WS_TOKEN` required). Drop files in `PHONEPI_UPDATE_DIR` (default `~/.phonepi/updates`). `phone_push_update` tells the phone to download, verify, and show the system installer; Alex still taps Install.
+
 ## Notification reading
 
 Read-only. MCP and `POST /api/tool` expose `get_notifications` (filters: `package`, `since`, `limit`) and `list_notification_apps`. They never dismiss, reply to, or act on a notification. By default no app's bodies are shared until they are picked in PhonePi (Share all is off). If Android withholds a field, the payload says so instead of omitting it.

@@ -119,6 +119,25 @@ export const PHONE_COMMANDS: readonly PhoneCommand[] = [
       required: [],
     },
   },
+  {
+    name: "phone_push_update",
+    kind: "write",
+    phoneTool: "phone_push_update",
+    maxPerMinute: 6,
+    description:
+      "Tell the connected phone to download the APK from this server's /phonepi/update/apk, verify sha256 and the signing certificate, and show the system installer. Alex still has to tap Install. Does not install silently. force (default true) reinstalls even when versionCode matches.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        force: {
+          type: "boolean",
+          description:
+            "Re-download and prompt even if the phone already has this versionCode (default true)",
+        },
+      },
+      required: [],
+    },
+  },
 ];
 
 const BY_NAME = new Map(PHONE_COMMANDS.map((command) => [command.name, command]));

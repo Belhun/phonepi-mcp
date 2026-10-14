@@ -18,6 +18,7 @@ object PhoneCommands {
         PhoneCommandSpec("phone_add_location", PhoneCommandSpec.Kind.WRITE, 20),
         PhoneCommandSpec("phone_remove_location", PhoneCommandSpec.Kind.WRITE, 20),
         PhoneCommandSpec("phone_navigate", PhoneCommandSpec.Kind.ACTION, 6),
+        PhoneCommandSpec("phone_push_update", PhoneCommandSpec.Kind.WRITE, 6),
     )
 
     val byName: Map<String, PhoneCommandSpec> = ALL.associateBy { it.name }

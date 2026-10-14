@@ -75,13 +75,14 @@ async function withHttp(bridge, fn, commandToken = "test-token") {
   }
 }
 
-test("command allowlist is the four phone_* tools", () => {
+test("command allowlist is the five phone_* tools", () => {
   assert.deepEqual(
     [...PHONE_COMMAND_NAMES].sort(),
     [
       "phone_add_location",
       "phone_list_locations",
       "phone_navigate",
+      "phone_push_update",
       "phone_remove_location",
     ]
   );

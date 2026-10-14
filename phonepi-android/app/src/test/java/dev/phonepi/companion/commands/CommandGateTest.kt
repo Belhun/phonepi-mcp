@@ -7,12 +7,13 @@ import org.junit.Test
 
 class CommandGateTest {
     @Test
-    fun allowlistIsExactlyTheFourPhoneCommands() {
+    fun allowlistIsExactlyTheFivePhoneCommands() {
         assertEquals(
             setOf(
                 "phone_add_location",
                 "phone_list_locations",
                 "phone_navigate",
+                "phone_push_update",
                 "phone_remove_location",
             ),
             PhoneCommands.ALL.map { it.name }.toSet(),

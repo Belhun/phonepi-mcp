@@ -138,10 +138,19 @@ object ActivityLog {
             val method = data["method"]?.jsonPrimitive?.contentOrNull ?: "unknown"
             "Navigate $query via $method"
         }
+        "phone_push_update" -> {
+            val shown = data["promptShown"]?.jsonPrimitive?.contentOrNull ?: "?"
+            val method = data["method"]?.jsonPrimitive?.contentOrNull ?: "none"
+            "Update promptShown=$shown via $method"
+        }
         else -> "OK"
     }
 
     fun logNavigation(detail: String, status: String) {
         write(category = "navigation", title = "phone_navigate", detail = detail, status = status)
+    }
+
+    fun logUpdate(detail: String, status: String = "info") {
+        write(category = "update", title = "update", detail = detail, status = status)
     }
 }
