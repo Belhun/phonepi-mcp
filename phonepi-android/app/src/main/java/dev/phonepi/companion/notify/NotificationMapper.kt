@@ -39,7 +39,7 @@ object NotificationMapper {
         packageManager: PackageManager,
         extras: android.os.Bundle,
     ): ExposedField {
-        val substitute = extras.getCharSequence(Notification.EXTRA_SUBSTITUTE_APP_NAME)?.toString()
+        val substitute = extras.getCharSequence("android.substName")?.toString()
         if (!substitute.isNullOrBlank()) {
             return ExposedField.of(substitute, "appName")
         }
