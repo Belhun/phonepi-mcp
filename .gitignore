@@ -4,3 +4,11 @@ dist
 *.exe
 *.exe~
 Inspect/
+*.jks
+*.keystore
+*.p12
+*.pfx
+keystore.properties
+manifest-ed25519.pem
+*.ed25519
+*.ed25519.pem

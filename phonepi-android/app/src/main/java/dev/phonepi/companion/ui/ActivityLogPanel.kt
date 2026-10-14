@@ -3,11 +3,8 @@ package dev.phonepi.companion.ui
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -28,7 +25,11 @@ fun ActivityLogPanel(modifier: Modifier = Modifier) {
     val entries by ActivityLog.observeRecent(150).collectAsState(initial = emptyList())
     val timeFormat = DateFormat.getTimeInstance(DateFormat.MEDIUM)
 
-    Column(modifier = modifier.fillMaxWidth()) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(bottom = 16.dp),
+    ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -49,11 +50,8 @@ fun ActivityLogPanel(modifier: Modifier = Modifier) {
                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
             )
         } else {
-            LazyColumn(
-                modifier = modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(0.dp),
-            ) {
-                items(entries, key = { it.id }) { entry ->
+            Column(modifier = Modifier.fillMaxWidth()) {
+                entries.forEach { entry ->
                     ActivityLogRow(entry, timeFormat)
                     HorizontalDivider(modifier = Modifier.padding(horizontal = 24.dp))
                 }

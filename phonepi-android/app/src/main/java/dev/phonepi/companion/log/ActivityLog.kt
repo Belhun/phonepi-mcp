@@ -118,10 +118,50 @@ object ActivityLog {
         }
         "make_call" -> "Call to ${data["to"]?.jsonPrimitive?.contentOrNull ?: "?"}"
         "get_recent_calls" -> "${data["count"]?.jsonPrimitive?.contentOrNull ?: "?"} recent calls"
+        "get_notifications" -> {
+            val count = data["count"]?.jsonPrimitive?.contentOrNull ?: "?"
+            val omitted = data["omittedUnsharedCount"]?.jsonPrimitive?.contentOrNull ?: "0"
+            "$count notification(s) (omitted unshared=$omitted)"
+        }
+        "list_notification_apps" -> "${data["count"]?.jsonPrimitive?.contentOrNull ?: "?"} notification app(s)"
         "get_contacts" -> "Listed ${data["count"]?.jsonPrimitive?.contentOrNull ?: "?"} contacts"
         "search_contacts" -> "Found ${data["count"]?.jsonPrimitive?.contentOrNull ?: "?"} contacts"
         "add_contact", "update_contact", "get_contact_by_id" -> "Contact updated"
         "delete_contact" -> "Deleted contact"
+        "phone_list_locations" -> "${data["count"]?.jsonPrimitive?.contentOrNull ?: "?"} saved locations"
+        "phone_add_location" -> "Saved ${data["location"]?.toString()?.take(80) ?: "location"}"
+        "phone_remove_location" -> "Removed ${data["removed"]?.jsonPrimitive?.contentOrNull ?: "location"}"
+        "phone_navigate" -> {
+            val query = data["display"]?.jsonPrimitive?.contentOrNull
+                ?: data["query"]?.jsonPrimitive?.contentOrNull
+                ?: "?"
+            val method = data["method"]?.jsonPrimitive?.contentOrNull ?: "unknown"
+            "Navigate $query via $method"
+        }
+        "phone_push_update" -> {
+            val shown = data["promptShown"]?.jsonPrimitive?.contentOrNull ?: "?"
+            val method = data["method"]?.jsonPrimitive?.contentOrNull ?: "none"
+            "Update promptShown=$shown via $method"
+        }
+        "get_volumes" ->
+            "ringer=${data["ringerMode"]?.jsonPrimitive?.contentOrNull ?: "?"} " +
+                "dnd=${data["dnd"]?.jsonPrimitive?.contentOrNull ?: "?"}"
+        "phone_set_volume" -> {
+            val changed = data["changed"]?.jsonPrimitive?.contentOrNull ?: ""
+            val skipped = data["skipped"]?.jsonPrimitive?.contentOrNull ?: ""
+            buildString {
+                append(changed.ifEmpty { "no change" })
+                if (skipped.isNotEmpty()) append(" skipped $skipped")
+            }
+        }
         else -> "OK"
+    }
+
+    fun logNavigation(detail: String, status: String) {
+        write(category = "navigation", title = "phone_navigate", detail = detail, status = status)
+    }
+
+    fun logUpdate(detail: String, status: String = "info") {
+        write(category = "update", title = "update", detail = detail, status = status)
     }
 }

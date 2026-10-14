@@ -103,6 +103,7 @@ Success is HTTP 200:
 | 200 | Allowlisted tool ran | `{ "text", "isError": false }` |
 | 400 | Bad JSON, missing tool name, or `arguments` is not an object | `{ "text", "isError": true }` |
 | 403 | Tool is not on the allowlist | `{ "text", "isError": true }` |
+| 429 | Over the per-tool rate limit (`get_notifications`, `list_notification_apps`) | `{ "text", "isError": true }` |
 | 503 | Phone socket is not open | `{ "text", "isError": true }` |
 | 502 | The phone request failed (for example a timeout) | `{ "text", "isError": true }` |
 
@@ -117,6 +118,8 @@ Allowlist:
 - `get_snippet_by_id`
 - `get_snippets_by_type`
 - `search_snippets`
+- `get_notifications` (60/min)
+- `list_notification_apps` (60/min)
 
 Everything else is rejected with 403 and is not sent to the phone. That includes `make_call`, `find_phone`, `set_timer`, `copy_to_clipboard`, `send_message`, `send_notification`, snippet or contact add/update/delete, `share_snippet`, and every `gm_*` Google Messages tool.
 
@@ -129,6 +132,70 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:11043/api/tool `
 ```
 
 Use `127.0.0.1`, not a hostname that might resolve to IPv6.
+
+`phone_navigate` and saved-location tools are **not** on this read-only list. Use `POST /api/command` (below) or MCP.
+
+### `POST /api/command`
+
+Allowlisted phone actions. This is the extensible command surface: new phone actions register in `src/commands.ts` and as a phone-side handler of the same name. Unknown names return 403 and are not sent to the phone. The server never runs Android intents or shell.
+
+`PHONEPI_WS_TOKEN` is required. Send it as `Authorization: Bearer <token>`, `X-PhonePi-Token: <token>`, or `?token=`.
+
+Body:
+
+```json
+{ "command": "phone_navigate", "arguments": { "name": "home" } }
+```
+
+| Command | Kind | Budget |
+| --- | --- | --- |
+| `phone_list_locations` | read | 60/min |
+| `phone_add_location` | write | 20/min |
+| `phone_remove_location` | write | 20/min |
+| `phone_navigate` | action | 6/min |
+| `phone_push_update` | write | 6/min |
+| `phone_set_volume` | write | 20/min |
+
+MCP exposes the same names. Rate limits are shared between MCP and HTTP.
+
+### App updates (`/phonepi/update`)
+
+On the phone WebSocket port (the same host Tailscale Serve publishes):
+
+- `GET /phonepi/update/manifest` — `{ versionCode, versionName, sha256, minVersion, size, fileName, signature }`
+- `GET /phonepi/update/apk` — the APK bytes
+
+`PHONEPI_WS_TOKEN` is required (`Authorization: Bearer`, `X-PhonePi-Token`, or `?token=`).
+
+Directory: `PHONEPI_UPDATE_DIR` (default `~/.phonepi/updates`). Put a release APK named `phonepi-0.2.7-9.apk` (or `phonepi.apk`) and run `scripts/sign-update-manifest.sh` so `manifest.json` is Ed25519-signed. The APK bytes' sha256 must match the signed `sha256`. See [docs/release-signing.md](../docs/release-signing.md).
+
+```powershell
+$env:PHONEPI_WS_TOKEN = "choose-a-long-secret"
+
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:11043/api/command `
+  -Headers @{ "X-PhonePi-Token" = $env:PHONEPI_WS_TOKEN } `
+  -ContentType "application/json" `
+  -Body '{"command":"phone_list_locations","arguments":{}}'
+
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:11043/api/command `
+  -Headers @{ Authorization = "Bearer $env:PHONEPI_WS_TOKEN" } `
+  -ContentType "application/json" `
+  -Body '{"command":"phone_add_location","arguments":{"name":"home","address":"1600 Amphitheatre Parkway, Mountain View, CA"}}'
+
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:11043/api/command `
+  -Headers @{ Authorization = "Bearer $env:PHONEPI_WS_TOKEN" } `
+  -ContentType "application/json" `
+  -Body '{"command":"phone_navigate","arguments":{"name":"home"}}'
+```
+
+| Status | When |
+| --- | --- |
+| 200 | Allowlisted command ran on the phone |
+| 401 | Token missing, wrong, or `PHONEPI_WS_TOKEN` unset |
+| 403 | Name is not on the command allowlist (includes `make_call`, `shell`, arbitrary intents) |
+| 429 | Over the per-command rate limit |
+| 503 | Phone socket is not open |
+| 502 | Phone request failed |
 
 ### Phone WebSocket token
 

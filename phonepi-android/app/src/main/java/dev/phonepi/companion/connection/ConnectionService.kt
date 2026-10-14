@@ -22,7 +22,16 @@ import dev.phonepi.companion.tools.GetAllSnippetsTool
 import dev.phonepi.companion.tools.GetContactByIdTool
 import dev.phonepi.companion.tools.GetRecentCallsTool
 import dev.phonepi.companion.tools.GetContactsTool
+import dev.phonepi.companion.tools.AddLocationTool
 import dev.phonepi.companion.tools.GetLocationTool
+import dev.phonepi.companion.tools.GetNotificationsTool
+import dev.phonepi.companion.tools.GetVolumesTool
+import dev.phonepi.companion.tools.SetVolumeTool
+import dev.phonepi.companion.tools.ListLocationsTool
+import dev.phonepi.companion.tools.ListNotificationAppsTool
+import dev.phonepi.companion.tools.NavigateTool
+import dev.phonepi.companion.tools.PushUpdateTool
+import dev.phonepi.companion.tools.RemoveLocationTool
 import dev.phonepi.companion.tools.GetMessageResponseTool
 import dev.phonepi.companion.tools.GetSnippetByIdTool
 import dev.phonepi.companion.tools.GetSnippetsByTypeTool
@@ -69,6 +78,11 @@ class ConnectionService : Service() {
                 FindPhoneTool(ctx),
                 StopAlarmTool(ctx),
                 GetLocationTool(ctx),
+                ListLocationsTool(ctx),
+                AddLocationTool(ctx),
+                RemoveLocationTool(ctx),
+                NavigateTool(ctx),
+                PushUpdateTool(ctx),
                 SendMessageTool(ctx),
                 GetMessageResponseTool(ctx),
                 AddSnippetTool(ctx),
@@ -84,6 +98,10 @@ class ConnectionService : Service() {
                 // GetSmsMessagesTool(ctx),
                 MakeCallTool(ctx),
                 GetRecentCallsTool(ctx),
+                GetNotificationsTool(ctx),
+                ListNotificationAppsTool(ctx),
+                GetVolumesTool(ctx),
+                SetVolumeTool(ctx),
                 GetContactsTool(ctx),
                 SearchContactsTool(ctx),
                 GetContactByIdTool(ctx),

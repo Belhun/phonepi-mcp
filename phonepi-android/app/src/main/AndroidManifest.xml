@@ -16,6 +16,12 @@
 
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <uses-permission android:name="android.permission.VIBRATE" />
@@ -44,6 +50,12 @@
 
     <uses-permission android:name="android.permission.WRITE_CONTACTS" />
 
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
+
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+
 
 
     <uses-feature android:name="android.hardware.telephony" android:required="false" />
@@ -54,6 +66,19 @@
             <action android:name="android.intent.action.SET_TIMER" />
         </intent>
         <package android:name="com.google.android.deskclock" />
+        <package android:name="com.google.android.apps.maps" />
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="google.navigation" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="geo" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
     </queries>
 
     <application
@@ -124,6 +149,66 @@
 
 
 
+        <activity
+
+            android:name=".ui.NavigateBridgeActivity"
+
+            android:exported="false"
+
+            android:excludeFromRecents="true"
+
+            android:showWhenLocked="true"
+
+            android:turnScreenOn="true"
+
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+
+
+        <activity
+
+            android:name=".ui.InstallBridgeActivity"
+
+            android:exported="false"
+
+            android:excludeFromRecents="true"
+
+            android:showWhenLocked="true"
+
+            android:turnScreenOn="true"
+
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+
+
+        <provider
+
+            android:name="androidx.core.content.FileProvider"
+
+            android:authorities="${applicationId}.fileprovider"
+
+            android:exported="false"
+
+            android:grantUriPermissions="true">
+
+            <meta-data
+
+                android:name="android.support.FILE_PROVIDER_PATHS"
+
+                android:resource="@xml/file_paths" />
+
+        </provider>
+
+
+
+        <receiver
+
+            android:name=".update.InstallStatusReceiver"
+
+            android:exported="false" />
+
+
+
         <service
 
             android:name=".findphone.FindPhoneService"
@@ -144,6 +229,26 @@
 
 
 
+        <service
+
+            android:name=".notify.PhonePiNotificationListener"
+
+            android:exported="true"
+
+            android:label="PhonePi notification access"
+
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+
+            <intent-filter>
+
+                <action android:name="android.service.notification.NotificationListenerService" />
+
+            </intent-filter>
+
+        </service>
+
+
+
         <receiver
 
             android:name=".receiver.MessageActionReceiver"
@@ -157,6 +262,50 @@
             android:name=".receiver.TimerReceiver"
 
             android:exported="false" />
+
+
+
+        <receiver
+
+            android:name=".receiver.MidnightVolumeReceiver"
+
+            android:exported="false" />
+
+
+
+        <receiver
+
+            android:name=".receiver.BootReceiver"
+
+            android:exported="true"
+
+            android:permission="android.permission.RECEIVE_BOOT_COMPLETED">
+
+            <intent-filter>
+
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+
+            </intent-filter>
+
+        </receiver>
+
+
+
+        <receiver
+
+            android:name=".receiver.PackageReplacedReceiver"
+
+            android:exported="true">
+
+            <intent-filter>
+
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+
+            </intent-filter>
+
+        </receiver>
 
     </application>
 

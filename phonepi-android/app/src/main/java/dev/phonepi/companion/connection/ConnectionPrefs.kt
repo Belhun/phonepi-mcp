@@ -8,6 +8,7 @@ object ConnectionPrefs {
     private const val KEY_HOST = "last_success_host"
     private const val KEY_PORT = "last_success_port"
     private const val KEY_WS_TOKEN = "last_ws_token"
+    private const val KEY_RECONNECT_ON_BOOT = "reconnect_on_boot"
     const val DEFAULT_HOST = "127.0.0.1"
     const val DEFAULT_PORT = 11041
 
@@ -41,6 +42,17 @@ object ConnectionPrefs {
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
             .clear()
+            .apply()
+    }
+
+    fun reconnectOnBoot(context: Context): Boolean =
+        context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getBoolean(KEY_RECONNECT_ON_BOOT, true)
+
+    fun setReconnectOnBoot(context: Context, enabled: Boolean) {
+        context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_RECONNECT_ON_BOOT, enabled)
             .apply()
     }
 
