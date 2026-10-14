@@ -92,6 +92,8 @@ test("command allowlist is the four phone_* tools", () => {
   for (const name of FORBIDDEN_COMMANDS) {
     assert.equal(isPhoneCommand(name), false);
   }
+  assert.equal(isPhoneCommand("get_notifications"), false);
+  assert.equal(isPhoneCommand("list_notification_apps"), false);
 });
 
 test("token comparison is length-safe", () => {

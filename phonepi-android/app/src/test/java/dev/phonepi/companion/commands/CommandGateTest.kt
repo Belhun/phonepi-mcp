@@ -23,6 +23,20 @@ class CommandGateTest {
     }
 
     @Test
+    fun notificationReadsAreRateLimitedAndNotPhoneCommands() {
+        assertFalse(PhoneCommands.isAllowlisted("get_notifications"))
+        assertFalse(PhoneCommands.isAllowlisted("list_notification_apps"))
+        assertEquals(60, PhoneReadTools.maxPerMinute("get_notifications"))
+        assertEquals(60, PhoneReadTools.maxPerMinute("list_notification_apps"))
+        var now = 10_000L
+        val limiter = CommandRateLimiter(windowMs = 60_000L, now = { now })
+        repeat(60) {
+            assertTrue(limiter.allow("get_notifications", 60) is CommandRateLimiter.Result.Allowed)
+        }
+        assertTrue(limiter.allow("get_notifications", 60) is CommandRateLimiter.Result.Denied)
+    }
+
+    @Test
     fun rateLimiterBlocksNavigateAfterBudget() {
         var now = 10_000L
         val limiter = CommandRateLimiter(windowMs = 60_000L, now = { now })

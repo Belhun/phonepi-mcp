@@ -3,7 +3,11 @@ import http from "node:http";
 import net from "node:net";
 import test from "node:test";
 import { WebSocket } from "ws";
-import { READ_ONLY_HTTP_TOOLS } from "../dist/read-only-tools.js";
+import { RateLimitError } from "../dist/commands.js";
+import {
+  READ_ONLY_HTTP_TOOLS,
+  READ_ONLY_TOOL_RATE_LIMITS,
+} from "../dist/read-only-tools.js";
 import {
   authorizeWsConnection,
   createPhoneVerifyClient,
@@ -103,7 +107,7 @@ async function withHttp(bridge, fn) {
   }
 }
 
-test("read-only allowlist is exactly the nine phone read tools", () => {
+test("read-only allowlist is exactly the eleven phone read tools", () => {
   assert.deepEqual(
     [...READ_ONLY_HTTP_TOOLS].sort(),
     [
@@ -111,9 +115,11 @@ test("read-only allowlist is exactly the nine phone read tools", () => {
       "get_battery_level",
       "get_contact_by_id",
       "get_contacts",
+      "get_notifications",
       "get_recent_calls",
       "get_snippet_by_id",
       "get_snippets_by_type",
+      "list_notification_apps",
       "search_contacts",
       "search_snippets",
     ]
@@ -474,4 +480,58 @@ test("starting the HTTP API does not write to stdout", async () => {
   const noise = chunks.join("");
   assert.equal(noise.includes("HTTP"), false);
   assert.equal(noise.includes("11043"), false);
+});
+
+test("notification read tools are on the HTTP allowlist and rate-limited", async () => {
+  assert.equal(READ_ONLY_HTTP_TOOLS.has("get_notifications"), true);
+  assert.equal(READ_ONLY_HTTP_TOOLS.has("list_notification_apps"), true);
+  assert.equal(READ_ONLY_TOOL_RATE_LIMITS.get_notifications, 60);
+  assert.equal(READ_ONLY_TOOL_RATE_LIMITS.list_notification_apps, 60);
+
+  const calls = [];
+  await withHttp(
+    {
+      isPhoneConnected: () => true,
+      callPhoneTool: async (name, args) => {
+        calls.push({ name, args });
+        return { status: "success", tool: name };
+      },
+    },
+    async ({ port }) => {
+      const listed = await postTool(port, {
+        tool: "list_notification_apps",
+        arguments: {},
+      });
+      assert.equal(listed.status, 200);
+      const notes = await postTool(port, {
+        tool: "get_notifications",
+        arguments: { package: "com.google.android.gm", limit: 10 },
+      });
+      assert.equal(notes.status, 200);
+      assert.deepEqual(calls, [
+        { name: "list_notification_apps", args: {} },
+        {
+          name: "get_notifications",
+          args: { package: "com.google.android.gm", limit: 10 },
+        },
+      ]);
+    }
+  );
+
+  await withHttp(
+    {
+      isPhoneConnected: () => true,
+      callPhoneTool: async () => {
+        throw new RateLimitError("get_notifications", 7);
+      },
+    },
+    async ({ port }) => {
+      const res = await postTool(port, {
+        tool: "get_notifications",
+        arguments: {},
+      });
+      assert.equal(res.status, 429);
+      assert.match(res.json.text, /Rate limited/);
+    }
+  );
 });

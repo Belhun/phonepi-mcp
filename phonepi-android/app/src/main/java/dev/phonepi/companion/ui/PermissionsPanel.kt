@@ -28,6 +28,7 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import dev.phonepi.companion.notify.NotificationAccess
 import dev.phonepi.companion.permissions.PermissionTier
 import dev.phonepi.companion.permissions.isGranted
 import dev.phonepi.companion.permissions.missingPermissions
@@ -45,6 +46,7 @@ fun PermissionsPanel(modifier: Modifier = Modifier) {
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
     val overlayOk = remember(refreshKey) { Settings.canDrawOverlays(context) }
+    val notificationAccessOk = remember(refreshKey) { NotificationAccess.isGranted(context) }
     val fsiOk = remember(refreshKey) {
         if (Build.VERSION.SDK_INT >= 34) {
             context.getSystemService(NotificationManager::class.java)?.canUseFullScreenIntent() == true
@@ -70,10 +72,19 @@ fun PermissionsPanel(modifier: Modifier = Modifier) {
     ) {
         Text("Tool permissions", style = MaterialTheme.typography.titleMedium)
         Text(
-            "Grant access before running call, contact, location, or navigation tools. " +
-                "Display over other apps is what lets Maps open while PhonePi is in the background.",
+            "Grant access before running call, contact, location, navigation, or notification tools. " +
+                "Display over other apps is what lets Maps open while PhonePi is in the background. " +
+                "Notification access is a separate system setting; PhonePi still shares no apps until you pick them.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        PermissionTierRow(
+            label = "Notification access",
+            granted = notificationAccessOk,
+            onGrant = {
+                context.startActivity(NotificationAccess.settingsIntent(context))
+            },
         )
 
         PermissionTierRow(

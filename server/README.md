@@ -103,6 +103,7 @@ Success is HTTP 200:
 | 200 | Allowlisted tool ran | `{ "text", "isError": false }` |
 | 400 | Bad JSON, missing tool name, or `arguments` is not an object | `{ "text", "isError": true }` |
 | 403 | Tool is not on the allowlist | `{ "text", "isError": true }` |
+| 429 | Over the per-tool rate limit (`get_notifications`, `list_notification_apps`) | `{ "text", "isError": true }` |
 | 503 | Phone socket is not open | `{ "text", "isError": true }` |
 | 502 | The phone request failed (for example a timeout) | `{ "text", "isError": true }` |
 
@@ -117,6 +118,8 @@ Allowlist:
 - `get_snippet_by_id`
 - `get_snippets_by_type`
 - `search_snippets`
+- `get_notifications` (60/min)
+- `list_notification_apps` (60/min)
 
 Everything else is rejected with 403 and is not sent to the phone. That includes `make_call`, `find_phone`, `set_timer`, `copy_to_clipboard`, `send_message`, `send_notification`, snippet or contact add/update/delete, `share_snippet`, and every `gm_*` Google Messages tool.
 

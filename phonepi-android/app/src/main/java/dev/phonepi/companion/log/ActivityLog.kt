@@ -118,6 +118,12 @@ object ActivityLog {
         }
         "make_call" -> "Call to ${data["to"]?.jsonPrimitive?.contentOrNull ?: "?"}"
         "get_recent_calls" -> "${data["count"]?.jsonPrimitive?.contentOrNull ?: "?"} recent calls"
+        "get_notifications" -> {
+            val count = data["count"]?.jsonPrimitive?.contentOrNull ?: "?"
+            val omitted = data["omittedUnsharedCount"]?.jsonPrimitive?.contentOrNull ?: "0"
+            "$count notification(s) (omitted unshared=$omitted)"
+        }
+        "list_notification_apps" -> "${data["count"]?.jsonPrimitive?.contentOrNull ?: "?"} notification app(s)"
         "get_contacts" -> "Listed ${data["count"]?.jsonPrimitive?.contentOrNull ?: "?"} contacts"
         "search_contacts" -> "Found ${data["count"]?.jsonPrimitive?.contentOrNull ?: "?"} contacts"
         "add_contact", "update_contact", "get_contact_by_id" -> "Contact updated"

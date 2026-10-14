@@ -69,6 +69,24 @@ const TOOLS = [
     fields: [],
   },
   {
+    id: "get_notifications",
+    label: "Get notifications",
+    group: "Notifications",
+    description: "Read recent/active notifications from allowlisted apps. Never dismisses or replies.",
+    fields: [
+      { key: "package", label: "Package filter (optional)", type: "text", default: "" },
+      { key: "since", label: "Since epoch ms (optional)", type: "number", default: 0 },
+      { key: "limit", label: "Max results", type: "number", default: 50, min: 1 },
+    ],
+  },
+  {
+    id: "list_notification_apps",
+    label: "List notification apps",
+    group: "Notifications",
+    description: "Apps that have posted a notification, plus whether each is shared. No bodies.",
+    fields: [],
+  },
+  {
     id: "send_notification",
     label: "Send notification",
     group: "Notifications",

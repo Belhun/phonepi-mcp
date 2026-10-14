@@ -23,6 +23,10 @@ import {
   isPhoneCommand,
 } from "./commands.js";
 import {
+  NOTIFICATION_TOOL_SCHEMAS,
+  readOnlyToolRateLimit,
+} from "./read-only-tools.js";
+import {
   LoopbackHttpHandle,
   resolveHttpPort,
   startLoopbackHttp,
@@ -123,6 +127,16 @@ class PhonePiMCPServer {
         if (!budget.ok) {
           return Promise.reject(
             new RateLimitError(spec.name, budget.retryAfterSec)
+          );
+        }
+      }
+    } else {
+      const maxPerMinute = readOnlyToolRateLimit(name);
+      if (maxPerMinute != null) {
+        const budget = commandRateLimiter.allow(name, maxPerMinute);
+        if (!budget.ok) {
+          return Promise.reject(
+            new RateLimitError(name, budget.retryAfterSec)
           );
         }
       }
@@ -1407,6 +1421,7 @@ class PhonePiMCPServer {
             required: ["title", "body"],
           },
         },
+        ...NOTIFICATION_TOOL_SCHEMAS,
         ...PHONE_COMMAND_SCHEMAS,
         ...GM_TOOL_SCHEMAS,
       ],
