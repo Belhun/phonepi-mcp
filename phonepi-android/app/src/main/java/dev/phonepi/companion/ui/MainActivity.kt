@@ -4,9 +4,13 @@ import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
+import androidx.compose.material3.Scaffold
 import androidx.compose.ui.Modifier
 import dev.phonepi.companion.connection.SetupBus
 import dev.phonepi.companion.connection.SetupLink
@@ -15,11 +19,20 @@ import dev.phonepi.companion.connection.SetupLink
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         handleIntent(intent)
         setContent {
             MaterialTheme {
-                Surface(modifier = Modifier.fillMaxSize()) {
-                    ConnectScreen()
+                Scaffold(
+                    modifier = Modifier.fillMaxSize(),
+                    contentWindowInsets = WindowInsets.safeDrawing,
+                    containerColor = MaterialTheme.colorScheme.background,
+                ) { innerPadding ->
+                    ConnectScreen(
+                        modifier = Modifier
+                            .padding(innerPadding)
+                            .fillMaxSize(),
+                    )
                 }
             }
         }

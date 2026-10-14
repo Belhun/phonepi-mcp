@@ -153,8 +153,20 @@ Body:
 | `phone_add_location` | write | 20/min |
 | `phone_remove_location` | write | 20/min |
 | `phone_navigate` | action | 6/min |
+| `phone_push_update` | write | 6/min |
 
-MCP exposes the same four names. Rate limits are shared between MCP and HTTP.
+MCP exposes the same names. Rate limits are shared between MCP and HTTP.
+
+### App updates (`/phonepi/update`)
+
+On the phone WebSocket port (the same host Tailscale Serve publishes):
+
+- `GET /phonepi/update/manifest` — `{ versionCode, versionName, sha256, size, fileName }`
+- `GET /phonepi/update/apk` — the APK bytes
+
+`PHONEPI_WS_TOKEN` is required (`Authorization: Bearer`, `X-PhonePi-Token`, or `?token=`).
+
+Directory: `PHONEPI_UPDATE_DIR` (default `~/.phonepi/updates`). Put `phonepi.apk` plus `manifest.json` (`versionCode`, `versionName`), or a file named `phonepi-0.2.4-6.apk`. sha256 and size are computed from the file.
 
 ```powershell
 $env:PHONEPI_WS_TOKEN = "choose-a-long-secret"

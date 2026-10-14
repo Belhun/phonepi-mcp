@@ -28,6 +28,7 @@ import dev.phonepi.companion.tools.GetNotificationsTool
 import dev.phonepi.companion.tools.ListLocationsTool
 import dev.phonepi.companion.tools.ListNotificationAppsTool
 import dev.phonepi.companion.tools.NavigateTool
+import dev.phonepi.companion.tools.PushUpdateTool
 import dev.phonepi.companion.tools.RemoveLocationTool
 import dev.phonepi.companion.tools.GetMessageResponseTool
 import dev.phonepi.companion.tools.GetSnippetByIdTool
@@ -79,6 +80,7 @@ class ConnectionService : Service() {
                 AddLocationTool(ctx),
                 RemoveLocationTool(ctx),
                 NavigateTool(ctx),
+                PushUpdateTool(ctx),
                 SendMessageTool(ctx),
                 GetMessageResponseTool(ctx),
                 AddSnippetTool(ctx),

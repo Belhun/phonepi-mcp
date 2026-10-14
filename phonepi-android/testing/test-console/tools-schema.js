@@ -301,6 +301,15 @@ const TOOLS = [
     ],
   },
   {
+    id: "phone_push_update",
+    label: "Push update",
+    group: "Device",
+    description: "Download the server APK, verify it, and show the system installer. Alex still taps Install.",
+    fields: [
+      { key: "force", label: "Force (reinstall even if versionCode matches)", type: "checkbox", default: true },
+    ],
+  },
+  {
     id: "phone_navigate",
     label: "Navigate",
     group: "Navigation",

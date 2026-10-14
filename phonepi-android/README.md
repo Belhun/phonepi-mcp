@@ -119,7 +119,7 @@ The app stores named destinations locally (Room) and starts Google Maps when the
 
 ### What to install and grant
 
-1. Install this companion APK (sideload, **0.2.3** or newer) and **Google Maps**.
+1. Install this companion APK (sideload, **0.2.4** or newer) and **Google Maps**.
 2. In PhonePi, set the same WebSocket token as `PHONEPI_WS_TOKEN` on the PC, then Connect. Notifications permission is requested on connect.
 3. Grant **Display over other apps** (Appear on top): PhonePi → Tool permissions, or Settings → Apps → PhonePi → Appear on top. That is the reliable way to open Maps while PhonePi is in the background or the screen is off. Android can swallow `startActivity` from the background without throwing.
 4. Grant **full-screen notifications** (Android 14+) as the fallback when overlay is off: Settings → Apps → PhonePi → Full screen notifications. Without overlay, PhonePi always posts a high-priority full-screen notification instead of trusting a background start.
@@ -150,12 +150,20 @@ PhonePi can show recent and currently active notifications to MCP / the loopback
 
 ### What Alex must grant
 
-1. Sideload **0.2.3** (or newer).
+1. Sideload **0.2.4** (or newer), or use in-app update from 0.2.4 onward.
 2. **Notification access** (once): PhonePi → Tool permissions → Notification access, which opens the system Notification listener settings. Enable PhonePi. This is separate from the usual notification *posting* permission.
 3. In PhonePi → **Notification sharing**, pick apps that have posted a notification (the list stays empty until something notifies after access is granted). Nothing is shared until then. Optional: **Share all** (off by default).
 4. Existing grants still needed for other features: WebSocket token, Display over other apps (Maps), full-screen intents (Maps fallback), call/contacts/location if those tools are used.
 
 `get_notifications` returns app name, title, text, time, and package. If Android hid a field, the value is `(hidden by Android)` plus a `hiddenFields` reason. Unshared apps are counted in `omittedUnsharedCount`, not silently dropped. Tools are rate-limited (60/min) and show up in Recent activity.
+
+The main screen scrolls (connect → update → permissions → notification sharing → **Recent activity**) and sits inside the system bars. Scroll to the bottom for **Share all**, per-app toggles, and **Recent activity** with its **Clear** button.
+
+## In-app update
+
+The PC serves `GET /phonepi/update/manifest` and `GET /phonepi/update/apk` on the same WebSocket host (token required). Drop APKs in `PHONEPI_UPDATE_DIR` (default `~/.phonepi/updates`): `phonepi-0.2.4-6.apk` or `phonepi.apk` plus `manifest.json` with `versionCode` and `versionName`.
+
+On the phone: **Check for update** / **Force update**, or MCP `phone_push_update`. PhonePi verifies sha256 and the signing cert, then opens the system installer. Alex still taps Install. Grant **Install unknown apps** once (Tool permissions).
 
 Unit tests (no device):
 

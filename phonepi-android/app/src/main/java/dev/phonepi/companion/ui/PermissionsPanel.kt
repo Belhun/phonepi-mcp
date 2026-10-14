@@ -30,6 +30,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import dev.phonepi.companion.notify.NotificationAccess
 import dev.phonepi.companion.permissions.PermissionTier
+import dev.phonepi.companion.update.UnknownAppInstall
 import dev.phonepi.companion.permissions.isGranted
 import dev.phonepi.companion.permissions.missingPermissions
 
@@ -47,6 +48,7 @@ fun PermissionsPanel(modifier: Modifier = Modifier) {
     }
     val overlayOk = remember(refreshKey) { Settings.canDrawOverlays(context) }
     val notificationAccessOk = remember(refreshKey) { NotificationAccess.isGranted(context) }
+    val unknownAppsOk = remember(refreshKey) { UnknownAppInstall.isGranted(context) }
     val fsiOk = remember(refreshKey) {
         if (Build.VERSION.SDK_INT >= 34) {
             context.getSystemService(NotificationManager::class.java)?.canUseFullScreenIntent() == true
@@ -77,6 +79,14 @@ fun PermissionsPanel(modifier: Modifier = Modifier) {
                 "Notification access is a separate system setting; PhonePi still shares no apps until you pick them.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        PermissionTierRow(
+            label = "Install unknown apps",
+            granted = unknownAppsOk,
+            onGrant = {
+                context.startActivity(UnknownAppInstall.settingsIntent(context))
+            },
         )
 
         PermissionTierRow(
