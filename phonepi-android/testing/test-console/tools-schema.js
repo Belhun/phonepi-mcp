@@ -17,6 +17,24 @@ const TOOLS = [
     fields: [],
   },
   {
+    id: "get_volumes",
+    label: "Get volumes",
+    group: "Device",
+    description: "Read alarm/ring/notification/media/voice/system current and max, ringer mode, and DND.",
+    fields: [],
+  },
+  {
+    id: "phone_set_volume",
+    label: "Set volume",
+    group: "Device",
+    description: "Set one stream to a level or max, or max_all. Ring/notification in DND need Do Not Disturb access.",
+    fields: [
+      { key: "stream", label: "Stream", type: "text", default: "alarm" },
+      { key: "level", label: "Level or max", type: "text", default: "max" },
+      { key: "max_all", label: "Max all streams", type: "checkbox", default: false },
+    ],
+  },
+  {
     id: "copy_to_clipboard",
     label: "Copy to clipboard",
     group: "Device",

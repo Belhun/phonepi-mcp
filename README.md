@@ -43,6 +43,10 @@ Standing log of shipped features, mistakes, and iPhone portability: [docs/LEARNI
 
 The MCP server serves the latest APK at `GET /phonepi/update/manifest` and `GET /phonepi/update/apk` (same host as the phone WebSocket, `PHONEPI_WS_TOKEN` required). Drop a release APK in `PHONEPI_UPDATE_DIR` (default `~/.phonepi/updates`) and sign `manifest.json` with `scripts/sign-update-manifest.sh`. `phone_push_update` verifies the Ed25519 signature, APK sha256, and pinned release cert, then shows the system installer; Alex still taps Install. Debug → release is a one-time uninstall; see [docs/release-signing.md](docs/release-signing.md).
 
+## Volumes
+
+Read-only `get_volumes` (loopback `POST /api/tool` and MCP) returns alarm, ring, notification, media, voice, and system current/max, plus ringer mode and Do Not Disturb. `phone_set_volume` is a write command (`stream` + `level` or `"max"`, or `max_all`). Optional **Max volumes at midnight** on the phone uses an exact alarm so the clock is audible if the PC is offline. Ring/notification changes while DND is on need Do Not Disturb access, requested only when that grant is needed.
+
 ## Notification reading
 
 Read-only. MCP and `POST /api/tool` expose `get_notifications` (filters: `package`, `since`, `limit`) and `list_notification_apps`. They never dismiss, reply to, or act on a notification. By default no app's bodies are shared until they are picked in PhonePi (Share all is off). If Android withholds a field, the payload says so instead of omitting it.

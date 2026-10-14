@@ -7,7 +7,7 @@ import org.junit.Test
 
 class CommandGateTest {
     @Test
-    fun allowlistIsExactlyTheFivePhoneCommands() {
+    fun allowlistIsExactlyTheSixPhoneCommands() {
         assertEquals(
             setOf(
                 "phone_add_location",
@@ -15,6 +15,7 @@ class CommandGateTest {
                 "phone_navigate",
                 "phone_push_update",
                 "phone_remove_location",
+                "phone_set_volume",
             ),
             PhoneCommands.ALL.map { it.name }.toSet(),
         )
@@ -27,8 +28,10 @@ class CommandGateTest {
     fun notificationReadsAreRateLimitedAndNotPhoneCommands() {
         assertFalse(PhoneCommands.isAllowlisted("get_notifications"))
         assertFalse(PhoneCommands.isAllowlisted("list_notification_apps"))
+        assertFalse(PhoneCommands.isAllowlisted("get_volumes"))
         assertEquals(60, PhoneReadTools.maxPerMinute("get_notifications"))
         assertEquals(60, PhoneReadTools.maxPerMinute("list_notification_apps"))
+        assertEquals(60, PhoneReadTools.maxPerMinute("get_volumes"))
         var now = 10_000L
         val limiter = CommandRateLimiter(windowMs = 60_000L, now = { now })
         repeat(60) {

@@ -75,7 +75,7 @@ async function withHttp(bridge, fn, commandToken = "test-token") {
   }
 }
 
-test("command allowlist is the five phone_* tools", () => {
+test("command allowlist is the six phone_* tools", () => {
   assert.deepEqual(
     [...PHONE_COMMAND_NAMES].sort(),
     [
@@ -84,6 +84,7 @@ test("command allowlist is the five phone_* tools", () => {
       "phone_navigate",
       "phone_push_update",
       "phone_remove_location",
+      "phone_set_volume",
     ]
   );
   for (const name of PHONE_COMMAND_NAMES) {
@@ -95,6 +96,8 @@ test("command allowlist is the five phone_* tools", () => {
   }
   assert.equal(isPhoneCommand("get_notifications"), false);
   assert.equal(isPhoneCommand("list_notification_apps"), false);
+  assert.equal(isPhoneCommand("get_volumes"), false);
+  assert.equal(isPhoneCommand("phone_set_volume"), true);
 });
 
 test("token comparison is length-safe", () => {

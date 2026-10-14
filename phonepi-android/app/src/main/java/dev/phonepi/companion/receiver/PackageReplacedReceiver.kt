@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import dev.phonepi.companion.connection.SavedConnectionReconnect
+import dev.phonepi.companion.volume.MidnightVolume
 
 /**
  * After a self-update the process is gone. [Intent.ACTION_MY_PACKAGE_REPLACED]
@@ -16,5 +17,6 @@ class PackageReplacedReceiver : BroadcastReceiver() {
             context,
             SavedConnectionReconnect.Trigger.PACKAGE_REPLACED,
         )
+        MidnightVolume.rescheduleIfEnabled(context)
     }
 }

@@ -143,6 +143,17 @@ object ActivityLog {
             val method = data["method"]?.jsonPrimitive?.contentOrNull ?: "none"
             "Update promptShown=$shown via $method"
         }
+        "get_volumes" ->
+            "ringer=${data["ringerMode"]?.jsonPrimitive?.contentOrNull ?: "?"} " +
+                "dnd=${data["dnd"]?.jsonPrimitive?.contentOrNull ?: "?"}"
+        "phone_set_volume" -> {
+            val changed = data["changed"]?.jsonPrimitive?.contentOrNull ?: ""
+            val skipped = data["skipped"]?.jsonPrimitive?.contentOrNull ?: ""
+            buildString {
+                append(changed.ifEmpty { "no change" })
+                if (skipped.isNotEmpty()) append(" skipped $skipped")
+            }
+        }
         else -> "OK"
     }
 

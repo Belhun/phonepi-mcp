@@ -154,6 +154,7 @@ Body:
 | `phone_remove_location` | write | 20/min |
 | `phone_navigate` | action | 6/min |
 | `phone_push_update` | write | 6/min |
+| `phone_set_volume` | write | 20/min |
 
 MCP exposes the same names. Rate limits are shared between MCP and HTTP.
 
@@ -166,7 +167,7 @@ On the phone WebSocket port (the same host Tailscale Serve publishes):
 
 `PHONEPI_WS_TOKEN` is required (`Authorization: Bearer`, `X-PhonePi-Token`, or `?token=`).
 
-Directory: `PHONEPI_UPDATE_DIR` (default `~/.phonepi/updates`). Put a release APK named `phonepi-0.2.6-8.apk` (or `phonepi.apk`) and run `scripts/sign-update-manifest.sh` so `manifest.json` is Ed25519-signed. The APK bytes' sha256 must match the signed `sha256`. See [docs/release-signing.md](../docs/release-signing.md).
+Directory: `PHONEPI_UPDATE_DIR` (default `~/.phonepi/updates`). Put a release APK named `phonepi-0.2.7-9.apk` (or `phonepi.apk`) and run `scripts/sign-update-manifest.sh` so `manifest.json` is Ed25519-signed. The APK bytes' sha256 must match the signed `sha256`. See [docs/release-signing.md](../docs/release-signing.md).
 
 ```powershell
 $env:PHONEPI_WS_TOKEN = "choose-a-long-secret"

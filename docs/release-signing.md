@@ -45,7 +45,7 @@ On the Pixel, once:
 
 1. Note the saved host / token if you need them (prefs are wiped on uninstall).
 2. Uninstall PhonePi.
-3. Sideload the **0.2.6** (or newer) **release** APK.
+3. Sideload the **0.2.7** (or newer) **release** APK.
 4. Grant overlay, notification access, install-unknown-apps, and reconnect.
 
 After that, in-app updates work because every later APK is signed with the same release cert.
@@ -53,7 +53,7 @@ After that, in-app updates work because every later APK is signed with the same 
 ## Drop and sign an update
 
 ```bash
-cp app-release.apk ~/.phonepi/updates/phonepi-0.2.6-8.apk
+cp app-release.apk ~/.phonepi/updates/phonepi-0.2.7-9.apk
 scripts/sign-update-manifest.sh --dir ~/.phonepi/updates --min-version 8
 ```
 

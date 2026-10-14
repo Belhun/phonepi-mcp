@@ -52,6 +52,10 @@
 
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
+    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
+
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+
 
 
     <uses-feature android:name="android.hardware.telephony" android:required="false" />
@@ -256,6 +260,14 @@
         <receiver
 
             android:name=".receiver.TimerReceiver"
+
+            android:exported="false" />
+
+
+
+        <receiver
+
+            android:name=".receiver.MidnightVolumeReceiver"
 
             android:exported="false" />
 
