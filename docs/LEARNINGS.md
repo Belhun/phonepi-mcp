@@ -2,7 +2,7 @@
 
 Standing log for this PR branch (`cursor/phone-navigate-locations-1ceb`). Update this file in the same change as every future PhonePi feature, bugfix, or device lesson. Do not merge this branch from this log. Never commit secrets (`PHONEPI_WS_TOKEN`, command tokens, hostnames with tokens in the URL, APK signing keystores, or personal MagicDNS names that are not already public in the repo).
 
-Current companion: **0.2.4** (versionCode **6**).
+Current companion: **0.2.5** (versionCode **7**).
 
 ## How to update
 
@@ -61,6 +61,14 @@ Phone: **Check for update** (newer `versionCode`), quiet banner on connect, **Fo
 
 UI: `enableEdgeToEdge()` plus `Scaffold(contentWindowInsets = WindowInsets.safeDrawing)`. Root content is a `Box` + `Column(fillMaxWidth + verticalScroll)` (not `fillMaxSize().verticalScroll()`). Screen order: connect → update → permissions → Notification sharing (Share all and per-app rows in the parent scroll, no nested 280.dp scroller) → **Recent activity** with **Clear** (wrap-content, no `weight(1f)` / nested `LazyColumn`).
 
+### 0.2.5 — reconnect after self-update
+
+Field test 2026-10-13: `phone_push_update` force downloaded, verified, showed the overlay installer, and Alex tapped Update. After the reinstall the phone did not reconnect.
+
+Cause: replacing the APK kills the process. `BootReceiver` only handled `BOOT_COMPLETED` / quickboot, so the saved host sat unused until someone opened PhonePi.
+
+Fix: `PackageReplacedReceiver` on `ACTION_MY_PACKAGE_REPLACED` restarts `ConnectionService` from the saved host (same helper as boot). Package replace reconnects whenever a host is saved; it does not use the "Reconnect when the phone boots" toggle. `MY_PACKAGE_REPLACED` is a documented exemption for starting that foreground service. Android-only.
+
 ## Mistakes and fixes
 
 | Symptom | Cause | Fix |
@@ -70,6 +78,7 @@ UI: `enableEdgeToEdge()` plus `Scaffold(contentWindowInsets = WindowInsets.safeD
 | Main screen drew under the status bar and gesture nav; **Share all** clipped; per-app list and **Recent activity** unreachable (0.2.3) | Edge-to-edge without window insets. Parent `Column(fillMaxSize)` did not scroll. `ActivityLogPanel(Modifier.weight(1f))` plus a nested `LazyColumn` was squeezed to zero height once Notification sharing took the rest of the screen. Nested `heightIn(max = 280.dp).verticalScroll` on the app list hid rows behind the nav bar. | `WindowInsets.safeDrawing` on the scaffold. One parent `verticalScroll`. Wrap-content log and share rows. Keep **Recent activity** / **Clear** last, below Notification sharing. |
 | Phone could not resolve the Tailscale host (`*.ts.net`) even though the PC was up | Tailnet MagicDNS was not the resolver the phone used. | Turn on Tailscale DNS / MagicDNS on the phone (Tailscale app DNS settings, not a PhonePi code change). Then reconnect. |
 | `adb connect` to wireless debugging stopped working after a Wi-Fi or tailnet change | Android **wireless debugging** assigns a new TCP port when the network changes. The old `ip:port` is dead. | Re-open Wireless debugging on the Pixel, copy the new port, pair/connect again. Do not bake a port into scripts. |
+| After `phone_push_update` / in-app Install, the phone stayed disconnected (2026-10-13) | The installer replaces the APK and kills the process. Boot reconnect does not run on package replace. | `ACTION_MY_PACKAGE_REPLACED` receiver starts `ConnectionService` from the last saved host. |
 
 ## iPhone: Android-only vs portable
 
@@ -89,7 +98,7 @@ Android-only (do not assume iOS equivalents):
 - BAL, `SYSTEM_ALERT_WINDOW`, full-screen intent notifications, `NavigateBridgeActivity`.
 - `NotificationListenerService` reading **other apps'** notifications. iOS has no public equivalent; a Notification Service Extension only sees this app's own notifications unless Apple grants a special entitlement.
 - `PackageInstaller`, `REQUEST_INSTALL_PACKAGES`, **Install unknown apps**, FileProvider APKs. iOS distribution is TestFlight / App Store / MDM, not a local IPA installer from the MCP host.
-- `RECEIVE_BOOT_COMPLETED`. iOS has no boot broadcast; reconnect on next launch or a background task the OS may not run.
+- `RECEIVE_BOOT_COMPLETED` and `ACTION_MY_PACKAGE_REPLACED`. iOS has neither; reconnect on next launch or a background task the OS may not run. After an iOS update the user usually opens the app anyway — restore the socket there from saved endpoint prefs.
 - Compose edge-to-edge / `WindowInsets.safeDrawing`.
 - ADB wireless debugging and its changing TCP port.
 - Hidden `Notification` extras such as `android.substName`.
@@ -103,4 +112,4 @@ iPhone notification reading sketch (not implemented): without an Apple entitleme
 - Overlay is the grant that actually opens Maps from the background. FSI is the fallback, not a substitute for overlay if you want Maps to appear unprompted.
 - Keep the PhonePi connection notification if the OS otherwise kills the socket when Maps comes to the front.
 - Tailscale Serve terminates TLS on the PC; the phone still needs MagicDNS (or a literal tailnet IP) and the WS token.
-- Sideload **0.2.4** once. Later APKs go in `~/.phonepi/updates` (or `PHONEPI_UPDATE_DIR`).
+- Sideload **0.2.5** (or use in-app update from 0.2.4). Later APKs go in `~/.phonepi/updates` (or `PHONEPI_UPDATE_DIR`). After Install, the phone should reconnect on its own; if it does not, open PhonePi once and check Recent activity for an **Update** reconnect line.

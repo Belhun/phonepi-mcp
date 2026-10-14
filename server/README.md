@@ -166,7 +166,7 @@ On the phone WebSocket port (the same host Tailscale Serve publishes):
 
 `PHONEPI_WS_TOKEN` is required (`Authorization: Bearer`, `X-PhonePi-Token`, or `?token=`).
 
-Directory: `PHONEPI_UPDATE_DIR` (default `~/.phonepi/updates`). Put `phonepi.apk` plus `manifest.json` (`versionCode`, `versionName`), or a file named `phonepi-0.2.4-6.apk`. sha256 and size are computed from the file.
+Directory: `PHONEPI_UPDATE_DIR` (default `~/.phonepi/updates`). Put `phonepi.apk` plus `manifest.json` (`versionCode`, `versionName`), or a file named `phonepi-0.2.5-7.apk`. sha256 and size are computed from the file.
 
 ```powershell
 $env:PHONEPI_WS_TOKEN = "choose-a-long-secret"
