@@ -18,6 +18,10 @@
 
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
 
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <uses-permission android:name="android.permission.VIBRATE" />
@@ -184,6 +188,26 @@
             android:name=".receiver.TimerReceiver"
 
             android:exported="false" />
+
+
+
+        <receiver
+
+            android:name=".receiver.BootReceiver"
+
+            android:exported="true"
+
+            android:permission="android.permission.RECEIVE_BOOT_COMPLETED">
+
+            <intent-filter>
+
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+
+            </intent-filter>
+
+        </receiver>
 
     </application>
 

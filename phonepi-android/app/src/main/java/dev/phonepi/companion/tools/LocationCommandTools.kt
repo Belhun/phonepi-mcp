@@ -109,12 +109,21 @@ class NavigateTool(context: Context) : ToolHandler {
             put("started", result.started)
             put("notificationPosted", result.notificationPosted)
             put("method", result.method)
+            put("overlayGranted", result.overlayGranted)
+            put("inForeground", result.inForeground)
             plan.fromSavedName?.let { put("savedName", it) }
             plan.sourceUrl?.let { put("mapsUrl", it) }
             result.grantNeeded?.let { put("grantNeeded", it) }
             put(
                 "note",
-                "Maps owns the Start now prompt on Android Auto. PhonePi does not bypass it.",
+                when (result.method) {
+                    "full_screen_notification" ->
+                        "Maps was not started from the background (startActivity is not trusted without Display over other apps). " +
+                            "Tap the PhonePi navigation notification, or grant Appear on top. " +
+                            "Maps owns the Start now prompt on Android Auto."
+                    else ->
+                        "Maps owns the Start now prompt on Android Auto. PhonePi does not bypass it."
+                },
             )
         }
     }

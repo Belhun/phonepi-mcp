@@ -91,6 +91,76 @@ class NavigationUrisTest {
     }
 }
 
+class NavigationLaunchPolicyTest {
+    @Test
+    fun backgroundWithoutOverlayNeverTrustsStartActivity() {
+        val decision = NavigationLaunchPolicy.decide(overlayGranted = false, inForeground = false)
+        assertFalse(decision.trustActivityStart)
+        assertTrue(decision.postFullScreenNotification)
+        assertEquals(
+            NavigationLaunchPolicy.METHOD_FULL_SCREEN_NOTIFICATION,
+            NavigationLaunchPolicy.method(
+                trustedStartSucceeded = false,
+                notificationPosted = true,
+                overlayGranted = false,
+                inForeground = false,
+            ),
+        )
+    }
+
+    @Test
+    fun silentBackgroundStartDoesNotCountAsActivity() {
+        assertEquals(
+            NavigationLaunchPolicy.METHOD_FULL_SCREEN_NOTIFICATION,
+            NavigationLaunchPolicy.method(
+                trustedStartSucceeded = false,
+                notificationPosted = true,
+                overlayGranted = false,
+                inForeground = false,
+            ),
+        )
+        assertFalse(
+            NavigationLaunchPolicy.decide(overlayGranted = false, inForeground = false).trustActivityStart,
+        )
+    }
+
+    @Test
+    fun overlayFromBackgroundTrustsStartAndSkipsForcedNotification() {
+        val decision = NavigationLaunchPolicy.decide(overlayGranted = true, inForeground = false)
+        assertTrue(decision.trustActivityStart)
+        assertFalse(decision.postFullScreenNotification)
+        assertEquals(NavigationLaunchPolicy.METHOD_OVERLAY, decision.methodIfTrustedStart)
+        assertEquals(
+            NavigationLaunchPolicy.METHOD_OVERLAY,
+            NavigationLaunchPolicy.method(
+                trustedStartSucceeded = true,
+                notificationPosted = false,
+                overlayGranted = true,
+                inForeground = false,
+            ),
+        )
+    }
+
+    @Test
+    fun foregroundTrustsStartAsActivity() {
+        val decision = NavigationLaunchPolicy.decide(overlayGranted = false, inForeground = true)
+        assertTrue(decision.trustActivityStart)
+        assertFalse(decision.postFullScreenNotification)
+        assertEquals(NavigationLaunchPolicy.METHOD_ACTIVITY, decision.methodIfTrustedStart)
+    }
+
+    @Test
+    fun grantNeededNamesOverlayWhenMissing() {
+        val text = NavigationLaunchPolicy.grantNeeded(
+            overlayGranted = false,
+            fullScreenIntentOk = true,
+            usedNotification = true,
+        )
+        assertNotNull(text)
+        assertTrue(text!!.contains("Display over other apps"))
+    }
+}
+
 class SavedLocationRulesTest {
     @Test
     fun requiresDestination() {

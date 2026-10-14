@@ -16,6 +16,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.runtime.Composable
@@ -25,6 +26,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -49,6 +51,9 @@ fun ConnectScreen() {
         mutableStateOf((saved?.port ?: ConnectionPrefs.DEFAULT_PORT).toString())
     }
     var wsToken by remember { mutableStateOf(saved?.wsToken.orEmpty()) }
+    var reconnectOnBoot by remember {
+        mutableStateOf(ConnectionPrefs.reconnectOnBoot(context.applicationContext))
+    }
 
     val notifPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -143,12 +148,31 @@ fun ConnectScreen() {
                     Text("Disconnect")
                 }
             }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "Reconnect when the phone boots",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                Switch(
+                    checked = reconnectOnBoot,
+                    onCheckedChange = { enabled ->
+                        reconnectOnBoot = enabled
+                        ConnectionPrefs.setReconnectOnBoot(context.applicationContext, enabled)
+                    },
+                )
+            }
             OutlinedButton(onClick = {
                 ConnectionService.stop(context)
                 ConnectionPrefs.clear(context.applicationContext)
                 host = ConnectionPrefs.DEFAULT_HOST
                 port = ConnectionPrefs.DEFAULT_PORT.toString()
                 wsToken = ""
+                reconnectOnBoot = true
             }) {
                 Text("Forget saved host")
             }
