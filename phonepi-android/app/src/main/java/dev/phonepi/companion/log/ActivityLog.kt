@@ -143,6 +143,17 @@ object ActivityLog {
             val method = data["method"]?.jsonPrimitive?.contentOrNull ?: "none"
             "Update promptShown=$shown via $method"
         }
+        "get_recent_photos" ->
+            "${data["count"]?.jsonPrimitive?.contentOrNull ?: "?"} photo(s)"
+        "get_photo" -> {
+            val id = data["id"]?.jsonPrimitive?.contentOrNull ?: "?"
+            val name = data["displayName"]?.jsonPrimitive?.contentOrNull ?: ""
+            val bytes = (data["encoding"] as? JsonObject)
+                ?.get("byteLength")
+                ?.jsonPrimitive
+                ?.contentOrNull
+            "Photo $id $name (${bytes ?: "?"} bytes)"
+        }
         "get_volumes" ->
             "ringer=${data["ringerMode"]?.jsonPrimitive?.contentOrNull ?: "?"} " +
                 "dnd=${data["dnd"]?.jsonPrimitive?.contentOrNull ?: "?"}"

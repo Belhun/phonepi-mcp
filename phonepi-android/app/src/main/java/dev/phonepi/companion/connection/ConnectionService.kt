@@ -29,6 +29,11 @@ import dev.phonepi.companion.tools.GetContactsTool
 import dev.phonepi.companion.tools.AddLocationTool
 import dev.phonepi.companion.tools.GetLocationTool
 import dev.phonepi.companion.tools.GetNotificationsTool
+import dev.phonepi.companion.photos.GetPhotoTool
+import dev.phonepi.companion.photos.GetRecentPhotosTool
+import dev.phonepi.companion.photos.MediaStorePhotoLibrary
+import dev.phonepi.companion.photos.PhotoAccess
+import dev.phonepi.companion.photos.PhotoGate
 import dev.phonepi.companion.tools.GetVolumesTool
 import dev.phonepi.companion.tools.SetVolumeTool
 import dev.phonepi.companion.tools.ListLocationsTool
@@ -77,6 +82,7 @@ class ConnectionService : Service() {
         super.onCreate()
         NotificationHelper.ensureChannels(applicationContext)
         val ctx = applicationContext
+        val photos = MediaStorePhotoLibrary(ctx)
         val router = ToolRouter(
             listOf(
                 BatteryTool(ctx),
@@ -110,6 +116,8 @@ class ConnectionService : Service() {
                 ListNotificationAppsTool(ctx),
                 GetVolumesTool(ctx),
                 SetVolumeTool(ctx),
+                GetRecentPhotosTool(PhotoGate { PhotoAccess.denial(ctx) }, photos),
+                GetPhotoTool(PhotoGate { PhotoAccess.denial(ctx) }, photos),
                 GetContactsTool(ctx),
                 SearchContactsTool(ctx),
                 GetContactByIdTool(ctx),

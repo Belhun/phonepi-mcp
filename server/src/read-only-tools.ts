@@ -12,6 +12,7 @@ export const READ_ONLY_HTTP_TOOLS = new Set<string>([
   "get_notifications",
   "list_notification_apps",
   "get_volumes",
+  "get_recent_photos",
 ]);
 
 /** Sliding-window limits (per minute) for sensitive read tools. */
@@ -19,6 +20,7 @@ export const READ_ONLY_TOOL_RATE_LIMITS: Record<string, number> = {
   get_notifications: 60,
   list_notification_apps: 60,
   get_volumes: 60,
+  get_recent_photos: 30,
 };
 
 export function isReadOnlyHttpTool(name: string): boolean {
@@ -60,6 +62,28 @@ export const NOTIFICATION_TOOL_SCHEMAS = [
     inputSchema: {
       type: "object",
       properties: {},
+      required: [],
+    },
+  },
+];
+
+export const PHOTO_TOOL_SCHEMAS = [
+  {
+    name: "get_recent_photos",
+    description:
+      "List the newest camera and gallery images on the phone. Metadata only: id, displayName, dateTaken, dateAdded, size, width, height, mimeType. No image bytes. Read-only: never deletes, edits, or uploads photos. Needs the Photos permission and the in-app Share recent photos switch (off by default). limit default 5, hard cap 20. since is epoch milliseconds. The scan looks at the newest 100 images. Fetch bytes with get_photo (token required).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: {
+          type: "number",
+          description: "How many photos to return (default 5, hard cap 20)",
+        },
+        since: {
+          type: "number",
+          description: "Epoch milliseconds. Only photos taken or added at or after this time",
+        },
+      },
       required: [],
     },
   },

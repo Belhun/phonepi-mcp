@@ -119,7 +119,7 @@ The app stores named destinations locally (Room) and starts Google Maps when the
 
 ### What to install and grant
 
-1. Install this companion APK (sideload, **0.2.8 release** or newer) and **Google Maps**. Moving from a debug build requires uninstalling first; see [docs/release-signing.md](../docs/release-signing.md).
+1. Install this companion APK (sideload, **0.2.9 release** or newer) and **Google Maps**. Moving from a debug build requires uninstalling first; see [docs/release-signing.md](../docs/release-signing.md).
 2. In PhonePi, set the same WebSocket token as `PHONEPI_WS_TOKEN` on the PC, then Connect. Notifications permission is requested on connect.
 3. Grant **Display over other apps** (Appear on top): PhonePi → Tool permissions, or Settings → Apps → PhonePi → Appear on top. That is the reliable way to open Maps while PhonePi is in the background or the screen is off. Android can swallow `startActivity` from the background without throwing.
 4. Grant **full-screen notifications** (Android 14+) as the fallback when overlay is off: Settings → Apps → PhonePi → Full screen notifications. Without overlay, PhonePi always posts a high-priority full-screen notification instead of trusting a background start.
@@ -150,7 +150,7 @@ PhonePi can show recent and currently active notifications to MCP / the loopback
 
 ### What Alex must grant
 
-1. Sideload **0.2.8 release** (or newer). Debug → release is a one-time uninstall; in-app update cannot change signing certs.
+1. Sideload **0.2.9 release** (or newer). Debug → release is a one-time uninstall; in-app update cannot change signing certs.
 2. **Notification access** (once): PhonePi → Tool permissions → Notification access, which opens the system Notification listener settings. Enable PhonePi. This is separate from the usual notification *posting* permission.
 3. In PhonePi → **Notification sharing**, pick apps that have posted a notification (the list stays empty until something notifies after access is granted). Nothing is shared until then. Optional: **Share all** (off by default).
 4. Existing grants still needed for other features: WebSocket token, Display over other apps (Maps), full-screen intents (Maps fallback), call/contacts/location if those tools are used.

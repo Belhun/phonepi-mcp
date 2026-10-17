@@ -17,6 +17,28 @@ const TOOLS = [
     fields: [],
   },
   {
+    id: "get_recent_photos",
+    label: "Recent photos",
+    group: "Photos",
+    description: "Metadata for the newest camera/gallery images. No bytes. Needs the Share recent photos switch.",
+    fields: [
+      { key: "limit", label: "Limit (default 5, cap 20)", type: "number", default: 5, min: 1 },
+      { key: "since", label: "Since epoch ms (optional)", type: "number", default: 0 },
+    ],
+  },
+  {
+    id: "get_photo",
+    label: "Get photo",
+    group: "Photos",
+    description: "One recompressed image as base64. Token-gated command. Read-only. EXIF/GPS is not copied.",
+    fields: [
+      { key: "id", label: "MediaStore id", type: "text", required: true, default: "" },
+      { key: "maxDimension", label: "Max long edge or full", type: "text", default: "1600" },
+      { key: "quality", label: "Quality 40-95", type: "number", default: 80, min: 40 },
+      { key: "format", label: "jpeg or webp", type: "text", default: "jpeg" },
+    ],
+  },
+  {
     id: "get_volumes",
     label: "Get volumes",
     group: "Device",
