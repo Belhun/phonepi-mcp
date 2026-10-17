@@ -129,12 +129,13 @@ test("running server exposes loopback HTTP, keeps stdout clean, and upgrades /ph
   try {
     await started.ready;
     const health = await request(httpPort, "GET", "/api/health");
-    assert.deepEqual(health.json, {
-      ok: true,
-      phoneConnected: false,
-      wsPort,
-      httpPort,
-    });
+    assert.equal(health.json.ok, true);
+    assert.equal(health.json.phoneConnected, false);
+    assert.equal(health.json.wsPort, wsPort);
+    assert.equal(health.json.httpPort, httpPort);
+    assert.equal(health.json.lastConnectedAt, null);
+    assert.equal(health.json.lastPongAt, null);
+    assert.deepEqual(health.json.missingPermissions, []);
 
     const denied = await request(httpPort, "POST", "/api/tool", {
       tool: "make_call",
@@ -177,6 +178,34 @@ test("running server exposes loopback HTTP, keeps stdout clean, and upgrades /ph
 
     const connected = await request(httpPort, "GET", "/api/health");
     assert.equal(connected.json.phoneConnected, true);
+    assert.match(connected.json.lastConnectedAt, /^\d{4}-\d{2}-\d{2}T/);
+    assert.match(connected.json.lastPongAt, /^\d{4}-\d{2}-\d{2}T/);
+
+    phone.send(
+      JSON.stringify({
+        type: "permissions",
+        token: "super-secret-token",
+        permissions: {
+          overlay: true,
+          post_notifications: true,
+          full_screen_intent: false,
+          notification_listener: false,
+          dnd_access: true,
+          exact_alarms: true,
+          token: "super-secret-token",
+        },
+      })
+    );
+    let withPerms = null;
+    for (let i = 0; i < 20; i++) {
+      withPerms = await request(httpPort, "GET", "/api/health");
+      if (withPerms.json.phonePermissions) break;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    assert.equal(withPerms.json.phonePermissions.overlay, true);
+    assert.ok(withPerms.json.missingPermissions.includes("full_screen_intent"));
+    assert.ok(withPerms.json.missingPermissions.includes("notification_listener"));
+    assert.equal(JSON.stringify(withPerms.json).includes("secret"), false);
 
     const battery = await request(httpPort, "POST", "/api/tool", {
       tool: "get_battery_level",
@@ -185,11 +214,28 @@ test("running server exposes loopback HTTP, keeps stdout clean, and upgrades /ph
     assert.equal(battery.status, 200);
     assert.equal(battery.json.isError, false);
     assert.deepEqual(JSON.parse(battery.json.text), { level: 42 });
+
+    const replacement = new WebSocket(`ws://127.0.0.1:${wsPort}/phonepi`);
+    replacement.on("message", (data) => {
+      const message = JSON.parse(String(data));
+      if (message.type === "ping") {
+        replacement.send(JSON.stringify({ type: "pong" }));
+      }
+    });
+    await new Promise((resolve, reject) => {
+      replacement.once("open", resolve);
+      replacement.once("error", reject);
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const afterReplace = await request(httpPort, "GET", "/api/health");
+    assert.equal(afterReplace.json.phoneConnected, true);
+    replacement.close();
     phone.close();
 
     const { stdout, stderr } = started.output();
     assert.equal(stdout, "");
     assert.match(stderr, /Local HTTP API listening/);
+    assert.match(stderr, /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z /);
   } finally {
     await stopServer(started.child);
   }

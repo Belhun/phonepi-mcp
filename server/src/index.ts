@@ -32,9 +32,13 @@ import {
   resolveHttpPort,
   startLoopbackHttp,
 } from "./loopback-http.js";
+import { installTimestampedConsole } from "./log.js";
 import { requestPhoneTool } from "./phone-request.js";
+import { PhoneSession, bindPhoneConnection } from "./phone-session.js";
 import { createPhoneWebSocketServer } from "./phone-ws.js";
 import { createPhoneVerifyClient } from "./ws-token.js";
+
+installTimestampedConsole();
 
 // Toggle this to true to enable debug logging for websocket
 const DEBUG_WEBSOCKET = false;
@@ -63,10 +67,9 @@ for (let i = 0; i < args.length; i++) {
 class PhonePiMCPServer {
   private server: Server;
   private wss: WebSocketServer | null = null;
-  private phoneConnection: WebSocket | null = null;
+  private session = new PhoneSession<WebSocket>();
   private pendingRequests: Map<string, (response: any) => void> = new Map();
   private requestCounter = 0;
-  private lastPing: number = 0;
   private _pingIntervalId: NodeJS.Timeout | null = null;
   private httpApi: Promise<LoopbackHttpHandle | null> | null = null;
 
@@ -106,15 +109,13 @@ class PhonePiMCPServer {
       bridge: {
         isPhoneConnected: () => this.isPhoneOpen(),
         callPhoneTool: (name, args) => this.callPhoneTool(name, args),
+        healthDetails: () => this.session.healthDetails(),
       },
     });
   }
 
   private isPhoneOpen(): boolean {
-    return (
-      this.phoneConnection != null &&
-      this.phoneConnection.readyState === WebSocket.OPEN
-    );
+    return this.session.isConnected();
   }
 
   private callPhoneTool(
@@ -144,7 +145,7 @@ class PhonePiMCPServer {
     }
     const requestId = `req-${++this.requestCounter}`;
     return requestPhoneTool({
-      connection: this.phoneConnection,
+      connection: this.session.currentSocket(),
       pending: this.pendingRequests,
       requestId,
       tool: getPhoneCommand(name)?.phoneTool ?? name,
@@ -247,29 +248,14 @@ class PhonePiMCPServer {
     ws.on("open", () => {
       clearTimeout(connectionTimeout);
       console.error("Connected to existing WebSocket server");
-      // Use the existing connection as if it were a server connection
-      this.phoneConnection = ws;
-      this.lastPing = Date.now();
-
-      ws.on("message", async (data) => {
-        await this.processIncomingMessage(ws, data);
+      bindPhoneConnection(this.session, ws, (line) => console.error(line), {
+        onMessage: (socket, data) => {
+          void this.processIncomingMessage(socket, data);
+        },
+        onCleared: () => {
+          setTimeout(() => this.connectToExistingServer(), 5000);
+        },
       });
-
-      ws.on("close", (code, reason) => {
-        console.error(
-          `[WebSocket] Connection to existing server closed (code: ${code}, reason: ${
-            reason || "unknown"
-          })`
-        );
-        this.phoneConnection = null;
-        // Try to reconnect after a delay
-        setTimeout(() => this.connectToExistingServer(), 5000);
-      });
-
-      // Send initial ping
-      ws.send(JSON.stringify({ type: "ping" }));
-
-      // Start the ping interval for client mode too
       this.startPingInterval();
     });
 
@@ -297,34 +283,11 @@ class PhonePiMCPServer {
     }
 
     this.wss.on("connection", (ws) => {
-      // If there's an existing connection, close it
-      if (this.phoneConnection) {
-        this.phoneConnection.close();
-      }
-
-      this.phoneConnection = ws;
-      this.lastPing = Date.now();
-      console.error("[WebSocket] Phone connected");
-
-      ws.on("message", async (data) => {
-        await this.processIncomingMessage(ws, data);
+      bindPhoneConnection(this.session, ws, (line) => console.error(line), {
+        onMessage: (socket, data) => {
+          void this.processIncomingMessage(socket, data);
+        },
       });
-
-      ws.on("close", (code, reason) => {
-        console.error(
-          `[WebSocket] Phone disconnected (code: ${code}, reason: ${
-            reason || "unknown"
-          })`
-        );
-        this.phoneConnection = null;
-      });
-
-      ws.on("error", (error) => {
-        console.error("[WebSocket] Phone connection error:", error);
-      });
-
-      // Send initial ping
-      ws.send(JSON.stringify({ type: "ping" }));
     });
 
     // Start the ping interval
@@ -379,7 +342,23 @@ class PhonePiMCPServer {
       }
       // Process different message types
       if (message.type === "pong") {
-        this.lastPing = Date.now();
+        if (!this.session.notePong(ws)) {
+          console.error("[WebSocket] Ignored pong from a stale socket");
+        }
+      } else if (message.type === "permissions") {
+        if (!this.session.notePermissions(ws, message)) {
+          console.error("[WebSocket] Ignored permissions from a stale socket");
+        }
+      } else if (message.type === "ping") {
+        if (!this.session.isCurrent(ws)) {
+          console.error("[WebSocket] Ignored ping from a stale socket");
+          return;
+        }
+        try {
+          ws.send(JSON.stringify({ type: "pong" }));
+        } catch (err) {
+          console.error("[WebSocket] Error replying to phone ping:", err);
+        }
       } else if (message.type === "response") {
         if (!message.requestId) {
           console.error(
@@ -427,33 +406,32 @@ class PhonePiMCPServer {
 
     // Ping phone every 15 seconds to check connection
     const pingInterval = setInterval(() => {
-      if (this.phoneConnection) {
-        const now = Date.now();
-        if (now - this.lastPing > 45000) {
-          // 45 second timeout
-          console.error("[WebSocket] Phone timed out - no pong received");
-          try {
-            if (this.phoneConnection.readyState === WebSocket.OPEN) {
-              console.error("[WebSocket] Closing timed out connection");
-              if (this.phoneConnection.terminate) {
-                this.phoneConnection.terminate();
-              } else {
-                this.phoneConnection.close(1000, "Connection timeout");
-              }
+      const timedOut = this.session.takeTimedOut(45000);
+      if (timedOut) {
+        console.error("[WebSocket] Phone timed out - no pong received");
+        try {
+          if (timedOut.readyState === WebSocket.OPEN) {
+            console.error("[WebSocket] Closing timed out connection");
+            if (timedOut.terminate) {
+              timedOut.terminate();
+            } else {
+              timedOut.close(1000, "no pong received");
             }
-          } catch (err) {
-            console.error(
-              "[WebSocket] Error closing timed out connection:",
-              err
-            );
           }
-          this.phoneConnection = null;
-        } else if (this.phoneConnection.readyState === WebSocket.OPEN) {
-          try {
-            this.phoneConnection.send(JSON.stringify({ type: "ping" }));
-          } catch (err) {
-            console.error("[WebSocket] Error sending ping:", err);
-          }
+        } catch (err) {
+          console.error(
+            "[WebSocket] Error closing timed out connection:",
+            err
+          );
+        }
+        return;
+      }
+      const phone = this.session.currentSocket();
+      if (phone && phone.readyState === WebSocket.OPEN) {
+        try {
+          phone.send(JSON.stringify({ type: "ping" }));
+        } catch (err) {
+          console.error("[WebSocket] Error sending ping:", err);
         }
       }
     }, 15000);
@@ -550,12 +528,10 @@ class PhonePiMCPServer {
           });
 
           // Forward the request to the connected phone
-          if (
-            this.phoneConnection &&
-            this.phoneConnection.readyState === WebSocket.OPEN
-          ) {
+          const phone = this.session.currentSocket();
+          if (phone && phone.readyState === WebSocket.OPEN) {
             try {
-              this.phoneConnection.send(
+              phone.send(
                 JSON.stringify({
                   type: "request",
                   requestId: message.requestId,
@@ -1451,14 +1427,15 @@ class PhonePiMCPServer {
         }
       }
 
-      if (!this.phoneConnection) {
+      const phone = this.session.currentSocket();
+      if (!phone) {
         throw new McpError(
           ErrorCode.InvalidParams,
           "Phone not connected - please ensure the phone app is running and connected"
         );
       }
 
-      if (this.phoneConnection.readyState !== WebSocket.OPEN) {
+      if (phone.readyState !== WebSocket.OPEN) {
         throw new McpError(
           ErrorCode.InvalidParams,
           "Phone connection is not open"
@@ -1583,10 +1560,10 @@ class PhonePiMCPServer {
       }
     }
 
-    // Close phone connection if it exists
-    if (this.phoneConnection) {
+    const phone = this.session.currentSocket();
+    if (phone) {
       try {
-        this.phoneConnection.close();
+        phone.close();
         console.error("Phone connection closed");
       } catch (error) {
         console.error("Error closing phone connection:", error);

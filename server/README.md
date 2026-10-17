@@ -75,10 +75,74 @@ Do not commit the token. The server never logs its value.
 ### `GET /api/health`
 
 ```json
-{ "ok": true, "phoneConnected": false, "wsPort": 11041, "httpPort": 11043 }
+{
+  "ok": true,
+  "phoneConnected": false,
+  "wsPort": 11041,
+  "httpPort": 11043,
+  "lastConnectedAt": null,
+  "lastDisconnectedAt": "2026-10-17T05:40:00.000Z",
+  "lastDisconnectCode": 1006,
+  "lastDisconnectReason": "abnormal closure",
+  "lastPongAt": "2026-10-17T05:39:30.000Z",
+  "phonePermissions": {
+    "overlay": true,
+    "post_notifications": true,
+    "full_screen_intent": true,
+    "notification_listener": false,
+    "dnd_access": false,
+    "exact_alarms": true
+  },
+  "missingPermissions": ["notification_listener", "dnd_access"]
+}
 ```
 
-No contact names, numbers, snippets, or token. `ok` means this HTTP API is up. `phoneConnected` is whether the phone socket is open.
+No contact names, numbers, snippets, or token. `ok` means this HTTP API is up. `phoneConnected` is whether the current phone socket is open. `lastConnectedAt`, `lastDisconnectedAt`, and `lastPongAt` are ISO-8601 timestamps or null. `lastDisconnectCode` and `lastDisconnectReason` describe the latest drop (for example `1006` / `abnormal closure`, or `no pong received`). `phonePermissions` is the allowlisted grant map the phone last sent. `missingPermissions` lists the ones that are not granted. A replaced socket's close cannot clear a newer connection, so `phoneConnected` stays true after a reconnect.
+
+Every server log line on stderr starts with an ISO-8601 timestamp.
+
+### Supervision
+
+The process is `node dist/index.js` in the `server/` directory. Env comes from `/home/box/.phonepi/env` (mode 600). Logs go to `/home/box/.phonepi/server.log`.
+
+Prefer a systemd user unit. It does not need root to install. `loginctl enable-linger` is what makes it start at boot with nobody logged in. If linger is denied, use the watchdog instead.
+
+```bash
+scripts/install-phonepi-user-service.sh install
+loginctl enable-linger "$USER"
+systemctl --user status phonepi-server.service
+tail -f /home/box/.phonepi/server.log
+scripts/install-phonepi-user-service.sh uninstall
+```
+
+Watchdog fallback (no systemd, no root). `install` adds a crontab `@reboot` line.
+
+```bash
+scripts/phonepi-watchdog.sh start
+scripts/phonepi-watchdog.sh status
+scripts/phonepi-watchdog.sh install
+scripts/phonepi-watchdog.sh stop
+scripts/phonepi-watchdog.sh uninstall
+```
+
+`scripts/phonepi-server.sh` sources the env file and execs `node dist/index.js`. It does not print the env.
+
+### Offline check
+
+`scripts/phonepi-health-check.sh` only GETs `http://127.0.0.1:11043/api/health`.
+
+| Exit | Meaning |
+| --- | --- |
+| 0 | Phone connected |
+| 1 | Server is up, phone is offline. The line includes how long, from `lastDisconnectedAt`. |
+| 2 | Server down or unreachable |
+
+```bash
+scripts/phonepi-health-check.sh
+scripts/phonepi-health-check.sh --json
+```
+
+It never reads the token, calls `/api/command`, or connects to port 11041. A second WebSocket client would replace the phone.
 
 ### `POST /api/tool`
 
