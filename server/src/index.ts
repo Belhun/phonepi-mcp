@@ -24,6 +24,7 @@ import {
 } from "./commands.js";
 import {
   NOTIFICATION_TOOL_SCHEMAS,
+  PHOTO_TOOL_SCHEMAS,
   VOLUME_TOOL_SCHEMAS,
   readOnlyToolRateLimit,
 } from "./read-only-tools.js";
@@ -1399,6 +1400,7 @@ class PhonePiMCPServer {
           },
         },
         ...NOTIFICATION_TOOL_SCHEMAS,
+        ...PHOTO_TOOL_SCHEMAS,
         ...VOLUME_TOOL_SCHEMAS,
         ...PHONE_COMMAND_SCHEMAS,
         ...GM_TOOL_SCHEMAS,

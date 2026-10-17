@@ -37,6 +37,7 @@ const FORBIDDEN = [
   "gm_list_conversations",
   "phone_navigate",
   "phone_add_location",
+  "get_photo",
   "not_a_real_tool",
 ];
 
@@ -107,7 +108,7 @@ async function withHttp(bridge, fn) {
   }
 }
 
-test("read-only allowlist is exactly the twelve phone read tools", () => {
+test("read-only allowlist is exactly the phone read tools", () => {
   assert.deepEqual(
     [...READ_ONLY_HTTP_TOOLS].sort(),
     [
@@ -117,6 +118,7 @@ test("read-only allowlist is exactly the twelve phone read tools", () => {
       "get_contacts",
       "get_notifications",
       "get_recent_calls",
+      "get_recent_photos",
       "get_snippet_by_id",
       "get_snippets_by_type",
       "get_volumes",
@@ -125,6 +127,8 @@ test("read-only allowlist is exactly the twelve phone read tools", () => {
       "search_snippets",
     ]
   );
+  assert.equal(READ_ONLY_HTTP_TOOLS.has("get_photo"), false);
+  assert.equal(READ_ONLY_TOOL_RATE_LIMITS.get_recent_photos, 30);
 });
 
 test("POST /api/tool rejects everything outside the allowlist with 403 and does not call the phone", async () => {
