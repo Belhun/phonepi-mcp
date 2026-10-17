@@ -8,8 +8,24 @@ sealed interface ConnectionState {
     data object Disconnected : ConnectionState
     data object Connecting : ConnectionState
     data object Connected : ConnectionState
-    data class Reconnecting(val attempt: Int) : ConnectionState
-    data class Failed(val reason: String) : ConnectionState
+
+    /** Still trying. [retryInMs] is how long until the next open. There is no terminal failure. */
+    data class Reconnecting(
+        val attempt: Int,
+        val retryInMs: Long,
+        val reason: String,
+    ) : ConnectionState
+}
+
+fun ConnectionState.statusLabel(): String = when (this) {
+    ConnectionState.Disconnected -> "Disconnected"
+    ConnectionState.Connecting -> "Connecting…"
+    ConnectionState.Connected -> "Connected"
+    is ConnectionState.Reconnecting -> {
+        val seconds = ((retryInMs + 999L) / 1000L).coerceAtLeast(0L)
+        val why = reason.trim().ifEmpty { "offline" }
+        "Reconnecting in ${seconds}s ($why)"
+    }
 }
 
 /** App-wide connection state. The service writes it; the UI observes it. */

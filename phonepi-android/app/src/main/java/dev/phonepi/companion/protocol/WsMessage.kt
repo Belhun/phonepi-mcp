@@ -17,6 +17,9 @@ sealed interface WsMessage {
     /** Server keepalive probe. Reply with {"type":"pong"} at once. */
     data object Ping : WsMessage
 
+    /** Reply to a phone-side keepalive ping. Proves the socket is alive. */
+    data object Pong : WsMessage
+
     /** A tool call to run on the device. Echo [requestId] in the response. */
     data class Request(
         val requestId: String,
@@ -38,6 +41,7 @@ sealed interface WsMessage {
                 ?: return Unknown("malformed")
             return when (obj["type"]?.jsonPrimitive?.contentOrNull) {
                 "ping" -> Ping
+                "pong" -> Pong
                 "request" -> Request(
                     requestId = obj["requestId"]?.jsonPrimitive?.contentOrNull.orEmpty(),
                     tool = obj["tool"]?.jsonPrimitive?.contentOrNull.orEmpty(),

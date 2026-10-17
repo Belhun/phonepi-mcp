@@ -37,8 +37,8 @@ import androidx.core.content.ContextCompat
 import dev.phonepi.companion.connection.ConnectionController
 import dev.phonepi.companion.connection.ConnectionPrefs
 import dev.phonepi.companion.connection.ConnectionService
-import dev.phonepi.companion.connection.ConnectionState
 import dev.phonepi.companion.connection.SetupBus
+import dev.phonepi.companion.connection.statusLabel
 
 @Composable
 fun ConnectScreen(modifier: Modifier = Modifier) {
@@ -108,7 +108,7 @@ fun ConnectScreen(modifier: Modifier = Modifier) {
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
             Text("PhonePi companion", style = MaterialTheme.typography.headlineSmall)
-            Text("Status: ${state.label()}", style = MaterialTheme.typography.bodyLarge)
+            Text("Status: ${state.statusLabel()}", style = MaterialTheme.typography.bodyLarge)
             Text(
                 "Scan the Odysseus Settings → Phone QR, or paste the Tailscale host. " +
                     "Serve uses port 443. Disconnect keeps the saved host; Forget saved host wipes it.",
@@ -199,10 +199,3 @@ fun ConnectScreen(modifier: Modifier = Modifier) {
     }
 }
 
-private fun ConnectionState.label(): String = when (this) {
-    ConnectionState.Connected -> "Connected"
-    ConnectionState.Connecting -> "Connecting\u2026"
-    ConnectionState.Disconnected -> "Disconnected"
-    is ConnectionState.Reconnecting -> "Reconnecting (#$attempt)"
-    is ConnectionState.Failed -> "Failed: $reason"
-}

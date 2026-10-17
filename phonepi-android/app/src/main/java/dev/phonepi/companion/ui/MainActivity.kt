@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.ui.Modifier
+import dev.phonepi.companion.connection.ConnectionService
 import dev.phonepi.companion.connection.SetupBus
 import dev.phonepi.companion.connection.SetupLink
 
@@ -36,6 +37,11 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        ConnectionService.nudgeIfRunning(this)
     }
 
     override fun onNewIntent(intent: Intent) {

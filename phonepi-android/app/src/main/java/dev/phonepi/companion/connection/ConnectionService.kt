@@ -6,6 +6,10 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
@@ -54,6 +58,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
 /**
  * Foreground service that holds the WebSocket. Typed connectedDevice so Android 15/16
@@ -64,6 +71,7 @@ class ConnectionService : Service() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private lateinit var manager: WebSocketManager
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -110,10 +118,30 @@ class ConnectionService : Service() {
                 DeleteContactTool(ctx),
             ),
         )
-        manager = WebSocketManager(scope, router) { host, port, token ->
-            ConnectionPrefs.saveSuccessfulConnection(applicationContext, host, port, token)
-        }
+        manager = WebSocketManager(
+            scope,
+            router,
+            onConnected = { host, port, token ->
+                ConnectionPrefs.saveSuccessfulConnection(applicationContext, host, port, token)
+            },
+            permissionPayload = {
+                PhonePermissionReport.toJson(PhonePermissionSnapshot.capture(applicationContext))
+            },
+        )
         createChannel()
+        registerNetworkCallback()
+        scope.launch {
+            ConnectionController.state.collect { state ->
+                updateForeground(state.statusLabel())
+            }
+        }
+        scope.launch {
+            while (isActive) {
+                delay(30_000)
+                if (::manager.isInitialized) manager.publishPermissions()
+            }
+        }
+        serviceRunning = true
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -122,6 +150,12 @@ class ConnectionService : Service() {
             ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
             stopSelf()
             return START_NOT_STICKY
+        }
+        if (intent?.action == ACTION_NUDGE) {
+            startForegroundNotification(ConnectionController.state.value.statusLabel())
+            manager.nudge("app foreground")
+            manager.publishPermissions(force = true)
+            return START_STICKY
         }
         val endpoint = ConnectionPrefs.resolveEndpoint(
             applicationContext,
@@ -142,16 +176,23 @@ class ConnectionService : Service() {
     }
 
     override fun onDestroy() {
+        serviceRunning = false
+        unregisterNetworkCallback()
+        if (::manager.isInitialized) manager.disconnect()
         scope.cancel()
         super.onDestroy()
     }
 
     override fun onBind(intent: Intent?) = null
 
-    private fun startForegroundNotification() {
+    private fun startForegroundNotification(text: String = "Phone link active") {
+        updateForeground(text)
+    }
+
+    private fun updateForeground(text: String) {
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(getString(R.string.app_name))
-            .setContentText("Phone link active")
+            .setContentText(text)
             .setSmallIcon(R.drawable.ic_stat_link)
             .setOngoing(true)
             .build()
@@ -162,6 +203,37 @@ class ConnectionService : Service() {
             0
         }
         ServiceCompat.startForeground(this, NOTIF_ID, notification, type)
+    }
+
+    private fun registerNetworkCallback() {
+        val connectivity = getSystemService(ConnectivityManager::class.java) ?: return
+        val request = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .build()
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                manager.onNetworkChanged("network available")
+            }
+
+            override fun onCapabilitiesChanged(
+                network: Network,
+                networkCapabilities: NetworkCapabilities,
+            ) {
+                manager.onNetworkChanged("network capabilities changed")
+            }
+        }
+        connectivity.registerNetworkCallback(request, callback)
+        networkCallback = callback
+    }
+
+    private fun unregisterNetworkCallback() {
+        val callback = networkCallback ?: return
+        networkCallback = null
+        val connectivity = getSystemService(ConnectivityManager::class.java) ?: return
+        try {
+            connectivity.unregisterNetworkCallback(callback)
+        } catch (_: Exception) {
+        }
     }
 
     private fun createChannel() {
@@ -178,9 +250,22 @@ class ConnectionService : Service() {
         private const val CHANNEL_ID = "mcp_connection"
         private const val NOTIF_ID = 1
         private const val ACTION_STOP = "dev.phonepi.companion.action.STOP"
+        private const val ACTION_NUDGE = "dev.phonepi.companion.action.NUDGE"
         private const val EXTRA_HOST = "host"
         private const val EXTRA_PORT = "port"
         private const val EXTRA_WS_TOKEN = "ws_token"
+
+        @Volatile
+        private var serviceRunning = false
+
+        /** Retry immediately when the process is already holding the link. */
+        fun nudgeIfRunning(context: Context) {
+            if (!serviceRunning) return
+            val intent = Intent(context, ConnectionService::class.java).apply {
+                action = ACTION_NUDGE
+            }
+            context.startService(intent)
+        }
 
         fun start(context: Context, host: String, port: Int, wsToken: String = "") {
             val intent = Intent(context, ConnectionService::class.java).apply {

@@ -229,7 +229,7 @@ test("phone not connected returns 503 and does not send a phone request", async 
   );
 });
 
-test("GET /api/health reports ports and phone state without extra fields", async () => {
+test("GET /api/health reports ports, phone state, and empty history", async () => {
   await withHttp(
     {
       isPhoneConnected: () => false,
@@ -240,15 +240,72 @@ test("GET /api/health reports ports and phone state without extra fields", async
       assert.equal(res.status, 200);
       assert.deepEqual(Object.keys(res.json).sort(), [
         "httpPort",
+        "lastConnectedAt",
+        "lastDisconnectCode",
+        "lastDisconnectReason",
+        "lastDisconnectedAt",
+        "lastPongAt",
+        "missingPermissions",
         "ok",
         "phoneConnected",
+        "phonePermissions",
         "wsPort",
       ]);
       assert.equal(res.json.ok, true);
       assert.equal(res.json.phoneConnected, false);
       assert.equal(res.json.wsPort, 11041);
       assert.equal(res.json.httpPort, port);
+      assert.equal(res.json.lastConnectedAt, null);
+      assert.equal(res.json.lastDisconnectedAt, null);
+      assert.equal(res.json.lastDisconnectCode, null);
+      assert.equal(res.json.lastDisconnectReason, null);
+      assert.equal(res.json.lastPongAt, null);
+      assert.equal(res.json.phonePermissions, null);
+      assert.deepEqual(res.json.missingPermissions, []);
       assert.doesNotMatch(res.raw, /contact|snippet|token|battery/i);
+    }
+  );
+});
+
+test("GET /api/health copies permission flags and drops token fields", async () => {
+  await withHttp(
+    {
+      isPhoneConnected: () => true,
+      callPhoneTool: async () => ({}),
+      healthDetails: () => ({
+        lastConnectedAt: "2026-10-17T06:00:00.000Z",
+        lastDisconnectedAt: "2026-10-17T05:00:00.000Z",
+        lastDisconnectCode: 1006,
+        lastDisconnectReason: "abnormal closure",
+        lastPongAt: "2026-10-17T06:04:00.000Z",
+        phonePermissions: {
+          overlay: true,
+          post_notifications: true,
+          full_screen_intent: false,
+          notification_listener: false,
+          dnd_access: true,
+          exact_alarms: true,
+          token: "super-secret-token",
+        },
+        missingPermissions: ["full_screen_intent", "notification_listener", "token"],
+        token: "super-secret-token",
+      }),
+    },
+    async ({ port }) => {
+      const res = await getHealth(port);
+      assert.equal(res.status, 200);
+      assert.equal(res.json.phoneConnected, true);
+      assert.equal(res.json.lastDisconnectCode, 1006);
+      assert.equal(res.json.lastDisconnectReason, "abnormal closure");
+      assert.equal(res.json.phonePermissions.overlay, true);
+      assert.equal(res.json.phonePermissions.full_screen_intent, false);
+      assert.equal(res.json.phonePermissions.token, undefined);
+      assert.deepEqual(res.json.missingPermissions, [
+        "full_screen_intent",
+        "notification_listener",
+      ]);
+      assert.equal(JSON.stringify(res.json).includes("secret"), false);
+      assert.equal(Object.hasOwn(res.json, "token"), false);
     }
   );
 });
