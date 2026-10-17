@@ -1,5 +1,9 @@
 import http, { IncomingMessage, Server, ServerResponse } from "http";
 import { RateLimitError, getPhoneCommand, isPhoneCommand } from "./commands.js";
+import {
+  PhoneHealthDetails,
+  emptyHealthDetails,
+} from "./phone-session.js";
 import { isReadOnlyHttpTool } from "./read-only-tools.js";
 import {
   authorizeCommandToken,
@@ -17,6 +21,8 @@ export interface PhoneHttpBridge {
     name: string,
     args: Record<string, unknown>
   ): Promise<unknown>;
+  /** Optional. Health copies only the known fields; it never spreads extras. */
+  healthDetails?: () => PhoneHealthDetails;
 }
 
 export interface LoopbackHttpHandle {
@@ -142,11 +148,19 @@ async function handleRequest(
       sendJson(res, 405, { text: "Method not allowed", isError: true });
       return;
     }
+    const details = healthDetailsFrom(options.bridge);
     sendJson(res, 200, {
       ok: true,
       phoneConnected: options.bridge.isPhoneConnected(),
       wsPort: options.wsPort,
       httpPort: boundPort(server, options.port),
+      lastConnectedAt: details.lastConnectedAt,
+      lastDisconnectedAt: details.lastDisconnectedAt,
+      lastDisconnectCode: details.lastDisconnectCode,
+      lastDisconnectReason: details.lastDisconnectReason,
+      lastPongAt: details.lastPongAt,
+      phonePermissions: details.phonePermissions,
+      missingPermissions: details.missingPermissions,
     });
     return;
   }
@@ -384,6 +398,61 @@ function readBody(req: IncomingMessage): Promise<string> {
       }
     });
   });
+}
+
+function healthDetailsFrom(bridge: PhoneHttpBridge): PhoneHealthDetails {
+  const raw = bridge.healthDetails?.() ?? emptyHealthDetails();
+  const permissions = sanitizePermissions(raw.phonePermissions);
+  const missing =
+    permissions == null
+      ? []
+      : (Object.keys(permissions) as (keyof typeof permissions)[]).filter(
+          (name) => permissions[name] !== true
+        );
+  return {
+    lastConnectedAt: isoOrNull(raw.lastConnectedAt),
+    lastDisconnectedAt: isoOrNull(raw.lastDisconnectedAt),
+    lastDisconnectCode:
+      typeof raw.lastDisconnectCode === "number" &&
+      Number.isFinite(raw.lastDisconnectCode)
+        ? raw.lastDisconnectCode
+        : null,
+    lastDisconnectReason:
+      typeof raw.lastDisconnectReason === "string" &&
+      raw.lastDisconnectReason.trim().length > 0
+        ? raw.lastDisconnectReason.trim()
+        : null,
+    lastPongAt: isoOrNull(raw.lastPongAt),
+    phonePermissions: permissions,
+    missingPermissions: missing,
+  };
+}
+
+function sanitizePermissions(
+  value: PhoneHealthDetails["phonePermissions"]
+): PhoneHealthDetails["phonePermissions"] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const source = value as unknown as Record<string, unknown>;
+  const keys = [
+    "overlay",
+    "post_notifications",
+    "full_screen_intent",
+    "notification_listener",
+    "dnd_access",
+    "exact_alarms",
+  ] as const;
+  const out = {} as NonNullable<PhoneHealthDetails["phonePermissions"]>;
+  for (const key of keys) {
+    out[key] = source[key] === true;
+  }
+  return out;
+}
+
+function isoOrNull(value: unknown): string | null {
+  if (typeof value !== "string" || value.trim() === "") return null;
+  const parsed = Date.parse(value);
+  if (Number.isNaN(parsed)) return null;
+  return new Date(parsed).toISOString();
 }
 
 function sendJson(res: ServerResponse, status: number, body: ToolBody | Record<string, unknown>) {

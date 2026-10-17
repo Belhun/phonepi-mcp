@@ -2,7 +2,9 @@
 
 Standing log for this PR branch (`cursor/phone-navigate-locations-1ceb`). Update this file in the same change as every future PhonePi feature, bugfix, or device lesson. Do not merge this branch from this log. Never commit secrets (`PHONEPI_WS_TOKEN`, command tokens, hostnames with tokens in the URL, APK signing keystores, or personal MagicDNS names that are not already public in the repo).
 
-Current companion: **0.2.7** (versionCode **9**).
+Current companion: **0.2.8** (versionCode **10**).
+
+Bot-facing skill: [BOT-SKILL.md](BOT-SKILL.md).
 
 ## How to update
 
@@ -90,6 +92,14 @@ Optional on-phone **Max volumes at midnight** (default off): `AlarmManager.setEx
 
 Volume panel sits on the scrolling main screen between Tool permissions and Notification sharing.
 
+### 0.2.8 — connection stays up, health says when it dropped
+
+The phone reconnects forever. Backoff is exponential with ±20% jitter and a 5 minute cap (1s, 2s, 4s, …). It does not stop in a terminal Failed state. A network change (`ConnectivityManager` `onAvailable` / `onCapabilitiesChanged`) and the app coming to the foreground retry immediately instead of waiting out the cap. The phone sends its own ping and tears the socket down if nothing arrives for 45s, so the UI cannot stay on Connected for a dead link. Status text is `Connected`, `Connecting…`, `Reconnecting in Ns (reason)`, or `Disconnected`. Boot reconnect and package-replace reconnect are unchanged.
+
+The server keeps the phone slot only for the current socket. The previous socket's close or error cannot clear the new one. That was the bug that left `/api/health` at `phoneConnected:false` while the phone still showed connected. Stderr lines start with an ISO-8601 timestamp. Health adds `lastConnectedAt`, `lastDisconnectedAt`, `lastDisconnectCode`, `lastDisconnectReason`, `lastPongAt`, `phonePermissions`, and `missingPermissions`. The phone sends those six grants on connect and when they change: overlay, post notifications, full-screen intent, notification listener, DND access, exact alarms. Health stays read-only on loopback and does not grow a token or personal fields.
+
+Box supervision: `scripts/install-phonepi-user-service.sh` (systemd `--user`, then `loginctl enable-linger`) or `scripts/phonepi-watchdog.sh` when linger is unavailable. `scripts/phonepi-health-check.sh` reads only `http://127.0.0.1:11043/api/health` and exits 0 connected, 1 phone offline, 2 server down.
+
 ## Mistakes and fixes
 
 | Symptom | Cause | Fix |
@@ -100,6 +110,7 @@ Volume panel sits on the scrolling main screen between Tool permissions and Noti
 | Phone could not resolve the Tailscale host (`*.ts.net`) even though the PC was up | Tailnet MagicDNS was not the resolver the phone used. | Turn on Tailscale DNS / MagicDNS on the phone (Tailscale app DNS settings, not a PhonePi code change). Then reconnect. |
 | `adb connect` to wireless debugging stopped working after a Wi-Fi or tailnet change | Android **wireless debugging** assigns a new TCP port when the network changes. The old `ip:port` is dead. | Re-open Wireless debugging on the Pixel, copy the new port, pair/connect again. Do not bake a port into scripts. |
 | After `phone_push_update` / in-app Install, the phone stayed disconnected (2026-10-13) | The installer replaces the APK and kills the process. Boot reconnect does not run on package replace. | `ACTION_MY_PACKAGE_REPLACED` receiver starts `ConnectionService` from the last saved host. |
+| `/api/health` said `phoneConnected:false` after the phone reconnected, and the phone UI stayed on Connected (2026-10-16) | `ws.on("close")` always assigned `phoneConnection = null`. `close()` is async, so the old socket's close ran after the new socket was stored and cleared it. The server then stopped pinging. The phone had no timeout of its own, and it gave up after about 10 tries. | `PhoneSession.clearIfCurrent` ignores close/error/timeout from any socket that is not the current one. The phone pings and drops a silent socket after 45s, then reconnects forever. |
 
 ## iPhone: Android-only vs portable
 
@@ -124,6 +135,7 @@ Android-only (do not assume iOS equivalents):
 - ADB wireless debugging and its changing TCP port.
 - Hidden `Notification` extras such as `android.substName`.
 - `AudioManager` streams, Do Not Disturb policy access, and `AlarmManager` exact midnight alarms. iOS volume APIs and Focus modes differ; a nightly max would be a local notification or BG task, not `BOOT_COMPLETED`.
+- Forever reconnect with a capped exponential backoff is portable. `ConnectivityManager` callbacks and the foreground-service keepalive are Android-only. On iOS, retry when the app becomes active and when a path monitor reports a change. Do not show connected until the socket has had recent traffic.
 
 iPhone maps/nav sketch (not implemented): open an Apple Maps or Google Maps iOS URL when the companion is allowed to become foreground. Do not expect to start Maps from a background daemon the way overlay+FSI does on Android. A tap-to-open notification is the likely fallback.
 
@@ -134,4 +146,4 @@ iPhone notification reading sketch (not implemented): without an Apple entitleme
 - Overlay is the grant that actually opens Maps from the background. FSI is the fallback, not a substitute for overlay if you want Maps to appear unprompted.
 - Keep the PhonePi connection notification if the OS otherwise kills the socket when Maps comes to the front.
 - Tailscale Serve terminates TLS on the PC; the phone still needs MagicDNS (or a literal tailnet IP) and the WS token.
-- Sideload **0.2.7 release** (or in-app update from 0.2.6 release). Debug → release is still a one-time uninstall. Later APKs go in `~/.phonepi/updates` and must be signed with `scripts/sign-update-manifest.sh`.
+- Sideload **0.2.8 release** (or in-app update from 0.2.7 release). Debug → release is still a one-time uninstall. Later APKs go in `~/.phonepi/updates` and must be signed with `scripts/sign-update-manifest.sh`.
