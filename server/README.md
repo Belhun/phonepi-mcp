@@ -167,7 +167,7 @@ Success is HTTP 200:
 | 200 | Allowlisted tool ran | `{ "text", "isError": false }` |
 | 400 | Bad JSON, missing tool name, or `arguments` is not an object | `{ "text", "isError": true }` |
 | 403 | Tool is not on the allowlist | `{ "text", "isError": true }` |
-| 429 | Over the per-tool rate limit (`get_notifications`, `list_notification_apps`) | `{ "text", "isError": true }` |
+| 429 | Over the per-tool rate limit (`get_notifications`, `list_notification_apps`, `get_volumes`, `get_recent_photos`) | `{ "text", "isError": true }` |
 | 503 | Phone socket is not open | `{ "text", "isError": true }` |
 | 502 | The phone request failed (for example a timeout) | `{ "text", "isError": true }` |
 
@@ -184,6 +184,8 @@ Allowlist:
 - `search_snippets`
 - `get_notifications` (60/min)
 - `list_notification_apps` (60/min)
+- `get_volumes` (60/min)
+- `get_recent_photos` (30/min, metadata only, hard cap 20)
 
 Everything else is rejected with 403 and is not sent to the phone. That includes `make_call`, `find_phone`, `set_timer`, `copy_to_clipboard`, `send_message`, `send_notification`, snippet or contact add/update/delete, `share_snippet`, and every `gm_*` Google Messages tool.
 
@@ -219,6 +221,9 @@ Body:
 | `phone_navigate` | action | 6/min |
 | `phone_push_update` | write | 6/min |
 | `phone_set_volume` | write | 20/min |
+| `get_photo` | read | 12/min |
+
+`get_photo` is a read, but it is not on `POST /api/tool`. Image bytes need the shared token. `get_recent_photos` is the no-token metadata list. The phone recompresses each image so one JSON frame stays under 1 MB. Original EXIF, including GPS, is not copied into those bytes.
 
 MCP exposes the same names. Rate limits are shared between MCP and HTTP.
 

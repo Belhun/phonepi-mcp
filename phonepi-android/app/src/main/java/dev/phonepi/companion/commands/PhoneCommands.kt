@@ -1,5 +1,7 @@
 package dev.phonepi.companion.commands
 
+import dev.phonepi.companion.photos.PhotoLimits
+
 /**
  * Allowlisted phone actions. Unknown names never run. Future phone actions
  * register here with a rate limit; the matching ToolHandler uses the same name.
@@ -20,6 +22,12 @@ object PhoneCommands {
         PhoneCommandSpec("phone_navigate", PhoneCommandSpec.Kind.ACTION, 6),
         PhoneCommandSpec("phone_push_update", PhoneCommandSpec.Kind.WRITE, 6),
         PhoneCommandSpec("phone_set_volume", PhoneCommandSpec.Kind.WRITE, 20),
+        // Read of image bytes. Token-gated because pixels are more sensitive than battery.
+        PhoneCommandSpec(
+            "get_photo",
+            PhoneCommandSpec.Kind.READ,
+            PhotoLimits.PHOTO_PER_MINUTE,
+        ),
     )
 
     val byName: Map<String, PhoneCommandSpec> = ALL.associateBy { it.name }

@@ -164,6 +164,37 @@ export const PHONE_COMMANDS: readonly PhoneCommand[] = [
       required: [],
     },
   },
+  {
+    name: "get_photo",
+    kind: "read",
+    phoneTool: "get_photo",
+    maxPerMinute: 12,
+    description:
+      "Fetch one photo from the phone by MediaStore id (from get_recent_photos) as base64 JPEG or WebP, plus metadata. Read-only. Requires the shared token because image bytes are more sensitive than battery or the metadata list. Default long edge is 1600px (or maxDimension, or \"full\"). The phone recompresses so the single JSON frame stays under 1 MB. Original EXIF, including GPS, is not in the returned bytes. Needs Photos permission and the in-app Share recent photos switch.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: {
+          type: "string",
+          description: "MediaStore image id from get_recent_photos",
+        },
+        maxDimension: {
+          description:
+            'Long-edge pixels from 64 to 4096 (default 1600), or "full" for the largest size that still fits the 1 MB frame',
+        },
+        quality: {
+          type: "number",
+          description:
+            "JPEG or WebP quality from 40 to 95 (default 80). Lowered automatically if needed to fit",
+        },
+        format: {
+          type: "string",
+          description: "jpeg (default) or webp",
+        },
+      },
+      required: ["id"],
+    },
+  },
 ];
 
 const BY_NAME = new Map(PHONE_COMMANDS.map((command) => [command.name, command]));

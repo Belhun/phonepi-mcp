@@ -2,7 +2,7 @@
 
 Standing log for this PR branch (`cursor/phone-navigate-locations-1ceb`). Update this file in the same change as every future PhonePi feature, bugfix, or device lesson. Do not merge this branch from this log. Never commit secrets (`PHONEPI_WS_TOKEN`, command tokens, hostnames with tokens in the URL, APK signing keystores, or personal MagicDNS names that are not already public in the repo).
 
-Current companion: **0.2.8** (versionCode **10**).
+Current companion: **0.2.9** (versionCode **11**).
 
 Bot-facing skill: [BOT-SKILL.md](BOT-SKILL.md).
 
@@ -100,6 +100,20 @@ The server keeps the phone slot only for the current socket. The previous socket
 
 Box supervision: `scripts/install-phonepi-user-service.sh` (systemd `--user`, then `loginctl enable-linger`) or `scripts/phonepi-watchdog.sh` when linger is unavailable. `scripts/phonepi-health-check.sh` reads only `http://127.0.0.1:11043/api/health` and exits 0 connected, 1 phone offline, 2 server down.
 
+### 0.2.9 — read-only recent photos
+
+`get_recent_photos` is on `READ_ONLY_HTTP_TOOLS` (30/min): newest camera and gallery images, metadata only, default limit 5, hard cap 20, optional `since` (epoch ms). The MediaStore scan is the newest 100 by `DATE_ADDED` (seconds, converted to ms). `DATE_TAKEN` stays milliseconds. No image bytes.
+
+`get_photo` is a token-gated command (`POST /api/command` and MCP, kind `read`, 12/min), not on `/api/tool`. Image bytes are more sensitive than battery level or the metadata list. Args: `id`, `maxDimension` (default 1600, or `"full"`), `quality` (40–95, default 80), `format` (`jpeg` or `webp`).
+
+The WebSocket protocol has one JSON frame per tool response and no chunking. The phone recompresses and steps quality, then long edge, until the tool JSON is at most 900 KB so the frame stays under the 1 MB ceiling used by the HTTP API. If it still does not fit, the tool returns an error instead of an oversized frame. `"full"` starts at the original long edge, capped at 4096 before that fit loop. It is not the original file.
+
+Returned bytes are a new JPEG or WebP. Original EXIF, including GPS, camera make, and the orientation tag, is not copied. Orientation is applied to the pixels. The JSON metadata does not include coordinates. The pixels can still show a place. Recent activity logs the id, display name, and byte count, not the base64.
+
+Permission: `READ_MEDIA_IMAGES` on Android 13+, `READ_EXTERNAL_STORAGE` (`maxSdkVersion` 32) otherwise. Android 14 "Select photos" (`READ_MEDIA_VISUAL_USER_SELECTED`) counts as granted for the images the user picked. An in-app **Share recent photos** switch defaults off. Both the switch and the OS grant are required. Missing either returns `grantNeeded` (`photo_sharing` or the permission name) and does not throw. The tools only query and `openInputStream`. They never insert, update, delete, or upload.
+
+Health still reports the same six grants. Photo access is not added there.
+
 ## Mistakes and fixes
 
 | Symptom | Cause | Fix |
@@ -135,6 +149,7 @@ Android-only (do not assume iOS equivalents):
 - ADB wireless debugging and its changing TCP port.
 - Hidden `Notification` extras such as `android.substName`.
 - `AudioManager` streams, Do Not Disturb policy access, and `AlarmManager` exact midnight alarms. iOS volume APIs and Focus modes differ; a nightly max would be a local notification or BG task, not `BOOT_COMPLETED`.
+- `MediaStore.Images`, `READ_MEDIA_IMAGES`, `READ_MEDIA_VISUAL_USER_SELECTED`, and `READ_EXTERNAL_STORAGE`. iOS uses `PHPhotoLibrary` authorization. Keep the tool names, the default-off share switch, the token gate on image bytes, and recompress-before-send so GPS EXIF does not ride along.
 - Forever reconnect with a capped exponential backoff is portable. `ConnectivityManager` callbacks and the foreground-service keepalive are Android-only. On iOS, retry when the app becomes active and when a path monitor reports a change. Do not show connected until the socket has had recent traffic.
 
 iPhone maps/nav sketch (not implemented): open an Apple Maps or Google Maps iOS URL when the companion is allowed to become foreground. Do not expect to start Maps from a background daemon the way overlay+FSI does on Android. A tap-to-open notification is the likely fallback.
@@ -146,4 +161,5 @@ iPhone notification reading sketch (not implemented): without an Apple entitleme
 - Overlay is the grant that actually opens Maps from the background. FSI is the fallback, not a substitute for overlay if you want Maps to appear unprompted.
 - Keep the PhonePi connection notification if the OS otherwise kills the socket when Maps comes to the front.
 - Tailscale Serve terminates TLS on the PC; the phone still needs MagicDNS (or a literal tailnet IP) and the WS token.
-- Sideload **0.2.8 release** (or in-app update from 0.2.7 release). Debug → release is still a one-time uninstall. Later APKs go in `~/.phonepi/updates` and must be signed with `scripts/sign-update-manifest.sh`.
+- Sideload **0.2.9 release** (or in-app update from 0.2.8 release). Debug → release is still a one-time uninstall. Later APKs go in `~/.phonepi/updates` and must be signed with `scripts/sign-update-manifest.sh`.
+- Recent photos stay off until Alex turns on **Share recent photos** and grants Photos. `get_photo` needs the shared token. The bytes are recompressed, so GPS EXIF is not in the payload.
