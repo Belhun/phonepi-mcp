@@ -30,6 +30,16 @@ sealed interface WsMessage {
     /** Server-side protocol error (for example malformed JSON we sent). */
     data class ServerError(val error: String) : WsMessage
 
+    /** Ack for a location sync or a history wipe. The raw frame is parsed by the sync helper. */
+    data class LocationAck(val raw: String) : WsMessage
+
+    /** A box-side read that should show up in Recent activity. */
+    data class ActivityNote(
+        val title: String,
+        val detail: String,
+        val status: String,
+    ) : WsMessage
+
     /** Any other or unparseable frame. Ignored by the message loop. */
     data class Unknown(val type: String) : WsMessage
 
@@ -48,6 +58,12 @@ sealed interface WsMessage {
                     params = (obj["params"] as? JsonObject) ?: EMPTY,
                 )
                 "error" -> ServerError(obj["error"]?.jsonPrimitive?.contentOrNull ?: "unknown error")
+                "location_sync_ack", "location_cleared_ack" -> LocationAck(text)
+                "activity" -> ActivityNote(
+                    title = obj["title"]?.jsonPrimitive?.contentOrNull?.take(80) ?: "activity",
+                    detail = obj["detail"]?.jsonPrimitive?.contentOrNull?.take(240).orEmpty(),
+                    status = obj["status"]?.jsonPrimitive?.contentOrNull ?: "info",
+                )
                 else -> Unknown(obj["type"]?.jsonPrimitive?.contentOrNull ?: "none")
             }
         }

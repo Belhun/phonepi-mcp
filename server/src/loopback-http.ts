@@ -11,6 +11,9 @@ import {
   emptyHealthDetails,
 } from "./phone-session.js";
 import { isReadOnlyHttpTool } from "./read-only-tools.js";
+import { LocationLog, openLocationLog } from "./location-log.js";
+import { CommandRateLimiter, commandRateLimiter } from "./command-rate-limit.js";
+import { isLocationReadTool, runLocationRead } from "./location-tools.js";
 import {
   authorizeCommandToken,
   tokenFromHttpRequest,
@@ -29,6 +32,11 @@ export interface PhoneHttpBridge {
   ): Promise<unknown>;
   /** Optional. Health copies only the known fields; it never spreads extras. */
   healthDetails?: () => PhoneHealthDetails;
+  /**
+   * Best-effort Recent activity line on the phone.
+   * Returns false when the phone is offline. Never throws.
+   */
+  noteActivity?: (entry: { title: string; detail: string }) => boolean;
 }
 
 export interface LoopbackHttpHandle {
@@ -43,6 +51,9 @@ export interface StartLoopbackHttpOptions {
   log?: (line: string) => void;
   /** Defaults to PHONEPI_WS_TOKEN. Commands over HTTP always require it. */
   commandToken?: string | null;
+  /** Box copy of location history. Reads do not need the phone. */
+  locationLog?: LocationLog;
+  locationReadLimiter?: CommandRateLimiter;
 }
 
 type ToolBody = {
@@ -176,7 +187,7 @@ async function handleRequest(
       sendJson(res, 405, { text: "Method not allowed", isError: true });
       return;
     }
-    await handleTool(req, res, options.bridge);
+    await handleTool(req, res, options);
     return;
   }
 
@@ -195,8 +206,9 @@ async function handleRequest(
 async function handleTool(
   req: IncomingMessage,
   res: ServerResponse,
-  bridge: PhoneHttpBridge
+  options: StartLoopbackHttpOptions
 ): Promise<void> {
+  const bridge = options.bridge;
   let parsed: unknown;
   try {
     const raw = await readBody(req);
@@ -239,6 +251,35 @@ async function handleTool(
   }
 
   const args = (body.arguments ?? {}) as Record<string, unknown>;
+  if (isLocationReadTool(body.tool)) {
+    const log = options.locationLog ?? openLocationLog();
+    const limiter = options.locationReadLimiter ?? commandRateLimiter;
+    const outcome = runLocationRead({
+      log,
+      limiter,
+      tool: body.tool,
+      args,
+      activityLogged: false,
+    });
+    if (outcome.status === 200) {
+      const logged =
+        bridge.noteActivity?.({
+          title: body.tool,
+          detail: "read box location history",
+        }) ?? false;
+      if (logged) {
+        try {
+          const payload = JSON.parse(String(outcome.body.text));
+          payload.activityLogged = true;
+          outcome.body.text = JSON.stringify(payload, null, 2);
+        } catch {
+          // The text is already a success payload. Leave activityLogged false.
+        }
+      }
+    }
+    sendJson(res, outcome.status, outcome.body);
+    return;
+  }
   if (!isReadOnlyHttpTool(body.tool)) {
     sendJson(res, 403, {
       text: `Tool "${body.tool}" is not on the read-only HTTP allowlist`,

@@ -1,6 +1,8 @@
 package dev.phonepi.companion.ui
 
 import android.content.Intent
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -51,8 +53,22 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleIntent(intent: Intent?) {
+        if (intent?.action == Intent.ACTION_SEND) {
+            val uri = sharedUri(intent)
+            if (uri != null) TimelineImportBus.offer(uri)
+        }
         val data = intent?.data?.toString() ?: return
         val target = SetupLink.parse(data) ?: return
         SetupBus.offer(target)
+    }
+
+    private fun sharedUri(intent: Intent): Uri? {
+        val extra = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            intent.getParcelableExtra(Intent.EXTRA_STREAM)
+        }
+        return extra ?: intent.clipData?.getItemAt(0)?.uri
     }
 }

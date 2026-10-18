@@ -167,7 +167,7 @@ Success is HTTP 200:
 | 200 | Allowlisted tool ran | `{ "text", "isError": false }` |
 | 400 | Bad JSON, missing tool name, or `arguments` is not an object | `{ "text", "isError": true }` |
 | 403 | Tool is not on the allowlist | `{ "text", "isError": true }` |
-| 429 | Over the per-tool rate limit (`get_notifications`, `list_notification_apps`, `get_volumes`, `get_recent_photos`, `list_alarms`) | `{ "text", "isError": true }` |
+| 429 | Over the per-tool rate limit (`get_notifications`, `list_notification_apps`, `get_volumes`, `get_recent_photos`, `list_alarms`, `get_location_history`, `search_places`) | `{ "text", "isError": true }` |
 | 503 | Phone socket is not open | `{ "text", "isError": true }` |
 | 502 | The phone request failed (for example a timeout) | `{ "text", "isError": true }` |
 
@@ -187,6 +187,8 @@ Allowlist:
 - `get_volumes` (60/min)
 - `get_recent_photos` (30/min, metadata only, hard cap 20)
 - `list_alarms` (60/min). Next alarm from `AlarmManager.getNextAlarmClock()`, plus alarms PhonePi created. Not a full Clock inventory.
+- `get_location_history` (30/min). Visits and drives from `~/.phonepi/location`. Works when the phone is offline. `from` and `to` are epoch ms, ISO-8601, or `YYYY-MM-DD` (UTC day). `max` default 50, cap 200. Optional `kind`: `visit` or `drive`.
+- `search_places` (30/min). `query` (2 to 80 characters) matches every word against place name and address. `max` default 20, cap 50. Returns address and visit dates. Works when the phone is offline.
 
 Everything else is rejected with 403 and is not sent to the phone. That includes `make_call`, `find_phone`, `set_alarm`, `set_timer`, `dismiss_alarm`, `dismiss_timer`, `copy_to_clipboard`, `send_message`, `send_notification`, snippet or contact add/update/delete, `share_snippet`, and every `gm_*` Google Messages tool. Clock writes use `POST /api/command`.
 
@@ -227,6 +229,8 @@ Body:
 | `set_timer` | action | 10/min |
 | `dismiss_alarm` | action | 10/min |
 | `dismiss_timer` | action | 10/min |
+| `pause_location_logging` | write | 10/min |
+| `clear_location_history` | write | 4/min |
 
 `get_photo` is a read, but it is not on `POST /api/tool`. Image bytes need the shared token. `get_recent_photos` is the no-token metadata list. The phone recompresses each image so one JSON frame stays under 1 MB. Original EXIF, including GPS, is not copied into those bytes.
 
@@ -237,6 +241,18 @@ Body:
 `dismiss_alarm` sends `ACTION_DISMISS_ALARM` with `search` `time` (hour + minute) or `label`. `dismiss_timer` sends `ACTION_DISMISS_TIMER` (optional label). Android does not let a third-party app delete arbitrary Clock alarms. `started:true` means the intent was handed to Clock, not that the alarm is gone. If that Clock app has no dismiss handler, the phone returns `status:"error"` and `supported:false`. HTTP 200 with `status:"success"` is still not proof the alarm changed.
 
 Invalid hour, minute, label, days, or seconds is HTTP 400 and is not sent to the phone. `list_alarms` stays on `POST /api/tool`.
+
+`pause_location_logging` needs `paused` true or false. `clear_location_history` needs `confirm` set to `delete`. A bad value is HTTP 400 and is not sent to the phone. `get_location_history` and `search_places` stay on `POST /api/tool` and read the box files, so they do not return 503 when the phone is offline. Files are `~/.phonepi/location/YYYY-MM.jsonl` (mode 600). `PHONEPI_LOCATION_DIR` overrides the directory. `PHONEPI_LOCATION_RETENTION_MONTHS` defaults to 12.
+
+```powershell
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:11043/api/tool `
+  -ContentType "application/json" `
+  -Body '{"tool":"get_location_history","arguments":{"from":"2026-10-13T12:00:00-07:00","to":"2026-10-13T18:00:00-07:00","max":20}}'
+
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:11043/api/tool `
+  -ContentType "application/json" `
+  -Body '{"tool":"search_places","arguments":{"query":"pizza vista"}}'
+```
 
 MCP exposes the same names. Rate limits are shared between MCP and HTTP.
 

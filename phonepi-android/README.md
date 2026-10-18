@@ -119,7 +119,7 @@ The app stores named destinations locally (Room) and starts Google Maps when the
 
 ### What to install and grant
 
-1. Install this companion APK (sideload, **0.3.0 release** or newer) and **Google Maps**. Moving from a debug build requires uninstalling first; see [docs/release-signing.md](../docs/release-signing.md).
+1. Install this companion APK (sideload, **0.3.1 release** or newer) and **Google Maps**. Moving from a debug build requires uninstalling first; see [docs/release-signing.md](../docs/release-signing.md).
 2. In PhonePi, set the same WebSocket token as `PHONEPI_WS_TOKEN` on the PC, then Connect. Notifications permission is requested on connect.
 3. Grant **Display over other apps** (Appear on top): PhonePi → Tool permissions, or Settings → Apps → PhonePi → Appear on top. That is the reliable way to open Maps while PhonePi is in the background or the screen is off. Android can swallow `startActivity` from the background without throwing.
 4. Grant **full-screen notifications** (Android 14+) as the fallback when overlay is off: Settings → Apps → PhonePi → Full screen notifications. Without overlay, PhonePi always posts a high-priority full-screen notification instead of trusting a background start.
@@ -127,6 +127,16 @@ The app stores named destinations locally (Room) and starts Google Maps when the
 6. Optional: keep PhonePi's link notification visible so the socket stays up while Maps takes the foreground.
 
 No extra Maps API key.
+
+## Location history
+
+**Location history** on the connect screen is off until you turn it on. Grant:
+
+1. Precise location (`ACCESS_FINE_LOCATION`) and approximate location (`ACCESS_COARSE_LOCATION`). The first prompt asks for both.
+2. **Allow all the time** (`ACCESS_BACKGROUND_LOCATION`). Without it, PhonePi only records while the app is open.
+3. **Physical activity** (`ACTIVITY_RECOGNITION`). Without it, drives are harder to tell apart from a stop.
+
+Pause logging and Delete all history are on that same screen. To backfill Google Timeline, export it yourself (Settings, Location, Location services, Timeline, Export Timeline data) and share the JSON into PhonePi, or tap **Import Timeline export**. PhonePi cannot press that Settings button for you.
 
 ### How to test
 

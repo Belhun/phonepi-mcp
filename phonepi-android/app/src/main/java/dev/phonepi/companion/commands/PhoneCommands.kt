@@ -32,6 +32,8 @@ object PhoneCommands {
         PhoneCommandSpec("set_timer", PhoneCommandSpec.Kind.ACTION, 10),
         PhoneCommandSpec("dismiss_alarm", PhoneCommandSpec.Kind.ACTION, 10),
         PhoneCommandSpec("dismiss_timer", PhoneCommandSpec.Kind.ACTION, 10),
+        PhoneCommandSpec("pause_location_logging", PhoneCommandSpec.Kind.WRITE, 10),
+        PhoneCommandSpec("clear_location_history", PhoneCommandSpec.Kind.WRITE, 4),
     )
 
     val byName: Map<String, PhoneCommandSpec> = ALL.associateBy { it.name }

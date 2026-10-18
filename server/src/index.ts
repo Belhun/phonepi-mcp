@@ -16,6 +16,8 @@ import {
   stopGmessagesSidecar,
 } from "./gmessages/index.js";
 import { commandRateLimiter } from "./command-rate-limit.js";
+import { openLocationLog } from "./location-log.js";
+import { isLocationReadTool, LOCATION_TOOL_SCHEMAS, runLocationRead } from "./location-tools.js";
 import {
   PHONE_COMMAND_SCHEMAS,
   CommandValidationError,
@@ -76,6 +78,7 @@ class PhonePiMCPServer {
   private requestCounter = 0;
   private _pingIntervalId: NodeJS.Timeout | null = null;
   private httpApi: Promise<LoopbackHttpHandle | null> | null = null;
+  private locationLog = openLocationLog();
 
   constructor(
     private serverPort: number = 11041,
@@ -114,12 +117,71 @@ class PhonePiMCPServer {
         isPhoneConnected: () => this.isPhoneOpen(),
         callPhoneTool: (name, args) => this.callPhoneTool(name, args),
         healthDetails: () => this.session.healthDetails(),
+        noteActivity: (entry) => this.notePhoneActivity(entry),
       },
+      locationLog: this.locationLog,
+      locationReadLimiter: commandRateLimiter,
     });
   }
 
   private isPhoneOpen(): boolean {
     return this.session.isConnected();
+  }
+
+  private notePhoneActivity(entry: { title: string; detail: string }): boolean {
+    const phone = this.session.currentSocket();
+    if (!phone || phone.readyState !== WebSocket.OPEN) return false;
+    const title = entry.title.slice(0, 80);
+    const detail = entry.detail.slice(0, 240);
+    try {
+      phone.send(
+        JSON.stringify({
+          type: "activity",
+          category: "tool",
+          title,
+          detail,
+          status: "success",
+        })
+      );
+      return true;
+    } catch (err) {
+      console.error("[WebSocket] Failed to record location activity on the phone");
+      return false;
+    }
+  }
+
+  private handleLocationFrame(ws: WebSocket, message: { type?: string; events?: unknown }): void {
+    if (!this.session.isCurrent(ws)) {
+      console.error("[WebSocket] Ignored location frame from a stale socket");
+      return;
+    }
+    if (message.type === "location_cleared") {
+      this.locationLog.clear();
+      try {
+        ws.send(JSON.stringify({ type: "location_cleared_ack" }));
+      } catch (err) {
+        console.error("[WebSocket] Failed to ack location clear");
+      }
+      return;
+    }
+    const result = this.locationLog.ingest(message.events);
+    console.error(
+      `[WebSocket] location sync accepted=${result.accepted.length} rejected=${result.rejected.length}`
+    );
+    try {
+      ws.send(
+        JSON.stringify({
+          type: "location_sync_ack",
+          accepted: result.accepted,
+          rejected: result.rejected.map((item) => ({
+            id: item.id,
+            error: item.error,
+          })),
+        })
+      );
+    } catch (err) {
+      console.error("[WebSocket] Failed to ack location sync");
+    }
   }
 
   private callPhoneTool(
@@ -344,6 +406,13 @@ class PhonePiMCPServer {
             `[WebSocket] Failed to send error response: ${sendError}`
           );
         }
+        return;
+      }
+      if (
+        message &&
+        (message.type === "location_sync" || message.type === "location_cleared")
+      ) {
+        this.handleLocationFrame(ws, message);
         return;
       }
       if(DEBUG_WEBSOCKET) {
@@ -1382,6 +1451,7 @@ class PhonePiMCPServer {
         ...PHOTO_TOOL_SCHEMAS,
         ...VOLUME_TOOL_SCHEMAS,
         ...ALARM_TOOL_SCHEMAS,
+        ...LOCATION_TOOL_SCHEMAS,
         ...PHONE_COMMAND_SCHEMAS,
         ...GM_TOOL_SCHEMAS,
       ],
@@ -1389,6 +1459,39 @@ class PhonePiMCPServer {
 
     // Handle tool calls
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
+      if (isLocationReadTool(request.params.name)) {
+        const args = (request.params.arguments || {}) as Record<string, unknown>;
+        const outcome = runLocationRead({
+          log: this.locationLog,
+          limiter: commandRateLimiter,
+          tool: request.params.name,
+          args,
+          activityLogged: false,
+        });
+        if (outcome.status === 400) {
+          throw new McpError(ErrorCode.InvalidParams, String(outcome.body.text));
+        }
+        if (outcome.status === 429) {
+          throw new McpError(ErrorCode.InvalidRequest, String(outcome.body.text));
+        }
+        let text = String(outcome.body.text);
+        if (
+          this.notePhoneActivity({
+            title: request.params.name,
+            detail: "read box location history",
+          })
+        ) {
+          try {
+            const payload = JSON.parse(text);
+            payload.activityLogged = true;
+            text = JSON.stringify(payload, null, 2);
+          } catch {
+            // Keep the original success text.
+          }
+        }
+        return { content: [{ type: "text", text }] };
+      }
+
       if (isGmTool(request.params.name)) {
         try {
           const result = await gmessagesClient.callTool(
