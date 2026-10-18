@@ -13,6 +13,7 @@ export const READ_ONLY_HTTP_TOOLS = new Set<string>([
   "list_notification_apps",
   "get_volumes",
   "get_recent_photos",
+  "list_alarms",
 ]);
 
 /** Sliding-window limits (per minute) for sensitive read tools. */
@@ -21,6 +22,7 @@ export const READ_ONLY_TOOL_RATE_LIMITS: Record<string, number> = {
   list_notification_apps: 60,
   get_volumes: 60,
   get_recent_photos: 30,
+  list_alarms: 60,
 };
 
 export function isReadOnlyHttpTool(name: string): boolean {
@@ -84,6 +86,19 @@ export const PHOTO_TOOL_SCHEMAS = [
           description: "Epoch milliseconds. Only photos taken or added at or after this time",
         },
       },
+      required: [],
+    },
+  },
+];
+
+export const ALARM_TOOL_SCHEMAS = [
+  {
+    name: "list_alarms",
+    description:
+      "Read the next alarm AlarmManager reports (getNextAlarmClock) and the alarms PhonePi itself asked the Clock app to create (time, label, repeat days, created-at). Read-only. This is not a full Clock inventory. Android does not let PhonePi list or edit other apps' alarms. Changing alarms is set_alarm, set_timer, dismiss_alarm, and dismiss_timer.",
+    inputSchema: {
+      type: "object",
+      properties: {},
       required: [],
     },
   },

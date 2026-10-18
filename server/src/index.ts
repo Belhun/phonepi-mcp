@@ -18,11 +18,14 @@ import {
 import { commandRateLimiter } from "./command-rate-limit.js";
 import {
   PHONE_COMMAND_SCHEMAS,
+  CommandValidationError,
   RateLimitError,
   getPhoneCommand,
   isPhoneCommand,
+  validatePhoneCommandArgs,
 } from "./commands.js";
 import {
+  ALARM_TOOL_SCHEMAS,
   NOTIFICATION_TOOL_SCHEMAS,
   PHOTO_TOOL_SCHEMAS,
   VOLUME_TOOL_SCHEMAS,
@@ -123,6 +126,11 @@ class PhonePiMCPServer {
     name: string,
     args: Record<string, unknown>
   ): Promise<unknown> {
+    const validated = validatePhoneCommandArgs(name, args);
+    if (!validated.ok) {
+      return Promise.reject(new CommandValidationError(validated.error));
+    }
+    const params = validated.args;
     if (isPhoneCommand(name)) {
       const spec = getPhoneCommand(name);
       if (spec) {
@@ -150,7 +158,7 @@ class PhonePiMCPServer {
       pending: this.pendingRequests,
       requestId,
       tool: getPhoneCommand(name)?.phoneTool ?? name,
-      params: args,
+      params,
       debug: DEBUG_WEBSOCKET,
     });
   }
@@ -912,35 +920,6 @@ class PhonePiMCPServer {
           },
         },
         // {
-        //   name: 'set_alarm',
-        //   description: 'Set an alarm for a specific time',
-        //   inputSchema: {
-        //     type: 'object',
-        //     properties: {
-        //       time: {
-        //         type: 'string',
-        //         description: 'Time to set the alarm for (ISO 8601 format)',
-        //       },
-        //     },
-        //     required: ['time'],
-        //   },
-        // },
-        {
-          name: "set_timer",
-          description: "Set a timer for a specific duration",
-          inputSchema: {
-            type: "object",
-            properties: {
-              seconds: {
-                type: "number",
-                description: "Duration of the timer in seconds",
-                minimum: 1,
-              },
-            },
-            required: ["seconds"],
-          },
-        },
-        // {
         //   name: 'cancel_alarm_or_timer',
         //   description: 'Cancel a previously set alarm or timer',
         //   inputSchema: {
@@ -1402,6 +1381,7 @@ class PhonePiMCPServer {
         ...NOTIFICATION_TOOL_SCHEMAS,
         ...PHOTO_TOOL_SCHEMAS,
         ...VOLUME_TOOL_SCHEMAS,
+        ...ALARM_TOOL_SCHEMAS,
         ...PHONE_COMMAND_SCHEMAS,
         ...GM_TOOL_SCHEMAS,
       ],
@@ -1519,6 +1499,9 @@ class PhonePiMCPServer {
       } catch (error: unknown) {
         if (error instanceof RateLimitError) {
           throw new McpError(ErrorCode.InvalidRequest, error.message);
+        }
+        if (error instanceof CommandValidationError) {
+          throw new McpError(ErrorCode.InvalidParams, error.message);
         }
         throw new McpError(
           ErrorCode.InternalError,

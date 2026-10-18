@@ -79,6 +79,8 @@ test("command allowlist is the phone commands", () => {
   assert.deepEqual(
     [...PHONE_COMMAND_NAMES].sort(),
     [
+      "dismiss_alarm",
+      "dismiss_timer",
       "get_photo",
       "phone_add_location",
       "phone_list_locations",
@@ -86,6 +88,8 @@ test("command allowlist is the phone commands", () => {
       "phone_push_update",
       "phone_remove_location",
       "phone_set_volume",
+      "set_alarm",
+      "set_timer",
     ]
   );
   for (const name of PHONE_COMMAND_NAMES) {
@@ -99,6 +103,9 @@ test("command allowlist is the phone commands", () => {
   assert.equal(isPhoneCommand("list_notification_apps"), false);
   assert.equal(isPhoneCommand("get_volumes"), false);
   assert.equal(isPhoneCommand("get_recent_photos"), false);
+  assert.equal(isPhoneCommand("list_alarms"), false);
+  assert.equal(getPhoneCommand("set_alarm")?.maxPerMinute, 10);
+  assert.equal(getPhoneCommand("set_timer")?.kind, "action");
   assert.equal(isPhoneCommand("get_photo"), true);
   assert.equal(getPhoneCommand("get_photo")?.kind, "read");
   assert.equal(getPhoneCommand("get_photo")?.maxPerMinute, 12);
