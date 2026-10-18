@@ -83,6 +83,7 @@ test("command allowlist is the phone commands", () => {
       "dismiss_alarm",
       "dismiss_timer",
       "get_photo",
+      "get_send_status",
       "pause_location_logging",
       "phone_add_location",
       "phone_list_locations",
@@ -90,6 +91,7 @@ test("command allowlist is the phone commands", () => {
       "phone_push_update",
       "phone_remove_location",
       "phone_set_volume",
+      "request_send_text",
       "set_alarm",
       "set_timer",
     ]

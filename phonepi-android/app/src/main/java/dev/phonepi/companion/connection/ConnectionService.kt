@@ -62,6 +62,10 @@ import dev.phonepi.companion.tools.DismissTimerTool
 import dev.phonepi.companion.tools.ListAlarmsTool
 import dev.phonepi.companion.tools.SetAlarmTool
 import dev.phonepi.companion.tools.TimerTool
+import dev.phonepi.companion.textsend.GetSendStatusTool
+import dev.phonepi.companion.textsend.PhoneUplink
+import dev.phonepi.companion.textsend.RequestSendTextTool
+import dev.phonepi.companion.textsend.SendLogOutbox
 import dev.phonepi.companion.tools.UpdateContactTool
 import dev.phonepi.companion.tools.UpdateSnippetTool
 import dev.phonepi.companion.util.NotificationHelper
@@ -136,6 +140,8 @@ class ConnectionService : Service() {
                 DeleteContactTool(ctx),
                 PauseLocationLoggingTool(ctx),
                 ClearLocationHistoryTool(ctx),
+                RequestSendTextTool(ctx),
+                GetSendStatusTool(ctx),
             ),
         )
         manager = WebSocketManager(
@@ -148,7 +154,9 @@ class ConnectionService : Service() {
             permissionPayload = {
                 PhonePermissionReport.toJson(PhonePermissionSnapshot.capture(applicationContext))
             },
+            onReady = { SendLogOutbox.flush(applicationContext) },
         )
+        PhoneUplink.attach { text -> manager.sendFrame(text) }
         createChannel()
         registerNetworkCallback()
         scope.launch {

@@ -41,10 +41,13 @@
     <!-- Lets the Clock app accept SET_ALARM, SET_TIMER, and dismiss intents (Android 14+). -->
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
 
-    <!-- Legacy carrier SMS — disabled; use Google Messages gm_* tools on desktop -->
-    <!-- <uses-permission android:name="android.permission.SEND_SMS" /> -->
-    <!-- <uses-permission android:name="android.permission.READ_SMS" /> -->
-    <!-- <uses-permission android:name="android.permission.READ_PHONE_STATE" /> -->
+    <!-- Safe text send. Off until Alex turns on Allow bots to request texts. -->
+    <uses-permission android:name="android.permission.SEND_SMS" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
 
     <uses-permission android:name="android.permission.CALL_PHONE" />
 
@@ -98,6 +101,9 @@
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
         </intent>
     </queries>
 
@@ -303,6 +309,23 @@
             android:name=".receiver.MessageActionReceiver"
 
             android:exported="false" />
+
+        <receiver
+            android:name=".textsend.SendTextActionReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".textsend.SendTextSentReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".textsend.InVehicleReceiver"
+            android:exported="false" />
+
+        <service
+            android:name=".textsend.SendTextSpeechService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
 
 
 

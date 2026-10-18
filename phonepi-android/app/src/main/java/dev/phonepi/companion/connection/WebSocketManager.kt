@@ -41,6 +41,7 @@ class WebSocketManager(
             PhonePermissionReport.fromFlags(emptyMap()),
         )
     },
+    private val onReady: () -> Unit = {},
     private val random: Random = Random.Default,
 ) {
     private val client = OkHttpClient.Builder()
@@ -135,6 +136,17 @@ class WebSocketManager(
             if (socket === current && lastInboundAt == mark) {
                 tearDown(current, reason)
             }
+        }
+    }
+
+    fun sendFrame(text: String): Boolean {
+        val webSocket = socket ?: return false
+        if (ConnectionController.state.value != ConnectionState.Connected) return false
+        return try {
+            webSocket.send(text)
+            true
+        } catch (_: Exception) {
+            false
         }
     }
 
@@ -273,6 +285,7 @@ class WebSocketManager(
                     false
                 }
             }
+            onReady()
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {

@@ -231,6 +231,8 @@ Body:
 | `dismiss_timer` | action | 10/min |
 | `pause_location_logging` | write | 10/min |
 | `clear_location_history` | write | 4/min |
+| `request_send_text` | action | 5/min and 30/day (`as_alex`), 5/min and 20/day (`attributed`) |
+| `get_send_status` | read | 60/min |
 
 `get_photo` is a read, but it is not on `POST /api/tool`. Image bytes need the shared token. `get_recent_photos` is the no-token metadata list. The phone recompresses each image so one JSON frame stays under 1 MB. Original EXIF, including GPS, is not copied into those bytes.
 
@@ -253,6 +255,8 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:11043/api/tool `
   -ContentType "application/json" `
   -Body '{"tool":"search_places","arguments":{"query":"pizza vista"}}'
 ```
+
+`request_send_text` asks the phone to text one person. The server does not send SMS. `recipient` is one contact name or one phone number. `message` is at most 1000 characters. `mode` is `as_alex` (default) or `attributed`. `as_alex` stays `pending` until Alex taps Send or says send. `attributed` can send only after the phone adds `[Alex's assistant Grok]: `, and only if that switch is on. Fields such as `confirmed` or `skipConfirm` are HTTP 400. A name that matches several contacts returns `needs_clarification` and sends nothing. `get_send_status` reads `pending`, `sent`, `cancelled`, `expired`, `failed`, `needs_clarification`, or `rejected`. HTTP 200 is not proof the text was sent. Cancel and expiry are final. The box log is `~/.phonepi/sent-texts.jsonl`. The token is not written there. See [docs/send-text.md](../docs/send-text.md).
 
 MCP exposes the same names. Rate limits are shared between MCP and HTTP.
 

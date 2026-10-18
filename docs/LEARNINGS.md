@@ -2,7 +2,7 @@
 
 Standing log for this PR branch (`cursor/phone-navigate-locations-1ceb`). Update this file in the same change as every future PhonePi feature, bugfix, or device lesson. Do not merge this branch from this log. Never commit secrets (`PHONEPI_WS_TOKEN`, command tokens, hostnames with tokens in the URL, APK signing keystores, or personal MagicDNS names that are not already public in the repo).
 
-Current companion: **0.3.1** (versionCode **13**).
+Current companion: **0.3.2** (versionCode **14**). 0.3.1 / versionCode 13 is the location-history release.
 
 Bot-facing skill: [BOT-SKILL.md](BOT-SKILL.md).
 
@@ -142,6 +142,22 @@ Rows live in a separate Room file, `phonepi-location.db`, capped at 8000 events 
 
 Reads (no token, 30/min, work when the phone is offline): `get_location_history` (`from`, `to`, `max` default 50 cap 200, optional `kind`) and `search_places` (`query`, `max` default 20 cap 50). `YYYY-MM-DD` is a UTC day. An afternoon in California needs an offset such as `-07:00`. Search requires every word (length at least 2) to appear in the place name or address. Writes (token, `/api/command` only): `pause_location_logging` (`paused` boolean, 10/min) and `clear_location_history` (`confirm` must be `"delete"`, 4/min). Invalid args are HTTP 400 and do not call the phone. The phone logs the switch, pause, delete, import, recorded visits, and those two commands in Recent activity. A box-side read sends an `activity` frame when the phone is connected (`activityLogged` on the result). The server log line for a sync is a count, not coordinates, and it never logs the token.
 
+### 0.3.2: safe texts (SMS)
+
+Commands (`POST /api/command`, token): `request_send_text` and `get_send_status`. The phone sends with `SmsManager`. The box does not.
+
+Path choice is in [send-text.md](send-text.md). The Google Messages bridge stays off this feature. It is an unofficial client, and a send from the box would not keep the confirm on the phone. Opening the default messenger would let Alex edit the draft and could not finish a spoken "send" or an assistant-signed send. There is no sanctioned third-party RCS send that also locks the body. Carrier SMS is the path.
+
+`mode` defaults to `as_alex`. That text always needs a tap on Send, or a clear spoken "send" while driving. It expires in 5 minutes. Cancel and expiry are final. `attributed` may send with no tap only when **Allow assistant-signed texts without confirm** is on. The phone itself adds `[Alex's assistant Grok]: `. A bot field such as `confirmed` or `skipConfirm` is HTTP 400. Putting the prefix in the message does not change the mode.
+
+One recipient. A name that matches several contacts, or none, returns `needs_clarification` and sends nothing. No groups. Message cap 1000 characters. Rates are separate: `as_alex` 5/min and 30/day, `attributed` 5/min and 20/day. HTTP 200 is not "sent". Poll `get_send_status`.
+
+Kill switch **Allow bots to request texts** is off by default. Off rejects new requests and cancels pending texts that have not reached the carrier. Grants: `SEND_SMS`, `READ_CONTACTS` (names), `POST_NOTIFICATIONS`, `RECORD_AUDIO` (spoken confirm), `ACTIVITY_RECOGNITION` (IN_VEHICLE), `BLUETOOTH_CONNECT` (car audio or hands-free). Spoken confirm uses a short microphone foreground service, not the all-day connection service. Audio focus is transient and may duck.
+
+Logs: Recent activity on the phone, and `~/.phonepi/sent-texts.jsonl` on the box (timestamp, name, masked number, message, outcome, confirm method, mode). The token is not logged. versionCode is **14** so it sits after the location-history versionCode 13.
+
+Bots send only when Alex names the person and the message in that moment. Not on their own. Not as a reply. Not as an acknowledgement.
+
 ## Mistakes and fixes
 
 | Symptom | Cause | Fix |
@@ -182,6 +198,7 @@ Android-only (do not assume iOS equivalents):
 - `MediaStore.Images`, `READ_MEDIA_IMAGES`, `READ_MEDIA_VISUAL_USER_SELECTED`, and `READ_EXTERNAL_STORAGE`. iOS uses `PHPhotoLibrary` authorization. Keep the tool names, the default-off share switch, the token gate on image bytes, and recompress-before-send so GPS EXIF does not ride along.
 - `AlarmClock` intents (`SET_ALARM`, `SET_TIMER`, `DISMISS_ALARM`, `DISMISS_TIMER`), `SET_ALARM` permission, and `AlarmManager.getNextAlarmClock()`. iOS has no public API for another app to create or dismiss Clock alarms. Keep the tool names and the honest "not confirmed" status; an iPhone companion would have to say the action is unsupported.
 - `FusedLocationProvider`, `ACCESS_BACKGROUND_LOCATION`, `ACTIVITY_RECOGNITION`, activity-transition PendingIntents, geofences, `Sensor.TYPE_SIGNIFICANT_MOTION`, and `Geocoder`. iOS would use Core Location visits and `CLGeocoder`. Keep the tool names, the opt-in default off, the JSONL copy on the box, and the rule that a Timeline export is a file the person shares. Google's Settings path for Timeline export is Android-only.
+- `SmsManager`, `SEND_SMS`, notification actions, `TextToSpeech`, `SpeechRecognizer`, `ACTIVITY_RECOGNITION`, and Bluetooth device class. Keep the command names, the two modes, the phone-added prefix, the default-off switches, and "HTTP 200 is not sent". iOS cannot send SMS from a third-party app without the system composer, which the user can edit. An iPhone companion would have to say direct send is unsupported.
 - Forever reconnect with a capped exponential backoff is portable. `ConnectivityManager` callbacks and the foreground-service keepalive are Android-only. On iOS, retry when the app becomes active and when a path monitor reports a change. Do not show connected until the socket has had recent traffic.
 
 iPhone maps/nav sketch (not implemented): open an Apple Maps or Google Maps iOS URL when the companion is allowed to become foreground. Do not expect to start Maps from a background daemon the way overlay+FSI does on Android. A tap-to-open notification is the likely fallback.
@@ -197,3 +214,4 @@ iPhone notification reading sketch (not implemented): without an Apple entitleme
 - Location history stays off until Alex turns it on and grants precise location plus **Allow all the time**. **Physical activity** improves drives. Pause and Delete all history are on the phone. A Timeline backfill is a file he exports himself and shares into PhonePi.
 - Clock alarms need Google Clock (or another app that handles the intents) and, for a silent background set, **Display over other apps**. `SET_ALARM` is granted at install. Dismiss can fail when the Clock app has no dismiss activity; the tool says so.
 - Recent photos stay off until Alex turns on **Share recent photos** and grants Photos. `get_photo` needs the shared token. The bytes are recompressed, so GPS EXIF is not in the payload.
+- Texts stay off until Alex turns on **Allow bots to request texts** and grants SMS, contacts, and notifications. Assistant-signed texts stay off until the second switch. Spoken confirm needs the microphone. Car detection also wants physical activity and nearby Bluetooth devices. Sideload **0.3.2** (versionCode 14).

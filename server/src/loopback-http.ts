@@ -6,6 +6,7 @@ import {
   isPhoneCommand,
   validatePhoneCommandArgs,
 } from "./commands.js";
+import { appendSendLog, sendLogFromRejection } from "./send-text.js";
 import {
   PhoneHealthDetails,
   emptyHealthDetails,
@@ -386,6 +387,9 @@ async function handleCommand(
   const args = (body.arguments ?? {}) as Record<string, unknown>;
   const validated = validatePhoneCommandArgs(commandName, args);
   if (!validated.ok) {
+    if (commandName === "request_send_text") {
+      appendSendLog(sendLogFromRejection(args, "rejected", validated.error));
+    }
     sendJson(res, 400, { text: validated.error, isError: true });
     return;
   }

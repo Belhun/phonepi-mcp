@@ -203,6 +203,10 @@ object ActivityLog {
         write(category = "navigation", title = "phone_navigate", detail = detail, status = status)
     }
 
+    fun logTextSend(detail: String, status: String) {
+        write(category = "text", title = "text", detail = detail, status = status)
+    }
+
     fun logUpdate(detail: String, status: String = "info") {
         write(category = "update", title = "update", detail = detail, status = status)
     }

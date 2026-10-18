@@ -196,6 +196,8 @@ fun ConnectScreen(modifier: Modifier = Modifier) {
             HorizontalDivider()
             VolumePanel()
             HorizontalDivider()
+            TextsPanel()
+            HorizontalDivider()
             NotificationSharePanel()
             HorizontalDivider()
             ActivityLogPanel()

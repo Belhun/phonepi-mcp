@@ -179,6 +179,27 @@ Android will not let this app delete an arbitrary Clock alarm. Dismiss asks Cloc
 
 Example commands: set an alarm for 6:30 AM weekdays labeled Work (`hour` 6, `minute` 30, `period` `am`, `days` `weekdays`, `label` `Work`); set a 15 minute timer (`seconds` 900).
 
+## Texts
+
+Companion **0.3.2** (versionCode 14). The phone sends carrier SMS with `SmsManager` after Alex's rules. The PC does not send the text.
+
+### What Alex has to grant
+
+1. Install this companion (**0.3.2**). Debug to release is still a one-time uninstall.
+2. Open PhonePi and scroll to **Texts**.
+3. Turn on **Allow bots to request texts**. It starts off. Off rejects every new request and cancels a pending text that has not reached the carrier.
+4. Grant what the panel asks for:
+   - **SMS** (`SEND_SMS`). Required. Without it, nothing sends.
+   - **Contacts** (`READ_CONTACTS`). Required to resolve a name. A raw number can still be one recipient.
+   - **Notifications**. Required so the Send / Cancel card and the "Sent to …" notice can show.
+   - **Microphone** (`RECORD_AUDIO`). Spoken confirm while driving. If you deny it, the tap card still works.
+   - **Physical activity** (`ACTIVITY_RECOGNITION`). Lets the phone notice `IN_VEHICLE`. If you deny it, Android Auto, a car Bluetooth kit, and the **Driving mode** switch still count.
+   - **Nearby devices** (`BLUETOOTH_CONNECT`). Lets a connected car kit or hands-free device count as driving. If you deny it, the other driving signals still work.
+5. Leave **Allow assistant-signed texts without confirm** off unless you want those texts to send with no tap. The phone adds `[Alex's assistant Grok]: ` itself. This switch also starts off.
+6. **Driving mode** is optional. Turn it on when you want the phone to read the text aloud even if it has not detected a car.
+
+A text that reads as you always needs the **Send** action, or the word "send" after the phone speaks it. "Cancel", silence, or anything else sends nothing. The card expires in 5 minutes, and that expiry is final.
+
 ## Volumes
 
 `get_volumes` is read-only (loopback HTTP + MCP). `phone_set_volume` is a write command (`stream` + `level` or `"max"`, or `max_all`). Optional **Max volumes at midnight** on the Volumes panel uses an exact alarm so the clock alarm is audible even if the PC is offline. Grant **Alarms & reminders** if Android 12+ blocks exact alarms. Grant **Do Not Disturb access** only if you want ring/notification changes while DND is on — the Grant row appears when that access is actually needed.

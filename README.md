@@ -72,6 +72,14 @@ Token commands: `pause_location_logging` (`paused` true or false, 10/min) and `c
 
 Android will not let PhonePi edit or delete arbitrary Clock alarms. A dismiss result says whether Clock accepted the intent. It does not prove the alarm is gone. If that Clock app has no dismiss handler, the phone returns `status:"error"`. HTTP 200 still has to be parsed for `status` and `started`.
 
+## Texts
+
+Companion **0.3.2**. Bots ask with `request_send_text` (`POST /api/command`, token). The phone sends carrier SMS with `SmsManager` after its own rules. The box does not send the text, and this does not use the Google Messages bridge.
+
+`as_alex` (the default) reads as Alex and always needs a tap on Send, or a spoken "send" while driving. It expires in 5 minutes. `attributed` sends only when **Allow assistant-signed texts without confirm** is on. The phone adds `[Alex's assistant Grok]: ` itself. Both switches start off. **Allow bots to request texts** is the kill switch.
+
+One recipient. An unclear name returns `needs_clarification` and sends nothing. HTTP 200 is not "sent". Poll `get_send_status`. Cancel and expiry are final. Send only when Alex names the person and the message in that moment. Details: [docs/send-text.md](docs/send-text.md).
+
 ## Volumes
 
 Read-only `get_volumes` (loopback `POST /api/tool` and MCP) returns alarm, ring, notification, media, voice, and system current/max, plus ringer mode and Do Not Disturb. `phone_set_volume` is a write command (`stream` + `level` or `"max"`, or `max_all`). Optional **Max volumes at midnight** on the phone uses an exact alarm so the clock is audible if the PC is offline. Ring/notification changes while DND is on need Do Not Disturb access, requested only when that grant is needed.
