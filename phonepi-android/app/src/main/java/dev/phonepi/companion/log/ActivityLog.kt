@@ -77,10 +77,34 @@ object ActivityLog {
         }
         "copy_to_clipboard" -> "Copied ${data["length"]?.jsonPrimitive?.contentOrNull ?: "?"} chars"
         "set_timer" -> {
-            val via = data["via"]?.jsonPrimitive?.contentOrNull ?: "unknown"
-            val extra = data["handoffDetail"]?.jsonPrimitive?.contentOrNull
-            val suffix = if (extra != null) " — $extra" else ""
-            "Timer ${data["seconds"]?.jsonPrimitive?.contentOrNull ?: "?"}s via $via$suffix"
+            val seconds = data["seconds"]?.jsonPrimitive?.contentOrNull ?: "?"
+            val started = data["started"]?.jsonPrimitive?.contentOrNull ?: "?"
+            val label = data["label"]?.jsonPrimitive?.contentOrNull
+            val suffix = if (label != null) " $label" else ""
+            "Timer ${seconds}s$suffix started=$started"
+        }
+        "set_alarm" -> {
+            val hour = data["hour"]?.jsonPrimitive?.contentOrNull ?: "?"
+            val minute = data["minute"]?.jsonPrimitive?.contentOrNull ?: "?"
+            val label = data["label"]?.jsonPrimitive?.contentOrNull
+            val started = data["started"]?.jsonPrimitive?.contentOrNull ?: "?"
+            val suffix = if (label != null) " $label" else ""
+            "Alarm $hour:$minute$suffix started=$started"
+        }
+        "dismiss_alarm" -> {
+            val search = data["search"]?.jsonPrimitive?.contentOrNull ?: "?"
+            val started = data["started"]?.jsonPrimitive?.contentOrNull ?: "?"
+            "Dismiss alarm by $search started=$started"
+        }
+        "dismiss_timer" -> {
+            val started = data["started"]?.jsonPrimitive?.contentOrNull ?: "?"
+            "Dismiss timer started=$started"
+        }
+        "list_alarms" -> {
+            val next = data["nextAlarm"]
+            val hasNext = next != null && next !is kotlinx.serialization.json.JsonNull
+            val count = (data["phonePiAlarms"] as? kotlinx.serialization.json.JsonArray)?.size
+            "next=$hasNext phonePi=${count ?: "?"}"
         }
         "send_notification" -> "Posted notification"
         "find_phone" -> {
@@ -166,6 +190,10 @@ object ActivityLog {
             }
         }
         else -> "OK"
+    }
+
+    fun logClock(detail: String, status: String) {
+        write(category = "clock", title = "clock", detail = detail, status = status)
     }
 
     fun logNavigation(detail: String, status: String) {

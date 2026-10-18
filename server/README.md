@@ -167,7 +167,7 @@ Success is HTTP 200:
 | 200 | Allowlisted tool ran | `{ "text", "isError": false }` |
 | 400 | Bad JSON, missing tool name, or `arguments` is not an object | `{ "text", "isError": true }` |
 | 403 | Tool is not on the allowlist | `{ "text", "isError": true }` |
-| 429 | Over the per-tool rate limit (`get_notifications`, `list_notification_apps`, `get_volumes`, `get_recent_photos`) | `{ "text", "isError": true }` |
+| 429 | Over the per-tool rate limit (`get_notifications`, `list_notification_apps`, `get_volumes`, `get_recent_photos`, `list_alarms`) | `{ "text", "isError": true }` |
 | 503 | Phone socket is not open | `{ "text", "isError": true }` |
 | 502 | The phone request failed (for example a timeout) | `{ "text", "isError": true }` |
 
@@ -186,8 +186,9 @@ Allowlist:
 - `list_notification_apps` (60/min)
 - `get_volumes` (60/min)
 - `get_recent_photos` (30/min, metadata only, hard cap 20)
+- `list_alarms` (60/min). Next alarm from `AlarmManager.getNextAlarmClock()`, plus alarms PhonePi created. Not a full Clock inventory.
 
-Everything else is rejected with 403 and is not sent to the phone. That includes `make_call`, `find_phone`, `set_timer`, `copy_to_clipboard`, `send_message`, `send_notification`, snippet or contact add/update/delete, `share_snippet`, and every `gm_*` Google Messages tool.
+Everything else is rejected with 403 and is not sent to the phone. That includes `make_call`, `find_phone`, `set_alarm`, `set_timer`, `dismiss_alarm`, `dismiss_timer`, `copy_to_clipboard`, `send_message`, `send_notification`, snippet or contact add/update/delete, `share_snippet`, and every `gm_*` Google Messages tool. Clock writes use `POST /api/command`.
 
 ```powershell
 Invoke-RestMethod http://127.0.0.1:11043/api/health
@@ -222,8 +223,20 @@ Body:
 | `phone_push_update` | write | 6/min |
 | `phone_set_volume` | write | 20/min |
 | `get_photo` | read | 12/min |
+| `set_alarm` | action | 10/min |
+| `set_timer` | action | 10/min |
+| `dismiss_alarm` | action | 10/min |
+| `dismiss_timer` | action | 10/min |
 
 `get_photo` is a read, but it is not on `POST /api/tool`. Image bytes need the shared token. `get_recent_photos` is the no-token metadata list. The phone recompresses each image so one JSON frame stays under 1 MB. Original EXIF, including GPS, is not copied into those bytes.
+
+`set_alarm` creates a Clock alarm (`ACTION_SET_ALARM`, `SKIP_UI`). `hour` is 0-23, or 1-12 with `period` `am`/`pm`. `minute` is 0-59. Optional `message` or `label` (max 100 characters). Optional `days`: `weekdays`, `weekends`, `daily`, or weekday names. Omit `days` for a one-shot alarm. Example: 6:30 AM weekdays labeled Work is `{"hour":6,"minute":30,"period":"am","days":"weekdays","label":"Work"}`.
+
+`set_timer` starts a Clock countdown (`ACTION_SET_TIMER`, `SKIP_UI`). `seconds` is 1 through 86400. A 15 minute timer is `{"seconds":900}`. Optional label, same 100 character cap. If Clock cannot take the timer, the phone returns `status:"error"`. It does not schedule a PhonePi countdown instead.
+
+`dismiss_alarm` sends `ACTION_DISMISS_ALARM` with `search` `time` (hour + minute) or `label`. `dismiss_timer` sends `ACTION_DISMISS_TIMER` (optional label). Android does not let a third-party app delete arbitrary Clock alarms. `started:true` means the intent was handed to Clock, not that the alarm is gone. If that Clock app has no dismiss handler, the phone returns `status:"error"` and `supported:false`. HTTP 200 with `status:"success"` is still not proof the alarm changed.
+
+Invalid hour, minute, label, days, or seconds is HTTP 400 and is not sent to the phone. `list_alarms` stays on `POST /api/tool`.
 
 MCP exposes the same names. Rate limits are shared between MCP and HTTP.
 
@@ -259,7 +272,8 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:11043/api/command `
 
 | Status | When |
 | --- | --- |
-| 200 | Allowlisted command ran on the phone |
+| 200 | Allowlisted command ran on the phone. Parse `text` for `status` / `started`. HTTP 200 is not success by itself. |
+| 400 | Invalid JSON, or clock arguments failed validation (hour, minute, label, days, seconds). Not sent to the phone. |
 | 401 | Token missing, wrong, or `PHONEPI_WS_TOKEN` unset |
 | 403 | Name is not on the command allowlist (includes `make_call`, `shell`, arbitrary intents) |
 | 429 | Over the per-command rate limit |

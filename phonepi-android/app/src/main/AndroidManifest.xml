@@ -34,7 +34,7 @@
 
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
-    <!-- Required by Google Clock to accept SET_TIMER from third-party apps (Android 14+) -->
+    <!-- Lets the Clock app accept SET_ALARM, SET_TIMER, and dismiss intents (Android 14+). -->
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
 
     <!-- Legacy carrier SMS — disabled; use Google Messages gm_* tools on desktop -->
@@ -70,7 +70,16 @@
     <!-- Required on Android 11+ so we can find the Clock app for SET_TIMER -->
     <queries>
         <intent>
+            <action android:name="android.intent.action.SET_ALARM" />
+        </intent>
+        <intent>
             <action android:name="android.intent.action.SET_TIMER" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.DISMISS_ALARM" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.DISMISS_TIMER" />
         </intent>
         <package android:name="com.google.android.deskclock" />
         <package android:name="com.google.android.apps.maps" />
@@ -151,6 +160,20 @@
             android:exported="false"
 
             android:excludeFromRecents="true"
+
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <activity
+
+            android:name=".ui.ClockBridgeActivity"
+
+            android:exported="false"
+
+            android:excludeFromRecents="true"
+
+            android:showWhenLocked="true"
+
+            android:turnScreenOn="true"
 
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 

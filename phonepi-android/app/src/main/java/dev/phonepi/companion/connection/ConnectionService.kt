@@ -55,6 +55,10 @@ import dev.phonepi.companion.tools.SendNotificationTool
 // import dev.phonepi.companion.tools.GetSmsMessagesTool
 import dev.phonepi.companion.tools.ShareSnippetTool
 import dev.phonepi.companion.tools.StopAlarmTool
+import dev.phonepi.companion.tools.DismissAlarmTool
+import dev.phonepi.companion.tools.DismissTimerTool
+import dev.phonepi.companion.tools.ListAlarmsTool
+import dev.phonepi.companion.tools.SetAlarmTool
 import dev.phonepi.companion.tools.TimerTool
 import dev.phonepi.companion.tools.UpdateContactTool
 import dev.phonepi.companion.tools.UpdateSnippetTool
@@ -88,6 +92,10 @@ class ConnectionService : Service() {
                 BatteryTool(ctx),
                 ClipboardTool(ctx),
                 TimerTool(ctx),
+                SetAlarmTool(ctx),
+                DismissAlarmTool(ctx),
+                DismissTimerTool(ctx),
+                ListAlarmsTool(ctx),
                 SendNotificationTool(ctx),
                 FindPhoneTool(ctx),
                 StopAlarmTool(ctx),
