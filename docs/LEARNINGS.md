@@ -2,7 +2,7 @@
 
 Standing log for this PR branch (`cursor/phone-navigate-locations-1ceb`). Update this file in the same change as every future PhonePi feature, bugfix, or device lesson. Do not merge this branch from this log. Never commit secrets (`PHONEPI_WS_TOKEN`, command tokens, hostnames with tokens in the URL, APK signing keystores, or personal MagicDNS names that are not already public in the repo).
 
-Current companion: **0.3.0** (versionCode **12**).
+Current companion: **0.3.2** (versionCode **14**). 0.3.1 / versionCode 13 is reserved for the location-history branch.
 
 Bot-facing skill: [BOT-SKILL.md](BOT-SKILL.md).
 
@@ -130,6 +130,22 @@ Background starts follow the navigation rule. PhonePi fires the Clock intent onl
 
 Permission: `com.android.alarm.permission.SET_ALARM` (install-time, already required for timers). Manifest `<queries>` include `SET_ALARM`, `SET_TIMER`, `DISMISS_ALARM`, and `DISMISS_TIMER`. The server rejects bad hour, minute, label, days, or seconds with HTTP 400 before the phone is called. The phone checks again. The shared token is not logged.
 
+### 0.3.2: safe texts (SMS)
+
+Commands (`POST /api/command`, token): `request_send_text` and `get_send_status`. The phone sends with `SmsManager`. The box does not.
+
+Path choice is in [send-text.md](send-text.md). The Google Messages bridge stays off this feature. It is an unofficial client, and a send from the box would not keep the confirm on the phone. Opening the default messenger would let Alex edit the draft and could not finish a spoken "send" or an assistant-signed send. There is no sanctioned third-party RCS send that also locks the body. Carrier SMS is the path.
+
+`mode` defaults to `as_alex`. That text always needs a tap on Send, or a clear spoken "send" while driving. It expires in 5 minutes. Cancel and expiry are final. `attributed` may send with no tap only when **Allow assistant-signed texts without confirm** is on. The phone itself adds `[Alex's assistant Grok]: `. A bot field such as `confirmed` or `skipConfirm` is HTTP 400. Putting the prefix in the message does not change the mode.
+
+One recipient. A name that matches several contacts, or none, returns `needs_clarification` and sends nothing. No groups. Message cap 1000 characters. Rates are separate: `as_alex` 5/min and 30/day, `attributed` 5/min and 20/day. HTTP 200 is not "sent". Poll `get_send_status`.
+
+Kill switch **Allow bots to request texts** is off by default. Off rejects new requests and cancels pending texts that have not reached the carrier. Grants: `SEND_SMS`, `READ_CONTACTS` (names), `POST_NOTIFICATIONS`, `RECORD_AUDIO` (spoken confirm), `ACTIVITY_RECOGNITION` (IN_VEHICLE), `BLUETOOTH_CONNECT` (car audio or hands-free). Spoken confirm uses a short microphone foreground service, not the all-day connection service. Audio focus is transient and may duck.
+
+Logs: Recent activity on the phone, and `~/.phonepi/sent-texts.jsonl` on the box (timestamp, name, masked number, message, outcome, confirm method, mode). The token is not logged. versionCode is **14** so it sits after the location-history versionCode 13.
+
+Bots send only when Alex names the person and the message in that moment. Not on their own. Not as a reply. Not as an acknowledgement.
+
 ## Mistakes and fixes
 
 | Symptom | Cause | Fix |
@@ -167,6 +183,7 @@ Android-only (do not assume iOS equivalents):
 - `AudioManager` streams, Do Not Disturb policy access, and `AlarmManager` exact midnight alarms. iOS volume APIs and Focus modes differ; a nightly max would be a local notification or BG task, not `BOOT_COMPLETED`.
 - `MediaStore.Images`, `READ_MEDIA_IMAGES`, `READ_MEDIA_VISUAL_USER_SELECTED`, and `READ_EXTERNAL_STORAGE`. iOS uses `PHPhotoLibrary` authorization. Keep the tool names, the default-off share switch, the token gate on image bytes, and recompress-before-send so GPS EXIF does not ride along.
 - `AlarmClock` intents (`SET_ALARM`, `SET_TIMER`, `DISMISS_ALARM`, `DISMISS_TIMER`), `SET_ALARM` permission, and `AlarmManager.getNextAlarmClock()`. iOS has no public API for another app to create or dismiss Clock alarms. Keep the tool names and the honest "not confirmed" status; an iPhone companion would have to say the action is unsupported.
+- `SmsManager`, `SEND_SMS`, notification actions, `TextToSpeech`, `SpeechRecognizer`, `ACTIVITY_RECOGNITION`, and Bluetooth device class. Keep the command names, the two modes, the phone-added prefix, the default-off switches, and "HTTP 200 is not sent". iOS cannot send SMS from a third-party app without the system composer, which the user can edit. An iPhone companion would have to say direct send is unsupported.
 - Forever reconnect with a capped exponential backoff is portable. `ConnectivityManager` callbacks and the foreground-service keepalive are Android-only. On iOS, retry when the app becomes active and when a path monitor reports a change. Do not show connected until the socket has had recent traffic.
 
 iPhone maps/nav sketch (not implemented): open an Apple Maps or Google Maps iOS URL when the companion is allowed to become foreground. Do not expect to start Maps from a background daemon the way overlay+FSI does on Android. A tap-to-open notification is the likely fallback.
@@ -181,3 +198,4 @@ iPhone notification reading sketch (not implemented): without an Apple entitleme
 - Sideload **0.3.0** (or in-app update from a 0.2.9 release build). Debug → release is still a one-time uninstall. Later APKs go in `~/.phonepi/updates` and must be signed with `scripts/sign-update-manifest.sh`.
 - Clock alarms need Google Clock (or another app that handles the intents) and, for a silent background set, **Display over other apps**. `SET_ALARM` is granted at install. Dismiss can fail when the Clock app has no dismiss activity; the tool says so.
 - Recent photos stay off until Alex turns on **Share recent photos** and grants Photos. `get_photo` needs the shared token. The bytes are recompressed, so GPS EXIF is not in the payload.
+- Texts stay off until Alex turns on **Allow bots to request texts** and grants SMS, contacts, and notifications. Assistant-signed texts stay off until the second switch. Spoken confirm needs the microphone. Car detection also wants physical activity and nearby Bluetooth devices. Sideload **0.3.2** (versionCode 14).
