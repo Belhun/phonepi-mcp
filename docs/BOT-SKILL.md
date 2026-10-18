@@ -4,7 +4,7 @@ description: >-
   Use when Alex asks any bot to do something on his Android phone through
   PhonePi: "take me to <place>", start Google Maps / Android Auto navigation,
   save or list places, set phone volume, read battery, contacts, recent calls,
-  notifications, volumes, or recent photos, or when PhonePi says "Phone not connected" and you
+  notifications, volumes, recent photos, or a text Alex asked you to send, or when PhonePi says "Phone not connected" and you
   need to diagnose it.
 ---
 # PhonePi phone actions
@@ -68,6 +68,8 @@ curl -s -X POST http://127.0.0.1:11043/api/command \
 | `set_timer` | `seconds` (1 through 86400). Optional `message` or `label` (max 100) | 10 | `AlarmClock.ACTION_SET_TIMER` with `SKIP_UI`. A 15 minute timer is `seconds: 900`. |
 | `dismiss_alarm` | `search`: `time` (`hour` + `minute`) or `label` (`message` or `label`) | 10 | `ACTION_DISMISS_ALARM`. There is no dismiss-all. |
 | `dismiss_timer` | optional `message` or `label` | 10 | `ACTION_DISMISS_TIMER`. |
+| `request_send_text` | `recipient`, `message` (max 1000). Optional `mode`: `as_alex` (default) or `attributed` | 5/min and 30/day for `as_alex`; 5/min and 20/day for `attributed` | Does not send by itself. See section 3d. |
+| `get_send_status` | `id` from the request | 60 | `pending`, `sent`, `cancelled`, `expired`, `failed`, `needs_clarification`, or `rejected`. |
 
 Saved places known: `Home` = 338 E Fallbrook St #A, Fallbrook CA 92028 (confirm with `phone_list_locations`).
 
@@ -172,6 +174,49 @@ curl -s -X POST http://127.0.0.1:11043/api/command \
 - `com.android.alarm.permission.SET_ALARM` is an install-time permission. There is no extra runtime toggle for it.
 - Labels are at most 100 characters. Timer length is 1 second through 24 hours (86400).
 
+## 3d. Goal → action: "text Mom that I'm running late"
+
+Send only when Alex, in that moment, names the person and the words. Do not text on your own. Do not send a reply. Do not send an acknowledgement. Do not text a group. Do not edit the message after you ask. A cancelled or expired text is final. Do not retry that id.
+
+1. **Health check.** If `phoneConnected:false`, stop and go to section 6.
+2. **Pick the mode.**
+   - Default `as_alex`: the text reads as Alex. The phone waits for him to tap Send, or to say send while driving. It expires in 5 minutes.
+   - `attributed` only when Alex asked for an assistant-signed text. The phone adds `[Alex's assistant Grok]: ` itself. You cannot add, drop, or fake that prefix. This sends with no tap only if Alex has turned on **Allow assistant-signed texts without confirm**. If that switch is off, the phone rejects the request. It does not silently send it as Alex.
+3. **One recipient.** A contact name or one phone number. Not "Mom and Dad". Not a list.
+4. **Call `request_send_text`** (`POST /api/command`, token). Nothing is sent by this call alone.
+```bash
+TOKEN=$(sed -n 's/^\(export \)\{0,1\}PHONEPI_WS_TOKEN=//p' /home/box/.phonepi/env)
+curl -s -X POST http://127.0.0.1:11043/api/command \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"command":"request_send_text","arguments":{"recipient":"Mom","message":"Running late, start dinner without me"}}'
+```
+Assistant-signed example (only if Alex asked for that mode):
+```bash
+curl -s -X POST http://127.0.0.1:11043/api/command \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"command":"request_send_text","arguments":{"recipient":"Mom","message":"Alex asked me to say he will be about 10 minutes late.","mode":"attributed"}}'
+```
+The text Mom receives in that example starts with `[Alex's assistant Grok]: ` because the phone added it.
+5. **Read `status` inside `text`.** HTTP 200 does not mean sent.
+   - `pending` and `sent:false` → waiting. Tell Alex to tap Send, or to say send if he is driving. Then poll.
+   - `sent:true` → the phone sent that exact text. For `attributed`, `message` includes the prefix.
+   - `needs_clarification` → nothing was sent. Read `candidates` (name and masked number). Ask Alex which person, then make a new request.
+   - `rejected` → a switch is off, the recipient was a group, or the rate limit hit. Say so. Do not retry in a loop.
+   - `failed` → the phone did not send. If `grantNeeded` is set, tell Alex which permission.
+   - `cancelled` or `expired` → final. Nothing went out. Do not retry that id.
+6. **Poll** until the status is final.
+```bash
+curl -s -X POST http://127.0.0.1:11043/api/command \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"command":"get_send_status","arguments":{"id":"send-...."}}'
+```
+
+Do not pass `confirmed`, `skipConfirm`, or a prefix. The server returns HTTP 400 and does not call the phone.
+
+Rates: `as_alex` is 5 per minute and 30 per day. `attributed` is 5 per minute and 20 per day. The message is at most 1000 characters.
+
+Full rules: [send-text.md](send-text.md).
+
 ## 4. Phone-side permissions that matter
 - **Display over other apps**: required for Maps to open from the background.
 - Notifications + **full-screen intents** (Android 14+): needed for the fallback.
@@ -181,14 +226,15 @@ curl -s -X POST http://127.0.0.1:11043/api/command \
 - **Photos** (`READ_MEDIA_IMAGES` on Android 13+, `READ_EXTERNAL_STORAGE` on older releases) plus the **Share recent photos** switch. Off until Alex turns it on. Android 14 "Select photos" counts as a grant for the photos he picked.
 - **Install unknown apps**: for self-update.
 - **Clock**: `SET_ALARM` is granted at install. Google Clock (or another app that handles the Clock intents) must be installed. **Display over other apps** is what lets `set_alarm` / `set_timer` / dismiss run without a tap. There is no permission that lets PhonePi edit someone else's alarms.
+- **Texts**: **Allow bots to request texts** (off by default) plus SMS, contacts, and notifications. Microphone for spoken confirm. Physical activity and nearby Bluetooth devices help detect driving. **Allow assistant-signed texts without confirm** is a second switch, also off. Details in section 3d.
 
-## 5. What PhonePi can and cannot do (as of companion 0.3.0)
-Can (via HTTP, any bot): navigation to anything Maps can search, saved places, volumes (read/set/max all), battery, contacts (read/search), recent calls, allowlisted notifications, snippets, recent photo metadata (`get_recent_photos`), one recompressed photo at a time (`get_photo`, shared token), `list_alarms`, and Clock `set_alarm` / `set_timer` / `dismiss_alarm` / `dismiss_timer` (those four need the shared token).
+## 5. What PhonePi can and cannot do (as of companion 0.3.2)
+Can (via HTTP, any bot): navigation to anything Maps can search, saved places, volumes (read/set/max all), battery, contacts (read/search), recent calls, allowlisted notifications, snippets, recent photo metadata (`get_recent_photos`), one recompressed photo at a time (`get_photo`, shared token), `list_alarms`, Clock `set_alarm` / `set_timer` / `dismiss_alarm` / `dismiss_timer` (those four need the shared token), and `request_send_text` / `get_send_status` (token, phone confirm, switches off by default).
 On-phone only: "Max volumes at midnight" toggle, reconnect-on-boot, reconnect after update.
 
 Exists on the phone but NOT reachable from bots right now: `find_phone` (ring), `copy_to_clipboard`, `make_call`, `get_location`, `send_notification`, contact edits, snippet writes. Don't promise these; `/api/tool` returns 403.
 
-Cannot: send or read SMS/texts, press Android Auto's Start now, install updates silently, run arbitrary commands, report what is on screen, list or delete arbitrary Clock alarms, or work at all when the phone is off the tailnet. A dismiss result is a request to the Clock app, not proof the alarm is gone.
+Cannot: read SMS or RCS, send RCS, send a text with no phone-side rule, press Android Auto's Start now, install updates silently, run arbitrary commands, report what is on screen, list or delete arbitrary Clock alarms, or work at all when the phone is off the tailnet. A dismiss result is a request to the Clock app, not proof the alarm is gone. A text request is not proof the text was sent. `gm_send_message` is not this flow. Do not use it to skip the phone.
 
 ## 6. Diagnosing "Phone not connected"
 Check in order (all read-only):
@@ -203,3 +249,4 @@ Tell Alex the specific step that failed and the one action he needs to take. Nev
 - Only allowlisted calls; never connect to the phone WebSocket (11041) directly — a second client replaces the phone's connection.
 - Never expose the token. Respect rate limits. Every call is logged on the phone.
 - Navigation, volume, saved-place writes, and clock alarms or timers are fine when Alex asks; `phone_push_update` only on explicit request. Do not dismiss an alarm he did not name.
+- Text only when Alex names the person and the message in that moment. Never on your own. Never as a reply or an acknowledgement. A cancelled or expired send is final.

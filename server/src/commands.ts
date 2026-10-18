@@ -4,13 +4,27 @@
  * append a spec here, handle it on the phone, and keep the same name.
  */
 
-export {
+import {
+  CommandValidationError,
   ALARM_LABEL_MAX_LENGTH,
   TIMER_MAX_SECONDS,
-  CommandValidationError,
-  validatePhoneCommandArgs,
+  validatePhoneCommandArgs as validateAlarmCommandArgs,
+  type ValidatedCommandArgs,
 } from "./alarm-commands.js";
-export type { ValidatedCommandArgs } from "./alarm-commands.js";
+import { validateSendTextArgs } from "./send-text.js";
+
+export { ALARM_LABEL_MAX_LENGTH, TIMER_MAX_SECONDS, CommandValidationError };
+export type { ValidatedCommandArgs };
+
+export function validatePhoneCommandArgs(
+  name: string,
+  args: Record<string, unknown>
+): ValidatedCommandArgs {
+  if (name === "request_send_text" || name === "get_send_status") {
+    return validateSendTextArgs(name, args);
+  }
+  return validateAlarmCommandArgs(name, args);
+}
 
 export type PhoneCommandKind = "read" | "write" | "action";
 
@@ -316,6 +330,51 @@ export const PHONE_COMMANDS: readonly PhoneCommand[] = [
         label: { type: "string", description: "Alias of message" },
       },
       required: [],
+    },
+  },
+  {
+    name: "request_send_text",
+    kind: "action",
+    phoneTool: "request_send_text",
+    maxPerMinute: 10,
+    description:
+      "Ask the phone to text one person. Nothing is sent by this call alone. recipient is one contact name or one phone number. message is the exact text, at most 1000 characters. mode is as_alex (default) or attributed. as_alex waits for Alex to tap Send or say send while driving, and expires in 5 minutes. attributed may send without that confirm only when the phone toggle is on; the phone adds the prefix \"[Alex's assistant Grok]: \" itself. An ambiguous contact returns needs_clarification and sends nothing. HTTP 200 does not mean sent. Check get_send_status. Send only when Alex names the person and the message in that moment. Never on your own, and never for a reply or an acknowledgement. A cancelled or expired send is final.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        recipient: {
+          type: "string",
+          description: "One contact name or one phone number. No groups.",
+        },
+        message: {
+          type: "string",
+          description: "Exact text to send, at most 1000 characters. The phone does not let you edit it later.",
+        },
+        mode: {
+          type: "string",
+          description:
+            "as_alex (default) requires Alex's tap or spoken send. attributed sends only with the phone-added assistant prefix, and only if that toggle is on.",
+        },
+      },
+      required: ["recipient", "message"],
+    },
+  },
+  {
+    name: "get_send_status",
+    kind: "read",
+    phoneTool: "get_send_status",
+    maxPerMinute: 60,
+    description:
+      "Read one text request by id. status is pending, sent, cancelled, expired, failed, needs_clarification, or rejected. HTTP 200 does not mean the text was sent. Poll this after request_send_text.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: {
+          type: "string",
+          description: "Id returned by request_send_text",
+        },
+      },
+      required: ["id"],
     },
   },
 ];

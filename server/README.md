@@ -227,6 +227,8 @@ Body:
 | `set_timer` | action | 10/min |
 | `dismiss_alarm` | action | 10/min |
 | `dismiss_timer` | action | 10/min |
+| `request_send_text` | action | 5/min and 30/day (`as_alex`), 5/min and 20/day (`attributed`) |
+| `get_send_status` | read | 60/min |
 
 `get_photo` is a read, but it is not on `POST /api/tool`. Image bytes need the shared token. `get_recent_photos` is the no-token metadata list. The phone recompresses each image so one JSON frame stays under 1 MB. Original EXIF, including GPS, is not copied into those bytes.
 
@@ -237,6 +239,8 @@ Body:
 `dismiss_alarm` sends `ACTION_DISMISS_ALARM` with `search` `time` (hour + minute) or `label`. `dismiss_timer` sends `ACTION_DISMISS_TIMER` (optional label). Android does not let a third-party app delete arbitrary Clock alarms. `started:true` means the intent was handed to Clock, not that the alarm is gone. If that Clock app has no dismiss handler, the phone returns `status:"error"` and `supported:false`. HTTP 200 with `status:"success"` is still not proof the alarm changed.
 
 Invalid hour, minute, label, days, or seconds is HTTP 400 and is not sent to the phone. `list_alarms` stays on `POST /api/tool`.
+
+`request_send_text` asks the phone to text one person. The server does not send SMS. `recipient` is one contact name or one phone number. `message` is at most 1000 characters. `mode` is `as_alex` (default) or `attributed`. `as_alex` stays `pending` until Alex taps Send or says send. `attributed` can send only after the phone adds `[Alex's assistant Grok]: `, and only if that switch is on. Fields such as `confirmed` or `skipConfirm` are HTTP 400. A name that matches several contacts returns `needs_clarification` and sends nothing. `get_send_status` reads `pending`, `sent`, `cancelled`, `expired`, `failed`, `needs_clarification`, or `rejected`. HTTP 200 is not proof the text was sent. Cancel and expiry are final. The box log is `~/.phonepi/sent-texts.jsonl`. The token is not written there. See [docs/send-text.md](../docs/send-text.md).
 
 MCP exposes the same names. Rate limits are shared between MCP and HTTP.
 

@@ -19,6 +19,8 @@ class CommandGateTest {
                 "phone_push_update",
                 "phone_remove_location",
                 "phone_set_volume",
+                "get_send_status",
+                "request_send_text",
                 "set_alarm",
                 "set_timer",
             ),

@@ -17,6 +17,12 @@ import {
 } from "./gmessages/index.js";
 import { commandRateLimiter } from "./command-rate-limit.js";
 import {
+  appendSendLog,
+  sendLogFromPhone,
+  sendLogFromRejection,
+  sendTextRateLimiter,
+} from "./send-text.js";
+import {
   PHONE_COMMAND_SCHEMAS,
   CommandValidationError,
   RateLimitError,
@@ -128,9 +134,28 @@ class PhonePiMCPServer {
   ): Promise<unknown> {
     const validated = validatePhoneCommandArgs(name, args);
     if (!validated.ok) {
+      if (name === "request_send_text") {
+        appendSendLog(sendLogFromRejection(args, "rejected", validated.error));
+      }
       return Promise.reject(new CommandValidationError(validated.error));
     }
     const params = validated.args;
+    if (name === "request_send_text") {
+      const mode = params.mode === "attributed" ? "attributed" : "as_alex";
+      const budget = sendTextRateLimiter.allow(mode);
+      if (!budget.ok) {
+        appendSendLog(
+          sendLogFromRejection(
+            params,
+            "rate_limited",
+            `Rate limited: request_send_text ${mode} ${budget.scope}`
+          )
+        );
+        return Promise.reject(
+          new RateLimitError("request_send_text", budget.retryAfterSec)
+        );
+      }
+    }
     if (isPhoneCommand(name)) {
       const spec = getPhoneCommand(name);
       if (spec) {
@@ -354,6 +379,13 @@ class PhonePiMCPServer {
         if (!this.session.notePong(ws)) {
           console.error("[WebSocket] Ignored pong from a stale socket");
         }
+      } else if (message.type === "send_text_log") {
+        if (!this.session.isCurrent(ws)) {
+          console.error("[WebSocket] Ignored send log from a stale socket");
+          return;
+        }
+        const entry = sendLogFromPhone(message as Record<string, unknown>);
+        if (entry) appendSendLog(entry);
       } else if (message.type === "permissions") {
         if (!this.session.notePermissions(ws, message)) {
           console.error("[WebSocket] Ignored permissions from a stale socket");

@@ -14,6 +14,7 @@ object NotificationHelper {
     const val CHANNEL_MESSAGES = "phonepi_messages"
     const val CHANNEL_FIND_PHONE = "phonepi_find_phone"
     const val CHANNEL_NAVIGATION = "phonepi_navigation"
+    const val CHANNEL_SEND_TEXT = "phonepi_send_text"
 
     fun ensureChannels(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -25,6 +26,7 @@ object NotificationHelper {
             NotificationChannel(CHANNEL_MESSAGES, "PhonePi messages", NotificationManager.IMPORTANCE_HIGH),
             NotificationChannel(CHANNEL_FIND_PHONE, "PhonePi find phone", NotificationManager.IMPORTANCE_HIGH),
             NotificationChannel(CHANNEL_NAVIGATION, "PhonePi navigation", NotificationManager.IMPORTANCE_HIGH),
+            NotificationChannel(CHANNEL_SEND_TEXT, "PhonePi texts", NotificationManager.IMPORTANCE_HIGH),
         )
         channels.forEach { manager.createNotificationChannel(it) }
     }
