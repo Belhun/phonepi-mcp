@@ -14,6 +14,8 @@ export const READ_ONLY_HTTP_TOOLS = new Set<string>([
   "get_volumes",
   "get_recent_photos",
   "list_alarms",
+  "get_location_history",
+  "search_places",
 ]);
 
 /** Sliding-window limits (per minute) for sensitive read tools. */
@@ -23,6 +25,8 @@ export const READ_ONLY_TOOL_RATE_LIMITS: Record<string, number> = {
   get_volumes: 60,
   get_recent_photos: 30,
   list_alarms: 60,
+  get_location_history: 30,
+  search_places: 30,
 };
 
 export function isReadOnlyHttpTool(name: string): boolean {
