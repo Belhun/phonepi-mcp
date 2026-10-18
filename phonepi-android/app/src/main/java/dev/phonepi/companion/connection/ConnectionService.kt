@@ -38,7 +38,9 @@ import dev.phonepi.companion.tools.GetVolumesTool
 import dev.phonepi.companion.tools.SetVolumeTool
 import dev.phonepi.companion.tools.ListLocationsTool
 import dev.phonepi.companion.tools.ListNotificationAppsTool
+import dev.phonepi.companion.tools.ClearLocationHistoryTool
 import dev.phonepi.companion.tools.NavigateTool
+import dev.phonepi.companion.tools.PauseLocationLoggingTool
 import dev.phonepi.companion.tools.PushUpdateTool
 import dev.phonepi.companion.tools.RemoveLocationTool
 import dev.phonepi.companion.tools.GetMessageResponseTool
@@ -132,9 +134,12 @@ class ConnectionService : Service() {
                 AddContactTool(ctx),
                 UpdateContactTool(ctx),
                 DeleteContactTool(ctx),
+                PauseLocationLoggingTool(ctx),
+                ClearLocationHistoryTool(ctx),
             ),
         )
         manager = WebSocketManager(
+            ctx,
             scope,
             router,
             onConnected = { host, port, token ->

@@ -45,7 +45,30 @@ The MCP server serves the latest APK at `GET /phonepi/update/manifest` and `GET 
 
 ## Alarms and timers
 
-Companion **0.3.0**. `list_alarms` is a no-token read (`POST /api/tool`): the next alarm `AlarmManager` reports, plus alarms PhonePi created. `set_alarm`, `set_timer`, `dismiss_alarm`, and `dismiss_timer` are token commands (`POST /api/command`, 10/min). They use the standard Clock intents (`ACTION_SET_ALARM`, `ACTION_SET_TIMER`, `ACTION_DISMISS_ALARM`, `ACTION_DISMISS_TIMER`) with `SKIP_UI` on create. Example: 6:30 AM weekdays labeled Work, or a 15 minute timer (`seconds: 900`).
+Companion **0.3.1**. `list_alarms` is a no-token read (`POST /api/tool`): the next alarm `AlarmManager` reports, plus alarms PhonePi created. `set_alarm`, `set_timer`, `dismiss_alarm`, and `dismiss_timer` are token commands (`POST /api/command`, 10/min). They use the standard Clock intents (`ACTION_SET_ALARM`, `ACTION_SET_TIMER`, `ACTION_DISMISS_ALARM`, `ACTION_DISMISS_TIMER`) with `SKIP_UI` on create. Example: 6:30 AM weekdays labeled Work, or a 15 minute timer (`seconds: 900`).
+
+## Location history
+
+Companion **0.3.1**. Google's Timeline export cannot be triggered by an app. PhonePi keeps its own opt-in log (off until Alex turns **Location history** on) and can import a Timeline JSON he exports by hand. See [docs/location-timeline-feasibility.md](docs/location-timeline-feasibility.md).
+
+No-token reads (`POST /api/tool`, 30/min), from the box copy, including when the phone is offline:
+
+- `get_location_history` with `from`, `to` (epoch ms, ISO-8601, or `YYYY-MM-DD` as a UTC day), `max` (default 50, cap 200), optional `kind` `visit` or `drive`
+- `search_places` with `query` and `max` (default 20, cap 50). Every word must match the place name or address. Returns the address and visit dates.
+
+Where was I last Tuesday afternoon:
+
+```json
+{"tool":"get_location_history","arguments":{"from":"2026-10-13T12:00:00-07:00","to":"2026-10-13T18:00:00-07:00","max":20}}
+```
+
+Address of the pizza place in Vista:
+
+```json
+{"tool":"search_places","arguments":{"query":"pizza vista"}}
+```
+
+Token commands: `pause_location_logging` (`paused` true or false, 10/min) and `clear_location_history` (`confirm` must be `"delete"`, 4/min). The phone has the same pause and delete actions. The box stores `~/.phonepi/location/YYYY-MM.jsonl` for 12 months unless `PHONEPI_LOCATION_RETENTION_MONTHS` says otherwise.
 
 Android will not let PhonePi edit or delete arbitrary Clock alarms. A dismiss result says whether Clock accepted the intent. It does not prove the alarm is gone. If that Clock app has no dismiss handler, the phone returns `status:"error"`. HTTP 200 still has to be parsed for `status` and `started`.
 

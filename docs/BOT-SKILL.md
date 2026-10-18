@@ -38,12 +38,13 @@ Responses are always `{"text": "<JSON string>", "isError": bool}`. **HTTP 200 do
 curl -s -X POST http://127.0.0.1:11043/api/tool -H 'Content-Type: application/json' \
   -d '{"tool":"get_battery_level","arguments":{}}'
 ```
-Allowlist (exact): `get_battery_level`, `get_volumes`, `get_contacts`, `search_contacts` {query, limit≤50}, `get_contact_by_id` {id}, `get_recent_calls` {limit, hours (default 168) | since (epoch ms), type/types, number, includeContactNames}, `get_notifications` {package, since (epoch ms), limit default 50 cap 200}, `list_notification_apps`, `get_recent_photos` {limit default 5, hard cap 20, since (epoch ms)}, `list_alarms`, `get_all_snippets`, `get_snippet_by_id`, `get_snippets_by_type`, `search_snippets`.
+Allowlist (exact): `get_battery_level`, `get_volumes`, `get_contacts`, `search_contacts` {query, limit≤50}, `get_contact_by_id` {id}, `get_recent_calls` {limit, hours (default 168) | since (epoch ms), type/types, number, includeContactNames}, `get_notifications` {package, since (epoch ms), limit default 50 cap 200}, `list_notification_apps`, `get_recent_photos` {limit default 5, hard cap 20, since (epoch ms)}, `list_alarms`, `get_location_history`, `search_places`, `get_all_snippets`, `get_snippet_by_id`, `get_snippets_by_type`, `search_snippets`.
 - Battery → `level`, `isCharging`, `chargingStatus`.
 - Volumes → per-stream `current`/`max`, `ringerMode`, `dnd`, `notificationPolicyAccess`, `exactAlarmsAllowed`, `midnightMaxEnabled`.
 - Notifications: only apps Alex allowlisted in the app (default: none). Unshared apps are counted in `omittedUnsharedCount`.
 - Recent photos: metadata only (id, display name, dateTaken, dateAdded, size, width, height, mime type). No image bytes. Needs the in-app **Share recent photos** switch (off by default) and the Photos permission. 30/min. The scan is the newest 100 images.
 - `list_alarms` (60/min): `nextAlarm` from `AlarmManager.getNextAlarmClock()` (`triggerAt` epoch ms, or null), plus `phonePiAlarms` (hour, minute, label, repeat day names, createdAt) for alarms PhonePi itself asked Clock to create. This is not the Clock app's full list.
+- `get_location_history` and `search_places` (30/min each) read the box copy. They work when the phone is offline. See the location history section below.
 
 ### b) Commands — `POST /api/command`, token required
 Token = `PHONEPI_WS_TOKEN` in `/home/box/.phonepi/env` (mode 600). Never print, log, or paste it.
@@ -68,8 +69,38 @@ curl -s -X POST http://127.0.0.1:11043/api/command \
 | `set_timer` | `seconds` (1 through 86400). Optional `message` or `label` (max 100) | 10 | `AlarmClock.ACTION_SET_TIMER` with `SKIP_UI`. A 15 minute timer is `seconds: 900`. |
 | `dismiss_alarm` | `search`: `time` (`hour` + `minute`) or `label` (`message` or `label`) | 10 | `ACTION_DISMISS_ALARM`. There is no dismiss-all. |
 | `dismiss_timer` | optional `message` or `label` | 10 | `ACTION_DISMISS_TIMER`. |
+| `pause_location_logging` | `paused` true or false | 10 | Stops or resumes new visits and drives. History stays. |
+| `clear_location_history` | `confirm` must be `"delete"` | 4 | Deletes history on the phone and on the box. |
 
 Saved places known: `Home` = 338 E Fallbrook St #A, Fallbrook CA 92028 (confirm with `phone_list_locations`).
+
+### c) Location history (box copy, works offline)
+
+PhonePi's own log. Google Timeline cannot be pulled by an app. Alex turns **Location history** on in PhonePi (off by default) and grants location. The phone records visits (dwell of at least 8 minutes) and drives, reverse-geocodes visits on the device, and syncs to `~/.phonepi/location/YYYY-MM.jsonl`. Default retention is 12 months (`PHONEPI_LOCATION_RETENTION_MONTHS`).
+
+`get_location_history` arguments: `from`, `to` (epoch ms, ISO-8601 with offset, or `YYYY-MM-DD` as a UTC day), `max` (default 50, cap 200), optional `kind` `visit` or `drive`.
+
+`search_places` arguments: `query` (2 to 80 characters; every word must appear in the place name or address), `max` (default 20, cap 50). Returns `address`, `placeName`, coordinates, and `visits` with `startMs`, `endMs`, and `dateUtc`.
+
+Where was I last Tuesday afternoon (Tuesday 13 Oct 2026, Pacific):
+
+```bash
+curl -s -X POST http://127.0.0.1:11043/api/tool -H 'Content-Type: application/json' \
+  -d '{"tool":"get_location_history","arguments":{"from":"2026-10-13T12:00:00-07:00","to":"2026-10-13T18:00:00-07:00","max":20}}'
+```
+
+Address of the pizza place in Vista:
+
+```bash
+curl -s -X POST http://127.0.0.1:11043/api/tool -H 'Content-Type: application/json' \
+  -d '{"tool":"search_places","arguments":{"query":"pizza vista"}}'
+```
+
+A date-only `from`/`to` is UTC. For "afternoon" send an offset, or the window will be wrong for California.
+
+Pause and delete are token commands, not `/api/tool`. The phone also has **Pause logging** and **Delete all history**. Import of a hand-exported Timeline JSON is on the phone only (share sheet or **Import Timeline export**).
+
+These two reads do not need `phoneConnected:true`. `activityLogged` is false when the phone was offline, so Recent activity could not record that read.
 
 ## 3. Goal → action: "take me to X"
 1. **Health check.** If `phoneConnected:false`, stop and go to section 6 (no retry spam).
@@ -180,15 +211,16 @@ curl -s -X POST http://127.0.0.1:11043/api/command \
 - Contacts / Call log / Phone permissions for those read tools.
 - **Photos** (`READ_MEDIA_IMAGES` on Android 13+, `READ_EXTERNAL_STORAGE` on older releases) plus the **Share recent photos** switch. Off until Alex turns it on. Android 14 "Select photos" counts as a grant for the photos he picked.
 - **Install unknown apps**: for self-update.
+- **Location history** (off until Alex turns it on): `ACCESS_FINE_LOCATION` and `ACCESS_COARSE_LOCATION`, then **Allow all the time** (`ACCESS_BACKGROUND_LOCATION`) so logging continues in the background, and **Physical activity** (`ACTIVITY_RECOGNITION`) so drives are recognized. While-in-use location still logs only while PhonePi is open.
 - **Clock**: `SET_ALARM` is granted at install. Google Clock (or another app that handles the Clock intents) must be installed. **Display over other apps** is what lets `set_alarm` / `set_timer` / dismiss run without a tap. There is no permission that lets PhonePi edit someone else's alarms.
 
-## 5. What PhonePi can and cannot do (as of companion 0.3.0)
-Can (via HTTP, any bot): navigation to anything Maps can search, saved places, volumes (read/set/max all), battery, contacts (read/search), recent calls, allowlisted notifications, snippets, recent photo metadata (`get_recent_photos`), one recompressed photo at a time (`get_photo`, shared token), `list_alarms`, and Clock `set_alarm` / `set_timer` / `dismiss_alarm` / `dismiss_timer` (those four need the shared token).
-On-phone only: "Max volumes at midnight" toggle, reconnect-on-boot, reconnect after update.
+## 5. What PhonePi can and cannot do (as of companion 0.3.1)
+Can (via HTTP, any bot): navigation to anything Maps can search, saved places, volumes (read/set/max all), battery, contacts (read/search), recent calls, allowlisted notifications, snippets, recent photo metadata (`get_recent_photos`), one recompressed photo at a time (`get_photo`, shared token), `list_alarms`, Clock `set_alarm` / `set_timer` / `dismiss_alarm` / `dismiss_timer` (those four need the shared token), and location history (`get_location_history`, `search_places`) from the box copy even when the phone is offline.
+On-phone only: "Max volumes at midnight" toggle, reconnect-on-boot, reconnect after update, the Location history switch, pause, delete, and Timeline JSON import.
 
 Exists on the phone but NOT reachable from bots right now: `find_phone` (ring), `copy_to_clipboard`, `make_call`, `get_location`, `send_notification`, contact edits, snippet writes. Don't promise these; `/api/tool` returns 403.
 
-Cannot: send or read SMS/texts, press Android Auto's Start now, install updates silently, run arbitrary commands, report what is on screen, list or delete arbitrary Clock alarms, or work at all when the phone is off the tailnet. A dismiss result is a request to the Clock app, not proof the alarm is gone.
+Cannot: send or read SMS/texts, press Android Auto's Start now, install updates silently, run arbitrary commands, report what is on screen, list or delete arbitrary Clock alarms, trigger Google's Timeline export, or work at all when the phone is off the tailnet (location history reads of the box copy are the exception). A dismiss result is a request to the Clock app, not proof the alarm is gone. Location history stays empty until Alex opts in.
 
 ## 6. Diagnosing "Phone not connected"
 Check in order (all read-only):

@@ -4,13 +4,30 @@
  * append a spec here, handle it on the phone, and keep the same name.
  */
 
+import {
+  ALARM_LABEL_MAX_LENGTH,
+  TIMER_MAX_SECONDS,
+  CommandValidationError,
+  validatePhoneCommandArgs as validateClockCommandArgs,
+} from "./alarm-commands.js";
+import type { ValidatedCommandArgs } from "./alarm-commands.js";
+import { validateLocationAdminArgs } from "./location-tools.js";
+
 export {
   ALARM_LABEL_MAX_LENGTH,
   TIMER_MAX_SECONDS,
   CommandValidationError,
-  validatePhoneCommandArgs,
-} from "./alarm-commands.js";
-export type { ValidatedCommandArgs } from "./alarm-commands.js";
+};
+export type { ValidatedCommandArgs };
+
+export function validatePhoneCommandArgs(
+  name: string,
+  args: Record<string, unknown>
+): ValidatedCommandArgs {
+  const location = validateLocationAdminArgs(name, args);
+  if (location) return location;
+  return validateClockCommandArgs(name, args);
+}
 
 export type PhoneCommandKind = "read" | "write" | "action";
 
@@ -297,6 +314,42 @@ export const PHONE_COMMANDS: readonly PhoneCommand[] = [
         label: { type: "string", description: "Alias of message" },
       },
       required: ["search"],
+    },
+  },
+  {
+    name: "pause_location_logging",
+    kind: "write",
+    phoneTool: "pause_location_logging",
+    maxPerMinute: 10,
+    description:
+      "Pause or resume PhonePi's on-device location history. paused true stops new visits and drives. History already stored stays. Token required. The phone logs this in Recent activity.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        paused: {
+          type: "boolean",
+          description: "true pauses logging, false resumes it",
+        },
+      },
+      required: ["paused"],
+    },
+  },
+  {
+    name: "clear_location_history",
+    kind: "write",
+    phoneTool: "clear_location_history",
+    maxPerMinute: 4,
+    description:
+      'Delete location history on the phone and on the box. arguments.confirm must be the string "delete". Token required. The phone logs this in Recent activity.',
+    inputSchema: {
+      type: "object",
+      properties: {
+        confirm: {
+          type: "string",
+          description: 'Must be "delete"',
+        },
+      },
+      required: ["confirm"],
     },
   },
   {

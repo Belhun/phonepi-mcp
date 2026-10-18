@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import dev.phonepi.companion.connection.SavedConnectionReconnect
+import dev.phonepi.companion.history.LocationCapture
 import dev.phonepi.companion.volume.MidnightVolume
 
 /**
@@ -18,5 +19,6 @@ class PackageReplacedReceiver : BroadcastReceiver() {
             SavedConnectionReconnect.Trigger.PACKAGE_REPLACED,
         )
         MidnightVolume.rescheduleIfEnabled(context)
+        LocationCapture.refresh(context)
     }
 }

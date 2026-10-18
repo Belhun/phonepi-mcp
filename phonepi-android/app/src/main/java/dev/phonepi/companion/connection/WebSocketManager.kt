@@ -1,6 +1,8 @@
 package dev.phonepi.companion.connection
 
+import android.content.Context
 import android.util.Log
+import dev.phonepi.companion.history.LocationHistorySync
 import dev.phonepi.companion.log.ActivityLog
 import dev.phonepi.companion.protocol.ToolRouter
 import dev.phonepi.companion.protocol.WsMessage
@@ -30,6 +32,7 @@ private const val NETWORK_PROBE_MS = 10_000L
  * Reconnect continues forever with capped exponential backoff.
  */
 class WebSocketManager(
+    private val appContext: Context,
     private val scope: CoroutineScope,
     private val router: ToolRouter,
     private val onConnected: (host: String, port: Int, wsToken: String) -> Unit = { _, _, _ -> },
@@ -213,6 +216,7 @@ class WebSocketManager(
         if (manualClose) return
         if (socket !== webSocket) return
         socket = null
+        LocationHistorySync.detach()
         keepaliveJob?.cancel()
         try {
             webSocket.close(1000, "dead link")
@@ -260,6 +264,15 @@ class WebSocketManager(
             ConnectionController.update(ConnectionState.Connected)
             startKeepalive(webSocket)
             publishPermissions(force = true)
+            LocationHistorySync.attach(appContext) { payload ->
+                try {
+                    webSocket.send(payload)
+                    true
+                } catch (t: Throwable) {
+                    Log.w(TAG, "location sync send failed: ${t.message}")
+                    false
+                }
+            }
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {
@@ -275,6 +288,9 @@ class WebSocketManager(
                     Log.d(TAG, "tool ${msg.tool} -> ${msg.requestId}")
                 }
                 is WsMessage.ServerError -> Log.w(TAG, "server error: ${msg.error}")
+                is WsMessage.LocationAck -> LocationHistorySync.onFrame(text)
+                is WsMessage.ActivityNote ->
+                    ActivityLog.logRemoteAction(msg.title, msg.detail, msg.status)
                 is WsMessage.Unknown -> Log.v(TAG, "ignored frame type=${msg.type}")
             }
         }

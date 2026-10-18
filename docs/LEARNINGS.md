@@ -2,7 +2,7 @@
 
 Standing log for this PR branch (`cursor/phone-navigate-locations-1ceb`). Update this file in the same change as every future PhonePi feature, bugfix, or device lesson. Do not merge this branch from this log. Never commit secrets (`PHONEPI_WS_TOKEN`, command tokens, hostnames with tokens in the URL, APK signing keystores, or personal MagicDNS names that are not already public in the repo).
 
-Current companion: **0.3.0** (versionCode **12**).
+Current companion: **0.3.1** (versionCode **13**).
 
 Bot-facing skill: [BOT-SKILL.md](BOT-SKILL.md).
 
@@ -130,6 +130,18 @@ Background starts follow the navigation rule. PhonePi fires the Clock intent onl
 
 Permission: `com.android.alarm.permission.SET_ALARM` (install-time, already required for timers). Manifest `<queries>` include `SET_ALARM`, `SET_TIMER`, `DISMISS_ALARM`, and `DISMISS_TIMER`. The server rejects bad hour, minute, label, days, or seconds with HTTP 400 before the phone is called. The phone checks again. The shared token is not logged.
 
+### 0.3.1 — location history
+
+Feasibility: [location-timeline-feasibility.md](location-timeline-feasibility.md). A third-party app cannot trigger Google's Timeline export. No public intent, content provider, or API. Takeout no longer has it. The unofficial Geller fetch and reading `odlh-storage.db` are not sanctioned. PhonePi does not use them, and it does not drive the Settings UI. Alex can export by hand (Settings, Location, Location services, Timeline, Export Timeline data) and share the JSON or pick it with **Import Timeline export**. The parser takes `semanticSegments` and older `timelineObjects`. Raw `locations` points are rejected.
+
+The log bots use is PhonePi's own opt-in history. **Location history** is off by default. It needs `ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION`, and `ACCESS_BACKGROUND_LOCATION` (**Allow all the time**) to record while PhonePi is backgrounded. `ACTIVITY_RECOGNITION` (**Physical activity**) marks drives. While-in-use still logs only while the app is open. Denial leaves the switch off, or shows that background logging will not run.
+
+Capture is `FusedLocationProvider` at balanced power (15 minute idle interval, 3 minutes while a drive is open, 80 m minimum distance), activity transitions, a 150 m exit geofence, and a one-shot significant-motion sensor. It does not poll GPS. A visit is a dwell of 8 minutes inside 120 m. A drive needs about 250 m. Visits are reverse-geocoded with Android `Geocoder` on the device.
+
+Rows live in a separate Room file, `phonepi-location.db`, capped at 8000 events and about 400 days, so this does not bump the main database (that one still uses destructive migration). A Timeline import does not arm a geofence on an old visit. The phone syncs unsynced rows over the existing WebSocket (`location_sync` / `location_sync_ack`). A wipe sends `location_cleared` before any new rows. The box appends `~/.phonepi/location/YYYY-MM.jsonl` (directory 700, files 600). Retention defaults to 12 months (`PHONEPI_LOCATION_RETENTION_MONTHS`, 1 through 120). Same id with an older `updatedAtMs` does not overwrite. An event that carries `token` or another secret field is rejected and not written.
+
+Reads (no token, 30/min, work when the phone is offline): `get_location_history` (`from`, `to`, `max` default 50 cap 200, optional `kind`) and `search_places` (`query`, `max` default 20 cap 50). `YYYY-MM-DD` is a UTC day. An afternoon in California needs an offset such as `-07:00`. Search requires every word (length at least 2) to appear in the place name or address. Writes (token, `/api/command` only): `pause_location_logging` (`paused` boolean, 10/min) and `clear_location_history` (`confirm` must be `"delete"`, 4/min). Invalid args are HTTP 400 and do not call the phone. The phone logs the switch, pause, delete, import, recorded visits, and those two commands in Recent activity. A box-side read sends an `activity` frame when the phone is connected (`activityLogged` on the result). The server log line for a sync is a count, not coordinates, and it never logs the token.
+
 ## Mistakes and fixes
 
 | Symptom | Cause | Fix |
@@ -141,6 +153,8 @@ Permission: `com.android.alarm.permission.SET_ALARM` (install-time, already requ
 | `adb connect` to wireless debugging stopped working after a Wi-Fi or tailnet change | Android **wireless debugging** assigns a new TCP port when the network changes. The old `ip:port` is dead. | Re-open Wireless debugging on the Pixel, copy the new port, pair/connect again. Do not bake a port into scripts. |
 | After `phone_push_update` / in-app Install, the phone stayed disconnected (2026-10-13) | The installer replaces the APK and kills the process. Boot reconnect does not run on package replace. | `ACTION_MY_PACKAGE_REPLACED` receiver starts `ConnectionService` from the last saved host. |
 | `/api/health` said `phoneConnected:false` after the phone reconnected, and the phone UI stayed on Connected (2026-10-16) | `ws.on("close")` always assigned `phoneConnection = null`. `close()` is async, so the old socket's close ran after the new socket was stored and cleared it. The server then stopped pinging. The phone had no timeout of its own, and it gave up after about 10 tries. | `PhoneSession.clearIfCurrent` ignores close/error/timeout from any socket that is not the current one. The phone pings and drops a silent socket after 45s, then reconnects forever. |
+| A "Tuesday afternoon" query missed a drive that was in that afternoon in California | `YYYY-MM-DD` and bare UTC instants are not Pacific time. A drive at 11:30 Pacific is 18:30 UTC, which is outside `12:00-07:00` to `18:00-07:00`. | Document that date-only bounds are UTC. Bots send an offset for local afternoon. `search_places` matches every word, so `pizza vista` hits a name and an address that are not one substring. |
+| `buildJsonObject { put("endMs", endMs ?: JsonNull) }` failed Kotlin compile | `Long?` and `JsonNull` become `Any`, and `put` wants a `JsonElement`. | `endMs?.let(::JsonPrimitive) ?: JsonNull`. |
 
 ## iPhone: Android-only vs portable
 
@@ -167,6 +181,7 @@ Android-only (do not assume iOS equivalents):
 - `AudioManager` streams, Do Not Disturb policy access, and `AlarmManager` exact midnight alarms. iOS volume APIs and Focus modes differ; a nightly max would be a local notification or BG task, not `BOOT_COMPLETED`.
 - `MediaStore.Images`, `READ_MEDIA_IMAGES`, `READ_MEDIA_VISUAL_USER_SELECTED`, and `READ_EXTERNAL_STORAGE`. iOS uses `PHPhotoLibrary` authorization. Keep the tool names, the default-off share switch, the token gate on image bytes, and recompress-before-send so GPS EXIF does not ride along.
 - `AlarmClock` intents (`SET_ALARM`, `SET_TIMER`, `DISMISS_ALARM`, `DISMISS_TIMER`), `SET_ALARM` permission, and `AlarmManager.getNextAlarmClock()`. iOS has no public API for another app to create or dismiss Clock alarms. Keep the tool names and the honest "not confirmed" status; an iPhone companion would have to say the action is unsupported.
+- `FusedLocationProvider`, `ACCESS_BACKGROUND_LOCATION`, `ACTIVITY_RECOGNITION`, activity-transition PendingIntents, geofences, `Sensor.TYPE_SIGNIFICANT_MOTION`, and `Geocoder`. iOS would use Core Location visits and `CLGeocoder`. Keep the tool names, the opt-in default off, the JSONL copy on the box, and the rule that a Timeline export is a file the person shares. Google's Settings path for Timeline export is Android-only.
 - Forever reconnect with a capped exponential backoff is portable. `ConnectivityManager` callbacks and the foreground-service keepalive are Android-only. On iOS, retry when the app becomes active and when a path monitor reports a change. Do not show connected until the socket has had recent traffic.
 
 iPhone maps/nav sketch (not implemented): open an Apple Maps or Google Maps iOS URL when the companion is allowed to become foreground. Do not expect to start Maps from a background daemon the way overlay+FSI does on Android. A tap-to-open notification is the likely fallback.
@@ -178,6 +193,7 @@ iPhone notification reading sketch (not implemented): without an Apple entitleme
 - Overlay is the grant that actually opens Maps from the background. FSI is the fallback, not a substitute for overlay if you want Maps to appear unprompted.
 - Keep the PhonePi connection notification if the OS otherwise kills the socket when Maps comes to the front.
 - Tailscale Serve terminates TLS on the PC; the phone still needs MagicDNS (or a literal tailnet IP) and the WS token.
-- Sideload **0.3.0** (or in-app update from a 0.2.9 release build). Debug → release is still a one-time uninstall. Later APKs go in `~/.phonepi/updates` and must be signed with `scripts/sign-update-manifest.sh`.
+- Sideload **0.3.1** (or in-app update from a 0.3.0 release build). Debug → release is still a one-time uninstall. Later APKs go in `~/.phonepi/updates` and must be signed with `scripts/sign-update-manifest.sh`.
+- Location history stays off until Alex turns it on and grants precise location plus **Allow all the time**. **Physical activity** improves drives. Pause and Delete all history are on the phone. A Timeline backfill is a file he exports himself and shares into PhonePi.
 - Clock alarms need Google Clock (or another app that handles the intents) and, for a silent background set, **Display over other apps**. `SET_ALARM` is granted at install. Dismiss can fail when the Clock app has no dismiss activity; the tool says so.
 - Recent photos stay off until Alex turns on **Share recent photos** and grants Photos. `get_photo` needs the shared token. The bytes are recompressed, so GPS EXIF is not in the payload.
