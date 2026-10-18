@@ -43,6 +43,12 @@ Standing log of shipped features, mistakes, and iPhone portability: [docs/LEARNI
 
 The MCP server serves the latest APK at `GET /phonepi/update/manifest` and `GET /phonepi/update/apk` (same host as the phone WebSocket, `PHONEPI_WS_TOKEN` required). Drop a release APK in `PHONEPI_UPDATE_DIR` (default `~/.phonepi/updates`) and sign `manifest.json` with `scripts/sign-update-manifest.sh`. `phone_push_update` verifies the Ed25519 signature, APK sha256, and pinned release cert, then shows the system installer; Alex still taps Install. Debug → release is a one-time uninstall; see [docs/release-signing.md](docs/release-signing.md).
 
+## Alarms and timers
+
+Companion **0.3.0**. `list_alarms` is a no-token read (`POST /api/tool`): the next alarm `AlarmManager` reports, plus alarms PhonePi created. `set_alarm`, `set_timer`, `dismiss_alarm`, and `dismiss_timer` are token commands (`POST /api/command`, 10/min). They use the standard Clock intents (`ACTION_SET_ALARM`, `ACTION_SET_TIMER`, `ACTION_DISMISS_ALARM`, `ACTION_DISMISS_TIMER`) with `SKIP_UI` on create. Example: 6:30 AM weekdays labeled Work, or a 15 minute timer (`seconds: 900`).
+
+Android will not let PhonePi edit or delete arbitrary Clock alarms. A dismiss result says whether Clock accepted the intent. It does not prove the alarm is gone. If that Clock app has no dismiss handler, the phone returns `status:"error"`. HTTP 200 still has to be parsed for `status` and `started`.
+
 ## Volumes
 
 Read-only `get_volumes` (loopback `POST /api/tool` and MCP) returns alarm, ring, notification, media, voice, and system current/max, plus ringer mode and Do Not Disturb. `phone_set_volume` is a write command (`stream` + `level` or `"max"`, or `max_all`). Optional **Max volumes at midnight** on the phone uses an exact alarm so the clock is audible if the PC is offline. Ring/notification changes while DND is on need Do Not Disturb access, requested only when that grant is needed.

@@ -2,7 +2,7 @@
 
 Standing log for this PR branch (`cursor/phone-navigate-locations-1ceb`). Update this file in the same change as every future PhonePi feature, bugfix, or device lesson. Do not merge this branch from this log. Never commit secrets (`PHONEPI_WS_TOKEN`, command tokens, hostnames with tokens in the URL, APK signing keystores, or personal MagicDNS names that are not already public in the repo).
 
-Current companion: **0.2.9** (versionCode **11**).
+Current companion: **0.3.0** (versionCode **12**).
 
 Bot-facing skill: [BOT-SKILL.md](BOT-SKILL.md).
 
@@ -114,6 +114,22 @@ Permission: `READ_MEDIA_IMAGES` on Android 13+, `READ_EXTERNAL_STORAGE` (`maxSdk
 
 Health still reports the same six grants. Photo access is not added there.
 
+### 0.3.0 — Clock alarms and timers
+
+Commands (`POST /api/command`, token, 10/min, Recent activity): `set_alarm`, `set_timer`, `dismiss_alarm`, `dismiss_timer`. Read (`POST /api/tool`, no token, 60/min): `list_alarms`.
+
+`set_alarm` is `AlarmClock.ACTION_SET_ALARM` with `EXTRA_HOUR`, `EXTRA_MINUTES`, optional `EXTRA_MESSAGE` (max 100), optional `EXTRA_DAYS` (Calendar day numbers; bots send `weekdays`, `weekends`, `daily`, or weekday names), and `EXTRA_SKIP_UI` true. Hour is 0-23, or 1-12 with `period` am/pm. Example: 6:30 AM weekdays labeled Work.
+
+`set_timer` is `ACTION_SET_TIMER` with `EXTRA_LENGTH` (1 through 86400 seconds), optional message, `EXTRA_SKIP_UI` true. A 15 minute timer is 900 seconds. The old phone-only path that fell back to a PhonePi notification is not the bot result anymore. If Clock cannot take the timer, status is `error`.
+
+`list_alarms` returns `AlarmManager.getNextAlarmClock()` (`nextAlarm`, or null) and `phonePiAlarms`: alarms PhonePi asked Clock to create (hour, minute, label, days, createdAt). Cap 40, newest first, SharedPreferences. Not a full Clock inventory.
+
+Dismiss uses `ACTION_DISMISS_ALARM` (`ALARM_SEARCH_MODE_TIME` or `ALARM_SEARCH_MODE_LABEL`) and `ACTION_DISMISS_TIMER`. There is no dismiss-all. If `resolveActivity` finds no handler, the tool returns `status:"error"`, `started:false`, `supported:false`. `started:true` means the intent was handed off. Android does not confirm the alarm was saved or deleted. Third-party apps cannot edit arbitrary Clock alarms.
+
+Background starts follow the navigation rule. PhonePi fires the Clock intent only when it is in the foreground or **Display over other apps** is granted. Otherwise it posts a full-screen notification and reports `started:false`, and it does not also fire the intent (SKIP_UI can succeed invisibly, and a later tap would create a second alarm). The local alarm log is written only after that handoff.
+
+Permission: `com.android.alarm.permission.SET_ALARM` (install-time, already required for timers). Manifest `<queries>` include `SET_ALARM`, `SET_TIMER`, `DISMISS_ALARM`, and `DISMISS_TIMER`. The server rejects bad hour, minute, label, days, or seconds with HTTP 400 before the phone is called. The phone checks again. The shared token is not logged.
+
 ## Mistakes and fixes
 
 | Symptom | Cause | Fix |
@@ -150,6 +166,7 @@ Android-only (do not assume iOS equivalents):
 - Hidden `Notification` extras such as `android.substName`.
 - `AudioManager` streams, Do Not Disturb policy access, and `AlarmManager` exact midnight alarms. iOS volume APIs and Focus modes differ; a nightly max would be a local notification or BG task, not `BOOT_COMPLETED`.
 - `MediaStore.Images`, `READ_MEDIA_IMAGES`, `READ_MEDIA_VISUAL_USER_SELECTED`, and `READ_EXTERNAL_STORAGE`. iOS uses `PHPhotoLibrary` authorization. Keep the tool names, the default-off share switch, the token gate on image bytes, and recompress-before-send so GPS EXIF does not ride along.
+- `AlarmClock` intents (`SET_ALARM`, `SET_TIMER`, `DISMISS_ALARM`, `DISMISS_TIMER`), `SET_ALARM` permission, and `AlarmManager.getNextAlarmClock()`. iOS has no public API for another app to create or dismiss Clock alarms. Keep the tool names and the honest "not confirmed" status; an iPhone companion would have to say the action is unsupported.
 - Forever reconnect with a capped exponential backoff is portable. `ConnectivityManager` callbacks and the foreground-service keepalive are Android-only. On iOS, retry when the app becomes active and when a path monitor reports a change. Do not show connected until the socket has had recent traffic.
 
 iPhone maps/nav sketch (not implemented): open an Apple Maps or Google Maps iOS URL when the companion is allowed to become foreground. Do not expect to start Maps from a background daemon the way overlay+FSI does on Android. A tap-to-open notification is the likely fallback.
@@ -161,5 +178,6 @@ iPhone notification reading sketch (not implemented): without an Apple entitleme
 - Overlay is the grant that actually opens Maps from the background. FSI is the fallback, not a substitute for overlay if you want Maps to appear unprompted.
 - Keep the PhonePi connection notification if the OS otherwise kills the socket when Maps comes to the front.
 - Tailscale Serve terminates TLS on the PC; the phone still needs MagicDNS (or a literal tailnet IP) and the WS token.
-- Sideload **0.2.9 release** (or in-app update from 0.2.8 release). Debug → release is still a one-time uninstall. Later APKs go in `~/.phonepi/updates` and must be signed with `scripts/sign-update-manifest.sh`.
+- Sideload **0.3.0** (or in-app update from a 0.2.9 release build). Debug → release is still a one-time uninstall. Later APKs go in `~/.phonepi/updates` and must be signed with `scripts/sign-update-manifest.sh`.
+- Clock alarms need Google Clock (or another app that handles the intents) and, for a silent background set, **Display over other apps**. `SET_ALARM` is granted at install. Dismiss can fail when the Clock app has no dismiss activity; the tool says so.
 - Recent photos stay off until Alex turns on **Share recent photos** and grants Photos. `get_photo` needs the shared token. The bytes are recompressed, so GPS EXIF is not in the payload.

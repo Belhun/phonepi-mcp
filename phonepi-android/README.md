@@ -119,7 +119,7 @@ The app stores named destinations locally (Room) and starts Google Maps when the
 
 ### What to install and grant
 
-1. Install this companion APK (sideload, **0.2.9 release** or newer) and **Google Maps**. Moving from a debug build requires uninstalling first; see [docs/release-signing.md](../docs/release-signing.md).
+1. Install this companion APK (sideload, **0.3.0 release** or newer) and **Google Maps**. Moving from a debug build requires uninstalling first; see [docs/release-signing.md](../docs/release-signing.md).
 2. In PhonePi, set the same WebSocket token as `PHONEPI_WS_TOKEN` on the PC, then Connect. Notifications permission is requested on connect.
 3. Grant **Display over other apps** (Appear on top): PhonePi → Tool permissions, or Settings → Apps → PhonePi → Appear on top. That is the reliable way to open Maps while PhonePi is in the background or the screen is off. Android can swallow `startActivity` from the background without throwing.
 4. Grant **full-screen notifications** (Android 14+) as the fallback when overlay is off: Settings → Apps → PhonePi → Full screen notifications. Without overlay, PhonePi always posts a high-priority full-screen notification instead of trusting a background start.
@@ -158,6 +158,16 @@ PhonePi can show recent and currently active notifications to MCP / the loopback
 `get_notifications` returns app name, title, text, time, and package. If Android hid a field, the value is `(hidden by Android)` plus a `hiddenFields` reason. Unshared apps are counted in `omittedUnsharedCount`, not silently dropped. Tools are rate-limited (60/min) and show up in Recent activity.
 
 The main screen scrolls (connect → update → permissions → volumes → notification sharing → **Recent activity**) and sits inside the system bars. Scroll to the bottom for **Share all**, per-app toggles, and **Recent activity** with its **Clear** button.
+
+## Alarms and timers
+
+`list_alarms` is read-only (loopback HTTP + MCP, 60/min). It reports `AlarmManager.getNextAlarmClock()` and a small local log of alarms PhonePi created (time, label, repeat days, created-at). It is not the Clock app's full list.
+
+`set_alarm`, `set_timer`, `dismiss_alarm`, and `dismiss_timer` are commands (token, 10/min, Recent activity). They fire the standard Clock intents with `SKIP_UI` on set. The manifest permission is `com.android.alarm.permission.SET_ALARM` (granted at install). Grant **Display over other apps** if you want these to run while PhonePi is in the background; otherwise the phone posts a notification and reports `started:false`.
+
+Android will not let this app delete an arbitrary Clock alarm. Dismiss asks Clock with `ACTION_DISMISS_ALARM` (search by time or label) or `ACTION_DISMISS_TIMER`. If Clock does not handle that intent, the tool returns `status:"error"` instead of claiming success. `started:true` only means the intent was handed off.
+
+Example commands: set an alarm for 6:30 AM weekdays labeled Work (`hour` 6, `minute` 30, `period` `am`, `days` `weekdays`, `label` `Work`); set a 15 minute timer (`seconds` 900).
 
 ## Volumes
 

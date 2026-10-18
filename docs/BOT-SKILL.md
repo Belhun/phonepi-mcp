@@ -38,11 +38,12 @@ Responses are always `{"text": "<JSON string>", "isError": bool}`. **HTTP 200 do
 curl -s -X POST http://127.0.0.1:11043/api/tool -H 'Content-Type: application/json' \
   -d '{"tool":"get_battery_level","arguments":{}}'
 ```
-Allowlist (exact): `get_battery_level`, `get_volumes`, `get_contacts`, `search_contacts` {query, limit≤50}, `get_contact_by_id` {id}, `get_recent_calls` {limit, hours (default 168) | since (epoch ms), type/types, number, includeContactNames}, `get_notifications` {package, since (epoch ms), limit default 50 cap 200}, `list_notification_apps`, `get_recent_photos` {limit default 5, hard cap 20, since (epoch ms)}, `get_all_snippets`, `get_snippet_by_id`, `get_snippets_by_type`, `search_snippets`.
+Allowlist (exact): `get_battery_level`, `get_volumes`, `get_contacts`, `search_contacts` {query, limit≤50}, `get_contact_by_id` {id}, `get_recent_calls` {limit, hours (default 168) | since (epoch ms), type/types, number, includeContactNames}, `get_notifications` {package, since (epoch ms), limit default 50 cap 200}, `list_notification_apps`, `get_recent_photos` {limit default 5, hard cap 20, since (epoch ms)}, `list_alarms`, `get_all_snippets`, `get_snippet_by_id`, `get_snippets_by_type`, `search_snippets`.
 - Battery → `level`, `isCharging`, `chargingStatus`.
 - Volumes → per-stream `current`/`max`, `ringerMode`, `dnd`, `notificationPolicyAccess`, `exactAlarmsAllowed`, `midnightMaxEnabled`.
 - Notifications: only apps Alex allowlisted in the app (default: none). Unshared apps are counted in `omittedUnsharedCount`.
 - Recent photos: metadata only (id, display name, dateTaken, dateAdded, size, width, height, mime type). No image bytes. Needs the in-app **Share recent photos** switch (off by default) and the Photos permission. 30/min. The scan is the newest 100 images.
+- `list_alarms` (60/min): `nextAlarm` from `AlarmManager.getNextAlarmClock()` (`triggerAt` epoch ms, or null), plus `phonePiAlarms` (hour, minute, label, repeat day names, createdAt) for alarms PhonePi itself asked Clock to create. This is not the Clock app's full list.
 
 ### b) Commands — `POST /api/command`, token required
 Token = `PHONEPI_WS_TOKEN` in `/home/box/.phonepi/env` (mode 600). Never print, log, or paste it.
@@ -63,6 +64,10 @@ curl -s -X POST http://127.0.0.1:11043/api/command \
 | `phone_set_volume` | `stream` (alarm/ring/notification/media/voice\|call/system) + `level` (int or `"max"`), or `max_all:true` | 20 | Ring/notification under DND need Do Not Disturb access (`grantNeeded`). |
 | `phone_push_update` | `force` (default true) | 6 | Shows the system installer; Alex must tap Install. Only when Alex asks. |
 | `get_photo` | `id` (required). Optional `maxDimension` (default 1600, or `"full"`), `quality` (40-95, default 80), `format` (`jpeg` or `webp`) | 12 | Read-only image bytes. Token required. One JSON frame, under 1 MB. |
+| `set_alarm` | `hour` (0-23, or 1-12 with `period` `am`/`pm`), `minute` (0-59, alias `minutes`). Optional `message` or `label` (max 100). Optional `days`: `weekdays`, `weekends`, `daily`, or weekday names | 10 | `AlarmClock.ACTION_SET_ALARM` with `SKIP_UI`. One-shot if `days` is omitted. |
+| `set_timer` | `seconds` (1 through 86400). Optional `message` or `label` (max 100) | 10 | `AlarmClock.ACTION_SET_TIMER` with `SKIP_UI`. A 15 minute timer is `seconds: 900`. |
+| `dismiss_alarm` | `search`: `time` (`hour` + `minute`) or `label` (`message` or `label`) | 10 | `ACTION_DISMISS_ALARM`. There is no dismiss-all. |
+| `dismiss_timer` | optional `message` or `label` | 10 | `ACTION_DISMISS_TIMER`. |
 
 Saved places known: `Home` = 338 E Fallbrook St #A, Fallbrook CA 92028 (confirm with `phone_list_locations`).
 
@@ -120,6 +125,53 @@ Decode `base64` and hand that image to the model. Default long edge is 1600px JP
 - Returned bytes are a new JPEG or WebP. Original EXIF, including GPS, camera make, and the orientation tag, is not copied. Orientation is baked into the pixels. The picture can still show a place. `dateTaken` is a time, not a location. Display names are file names, not paths.
 - Both tools are rate-limited and logged on the phone. The log records the id and byte count, not the image.
 
+## 3c. Goal → action: alarms and timers
+Examples: "set an alarm for 6:30 AM weekdays labeled Work", "set a 15 minute timer".
+
+1. **Health check.** If `phoneConnected:false`, stop and go to section 6.
+2. **Set an alarm** (`POST /api/command`, token, 10/min). Hour is 24-hour unless you also send `period`.
+```bash
+TOKEN=$(sed -n 's/^\(export \)\{0,1\}PHONEPI_WS_TOKEN=//p' /home/box/.phonepi/env)
+curl -s -X POST http://127.0.0.1:11043/api/command \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"command":"set_alarm","arguments":{"hour":6,"minute":30,"period":"am","days":"weekdays","label":"Work"}}'
+```
+3. **Set a timer** the same way. 15 minutes is 900 seconds.
+```bash
+curl -s -X POST http://127.0.0.1:11043/api/command \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"command":"set_timer","arguments":{"seconds":900,"label":"Pasta"}}'
+```
+4. **List** with no token.
+```bash
+curl -s -X POST http://127.0.0.1:11043/api/tool -H 'Content-Type: application/json' \
+  -d '{"tool":"list_alarms","arguments":{}}'
+```
+5. **Dismiss** only when Alex asks. Match one alarm by time or label. Do not invent a dismiss-all.
+```bash
+curl -s -X POST http://127.0.0.1:11043/api/command \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"command":"dismiss_alarm","arguments":{"search":"label","label":"Work"}}'
+```
+```bash
+curl -s -X POST http://127.0.0.1:11043/api/command \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"command":"dismiss_timer","arguments":{"label":"Pasta"}}'
+```
+6. **Read the result honestly** (inside `text`):
+   - `status:"success"`, `started:true` → PhonePi handed the Clock intent to the system (`method` `activity` or `overlay`). For set, `skipUi` is true. Android still does not confirm the alarm was saved or that a dismiss removed anything.
+   - `started:false`, `method:"full_screen_notification"`, `notificationPosted:true` → Clock was not started. A PhonePi notification is waiting. Tell Alex to tap it. **Display over other apps** makes the next one silent.
+   - `status:"error"` and `supported:false` → this Clock app does not implement that action. Say so. Do not retry as if it worked. Dismiss is the usual case (`ACTION_DISMISS_ALARM` / `ACTION_DISMISS_TIMER`).
+   - `status:"error"` on bad hour, minute, label, days, or seconds → relay the error. The server returns HTTP 400 for those and does not call the phone.
+
+**Limits**
+- PhonePi cannot list, edit, or delete arbitrary Clock alarms. `list_alarms` is the next alarm Android reports, plus the local log of alarms PhonePi created (time, label, repeat days, created-at).
+- `started:true` means the intent was handed off. It does not mean the alarm is saved, the timer is running, or the dismiss worked. If Clock ignores dismiss, the alarm or timer stays. Tell Alex to open Clock when the result says the app does not support the action.
+- `set_timer` no longer falls back to a PhonePi notification countdown. If Clock cannot take the timer, the result is an error.
+- Background starts follow the same rule as Maps: trust the start only when PhonePi is in the foreground or **Display over other apps** is granted. Otherwise PhonePi does not fire the Clock intent (a silent success plus a later tap would create two alarms) and posts a notification instead.
+- `com.android.alarm.permission.SET_ALARM` is an install-time permission. There is no extra runtime toggle for it.
+- Labels are at most 100 characters. Timer length is 1 second through 24 hours (86400).
+
 ## 4. Phone-side permissions that matter
 - **Display over other apps**: required for Maps to open from the background.
 - Notifications + **full-screen intents** (Android 14+): needed for the fallback.
@@ -128,14 +180,15 @@ Decode `base64` and hand that image to the model. Default long edge is 1600px JP
 - Contacts / Call log / Phone permissions for those read tools.
 - **Photos** (`READ_MEDIA_IMAGES` on Android 13+, `READ_EXTERNAL_STORAGE` on older releases) plus the **Share recent photos** switch. Off until Alex turns it on. Android 14 "Select photos" counts as a grant for the photos he picked.
 - **Install unknown apps**: for self-update.
+- **Clock**: `SET_ALARM` is granted at install. Google Clock (or another app that handles the Clock intents) must be installed. **Display over other apps** is what lets `set_alarm` / `set_timer` / dismiss run without a tap. There is no permission that lets PhonePi edit someone else's alarms.
 
-## 5. What PhonePi can and cannot do (as of companion 0.2.9)
-Can (via HTTP, any bot): navigation to anything Maps can search, saved places, volumes (read/set/max all), battery, contacts (read/search), recent calls, allowlisted notifications, snippets, recent photo metadata (`get_recent_photos`), and one recompressed photo at a time (`get_photo`, shared token).
+## 5. What PhonePi can and cannot do (as of companion 0.3.0)
+Can (via HTTP, any bot): navigation to anything Maps can search, saved places, volumes (read/set/max all), battery, contacts (read/search), recent calls, allowlisted notifications, snippets, recent photo metadata (`get_recent_photos`), one recompressed photo at a time (`get_photo`, shared token), `list_alarms`, and Clock `set_alarm` / `set_timer` / `dismiss_alarm` / `dismiss_timer` (those four need the shared token).
 On-phone only: "Max volumes at midnight" toggle, reconnect-on-boot, reconnect after update.
 
-Exists on the phone but NOT reachable from bots right now: `find_phone` (ring), `set_timer`, `copy_to_clipboard`, `make_call`, `get_location`, `send_notification`, contact edits, snippet writes. Don't promise these; `/api/tool` returns 403.
+Exists on the phone but NOT reachable from bots right now: `find_phone` (ring), `copy_to_clipboard`, `make_call`, `get_location`, `send_notification`, contact edits, snippet writes. Don't promise these; `/api/tool` returns 403.
 
-Cannot: send or read SMS/texts, press Android Auto's Start now, install updates silently, run arbitrary commands, report what is on screen, or work at all when the phone is off the tailnet.
+Cannot: send or read SMS/texts, press Android Auto's Start now, install updates silently, run arbitrary commands, report what is on screen, list or delete arbitrary Clock alarms, or work at all when the phone is off the tailnet. A dismiss result is a request to the Clock app, not proof the alarm is gone.
 
 ## 6. Diagnosing "Phone not connected"
 Check in order (all read-only):
@@ -149,4 +202,4 @@ Tell Alex the specific step that failed and the one action he needs to take. Nev
 ## Safety rules
 - Only allowlisted calls; never connect to the phone WebSocket (11041) directly — a second client replaces the phone's connection.
 - Never expose the token. Respect rate limits. Every call is logged on the phone.
-- Navigation, volume, and saved-place writes are fine when Alex asks; `phone_push_update` only on explicit request.
+- Navigation, volume, saved-place writes, and clock alarms or timers are fine when Alex asks; `phone_push_update` only on explicit request. Do not dismiss an alarm he did not name.

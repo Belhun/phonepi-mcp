@@ -10,6 +10,8 @@ class CommandGateTest {
     fun allowlistIsExactlyThePhoneCommands() {
         assertEquals(
             setOf(
+                "dismiss_alarm",
+                "dismiss_timer",
                 "get_photo",
                 "phone_add_location",
                 "phone_list_locations",
@@ -17,6 +19,8 @@ class CommandGateTest {
                 "phone_push_update",
                 "phone_remove_location",
                 "phone_set_volume",
+                "set_alarm",
+                "set_timer",
             ),
             PhoneCommands.ALL.map { it.name }.toSet(),
         )
@@ -37,6 +41,10 @@ class CommandGateTest {
         assertEquals(60, PhoneReadTools.maxPerMinute("list_notification_apps"))
         assertEquals(60, PhoneReadTools.maxPerMinute("get_volumes"))
         assertEquals(30, PhoneReadTools.maxPerMinute("get_recent_photos"))
+        assertEquals(60, PhoneReadTools.maxPerMinute("list_alarms"))
+        assertFalse(PhoneCommands.isAllowlisted("list_alarms"))
+        assertEquals(10, PhoneCommands.byName.getValue("set_alarm").maxPerMinute)
+        assertEquals(PhoneCommandSpec.Kind.ACTION, PhoneCommands.byName.getValue("set_timer").kind)
         assertFalse(PhoneCommands.isAllowlisted("get_recent_photos"))
         var now = 10_000L
         val limiter = CommandRateLimiter(windowMs = 60_000L, now = { now })

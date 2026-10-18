@@ -1,5 +1,11 @@
 import http, { IncomingMessage, Server, ServerResponse } from "http";
-import { RateLimitError, getPhoneCommand, isPhoneCommand } from "./commands.js";
+import {
+  CommandValidationError,
+  RateLimitError,
+  getPhoneCommand,
+  isPhoneCommand,
+  validatePhoneCommandArgs,
+} from "./commands.js";
 import {
   PhoneHealthDetails,
   emptyHealthDetails,
@@ -336,23 +342,33 @@ async function handleCommand(
     return;
   }
 
+  const args = (body.arguments ?? {}) as Record<string, unknown>;
+  const validated = validatePhoneCommandArgs(commandName, args);
+  if (!validated.ok) {
+    sendJson(res, 400, { text: validated.error, isError: true });
+    return;
+  }
+
   if (!options.bridge.isPhoneConnected()) {
     sendJson(res, 503, { text: "Phone not connected", isError: true });
     return;
   }
 
   const spec = getPhoneCommand(commandName);
-  const args = (body.arguments ?? {}) as Record<string, unknown>;
   try {
     const result = await options.bridge.callPhoneTool(
       spec?.phoneTool ?? commandName,
-      args
+      validated.args
     );
     sendJson(res, 200, {
       text: JSON.stringify(result, null, 2),
       isError: false,
     });
   } catch (err) {
+    if (err instanceof CommandValidationError) {
+      sendJson(res, 400, { text: err.message, isError: true });
+      return;
+    }
     if (err instanceof RateLimitError) {
       sendJson(res, 429, { text: err.message, isError: true });
       return;

@@ -4,6 +4,14 @@
  * append a spec here, handle it on the phone, and keep the same name.
  */
 
+export {
+  ALARM_LABEL_MAX_LENGTH,
+  TIMER_MAX_SECONDS,
+  CommandValidationError,
+  validatePhoneCommandArgs,
+} from "./alarm-commands.js";
+export type { ValidatedCommandArgs } from "./alarm-commands.js";
+
 export type PhoneCommandKind = "read" | "write" | "action";
 
 export interface PhoneCommand {
@@ -193,6 +201,121 @@ export const PHONE_COMMANDS: readonly PhoneCommand[] = [
         },
       },
       required: ["id"],
+    },
+  },
+  {
+    name: "set_alarm",
+    kind: "action",
+    phoneTool: "set_alarm",
+    maxPerMinute: 10,
+    description:
+      "Create an alarm in the phone Clock app (AlarmClock.ACTION_SET_ALARM) with SKIP_UI. hour is 0-23 (or 1-12 with period am/pm). minute is 0-59. Optional message/label up to 100 characters. Optional days: weekday names, weekdays, weekends, or daily. Android does not confirm the alarm was saved.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        hour: {
+          type: "number",
+          description: "Hour 0-23. Use 1-12 together with period.",
+        },
+        minute: {
+          type: "number",
+          description: "Minute 0-59. Alias: minutes.",
+        },
+        minutes: {
+          type: "number",
+          description: "Alias of minute",
+        },
+        period: {
+          type: "string",
+          description: "Optional am or pm when hour is 1-12",
+        },
+        message: {
+          type: "string",
+          description: "Alarm label, at most 100 characters. Alias: label.",
+        },
+        label: {
+          type: "string",
+          description: "Alias of message",
+        },
+        days: {
+          description:
+            'Repeat days: "weekdays", "weekends", "daily", or a list of weekday names. Omit for a one-shot alarm.',
+        },
+      },
+      required: ["hour", "minute"],
+    },
+  },
+  {
+    name: "set_timer",
+    kind: "action",
+    phoneTool: "set_timer",
+    maxPerMinute: 10,
+    description:
+      "Start a countdown in the phone Clock app (AlarmClock.ACTION_SET_TIMER) with SKIP_UI. seconds is 1 through 86400 (24 hours). Optional message/label up to 100 characters. This does not schedule a PhonePi notification if Clock cannot take the timer.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        seconds: {
+          type: "number",
+          description: "Length in seconds, from 1 to 86400",
+        },
+        message: {
+          type: "string",
+          description: "Timer label, at most 100 characters. Alias: label.",
+        },
+        label: {
+          type: "string",
+          description: "Alias of message",
+        },
+      },
+      required: ["seconds"],
+    },
+  },
+  {
+    name: "dismiss_alarm",
+    kind: "action",
+    phoneTool: "dismiss_alarm",
+    maxPerMinute: 10,
+    description:
+      "Ask the Clock app to dismiss an alarm via ACTION_DISMISS_ALARM. search is time (hour + minute) or label (message). Android does not let PhonePi delete arbitrary alarms, and a started:true result does not prove the alarm is gone. If this Clock app has no dismiss handler, the phone returns status error.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        search: {
+          type: "string",
+          description: "time or label",
+        },
+        hour: { type: "number", description: "Hour 0-23 when search is time" },
+        minute: {
+          type: "number",
+          description: "Minute 0-59 when search is time",
+        },
+        message: {
+          type: "string",
+          description: "Label to match when search is label. Alias: label.",
+        },
+        label: { type: "string", description: "Alias of message" },
+      },
+      required: ["search"],
+    },
+  },
+  {
+    name: "dismiss_timer",
+    kind: "action",
+    phoneTool: "dismiss_timer",
+    maxPerMinute: 10,
+    description:
+      "Ask the Clock app to dismiss a timer via ACTION_DISMISS_TIMER. Optional message/label. Android does not confirm the timer stopped. If this Clock app has no dismiss handler, the phone returns status error.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        message: {
+          type: "string",
+          description: "Optional timer label. Alias: label.",
+        },
+        label: { type: "string", description: "Alias of message" },
+      },
+      required: [],
     },
   },
 ];
