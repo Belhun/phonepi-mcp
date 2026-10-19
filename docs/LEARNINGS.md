@@ -215,3 +215,9 @@ iPhone notification reading sketch (not implemented): without an Apple entitleme
 - Clock alarms need Google Clock (or another app that handles the intents) and, for a silent background set, **Display over other apps**. `SET_ALARM` is granted at install. Dismiss can fail when the Clock app has no dismiss activity; the tool says so.
 - Recent photos stay off until Alex turns on **Share recent photos** and grants Photos. `get_photo` needs the shared token. The bytes are recompressed, so GPS EXIF is not in the payload.
 - Texts stay off until Alex turns on **Allow bots to request texts** and grants SMS, contacts, and notifications. Assistant-signed texts stay off until the second switch. Spoken confirm needs the microphone. Car detection also wants physical activity and nearby Bluetooth devices. Sideload **0.3.2** (versionCode 14).
+
+## Box refresh recovery (2026-10-18)
+
+A box refresh wipes `/usr/local/bin/tailscale*`, the Tailscale state, and `server/dist`, but `~/.phonepi` (release key, updates, env, cert) survives. The phone then sits at "Connecting".
+One-command fix: `scripts/restore-after-refresh.sh` (idempotent). It installs Tailscale 1.104.1 if missing, starts tailscaled (userspace, SOCKS5 127.0.0.1:1055, state `/var/lib/tailscale`), rebuilds `server/dist` if missing, starts the watchdog, and re-applies `tailscale serve --https=443 → 127.0.0.1:11041` when logged in.
+Tailscale state does not survive a refresh, so login is needed every time: `sudo tailscale up --hostname=grokbot-box`, approve as akcool151, then rerun the script. If the node comes back as `grokbot-box-1`, delete the stale `grokbot-box` machine in the admin console and rename it, or the phone's saved address breaks.
