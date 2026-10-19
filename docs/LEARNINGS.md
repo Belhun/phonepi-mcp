@@ -221,3 +221,14 @@ iPhone notification reading sketch (not implemented): without an Apple entitleme
 A box refresh wipes `/usr/local/bin/tailscale*`, the Tailscale state, and `server/dist`, but `~/.phonepi` (release key, updates, env, cert) survives. The phone then sits at "Connecting".
 One-command fix: `scripts/restore-after-refresh.sh` (idempotent). It installs Tailscale 1.104.1 if missing, starts tailscaled (userspace, SOCKS5 127.0.0.1:1055, state `/var/lib/tailscale`), rebuilds `server/dist` if missing, starts the watchdog, and re-applies `tailscale serve --https=443 → 127.0.0.1:11041` when logged in.
 Tailscale state does not survive a refresh, so login is needed every time: `sudo tailscale up --hostname=grokbot-box`, approve as akcool151, then rerun the script. If the node comes back as `grokbot-box-1`, delete the stale `grokbot-box` machine in the admin console and rename it, or the phone's saved address breaks.
+
+## Self-healing after box refresh (2026-10-18, supersedes the manual login above)
+
+- **Persisted paths** (both `~/.phonepi` and `/workspace` survive a refresh; `/usr/local/bin`, `/var/lib`, `server/dist` do not):
+  - Tailscale binaries: `~/.phonepi/bin/{tailscale,tailscaled}` (1.104.1). Download is a fallback only.
+  - Tailscale state: `~/.phonepi/tailscale/` (`tailscaled.state`, socket `tailscaled.sock`, log `tailscaled.log`).
+- tailscaled now runs **as the box user**, not root: userspace networking needs no root, and box-owned state can be copied by the home sync. `/var/run/tailscale/tailscaled.sock` is symlinked to it, so `sudo tailscale ...` still works. Otherwise use `tailscale --socket=~/.phonepi/tailscale/tailscaled.sock ...`.
+- Login: persisted state normally means no login is needed. If logged out, the script uses `TS_AUTHKEY` (reusable, non-ephemeral auth key from Alex), passed through an fd (`--auth-key=file:/dev/fd/8`), so it is never in argv, logs, or child envs. **Never print or commit it. Do not use TAILSCALE_API_KEY.** The key's expiry is unknown. When it expires and the state is lost, the script logs "tailscale up failed" and Alex must mint a new key.
+- Autostart: there is no systemd or cron. A guarded block at the top of `~/.bashrc` (snippet in `scripts/bashrc-autorestore.snippet`) launches the script detached and silent whenever tailscaled or the watchdog is not running. Agent shells start with `bash -ilc` (`~/.profile` → `~/.bashrc`), so the first Shell call by any agent after a refresh heals the box. The script re-adds the hook if `~/.bashrc` was reset. Log: `~/.phonepi/autorestore.log`.
+- The script is flock-guarded (`/tmp/phonepi-restore.lock`). Daemons are started with `9>&-` so they don't inherit the lock. (Bug found: tailscaled held the lock forever.)
+- It also starts the read-only Google Messages bridge (127.0.0.1:11042) through `get-texts.sh -status` if it is down, with OPENMESSAGES_READONLY stripped as before.
