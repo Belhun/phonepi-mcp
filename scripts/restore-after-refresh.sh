@@ -100,4 +100,6 @@ if [[ -x "$GM_DIR/get-texts.sh" ]] && ! (exec 3<>/dev/tcp/127.0.0.1/11042) 2>/de
   (cd "$GM_DIR" && env -u OPENMESSAGES_READONLY timeout 60 ./get-texts.sh -status </dev/null >/dev/null 2>&1 9>&-) || log "gmessages bridge did not start (re-pair needed?)"
 fi
 (exec 3<>/dev/tcp/127.0.0.1/11042) 2>/dev/null && log "gmessages bridge: listening" || log "gmessages bridge: down"
+/workspace/phonepi/scripts/start-send-gateway.sh start >/dev/null 2>&1 9>&- || log "send gateway did not start"
+(exec 3<>/dev/tcp/127.0.0.1/11044) 2>/dev/null && log "send gateway: listening" || log "send gateway: down"
 exit 0
