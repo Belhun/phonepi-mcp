@@ -150,6 +150,13 @@ export function parseConversations(raw: unknown): Conversation[] {
       parts = [];
     }
     const seen = new Set<string>();
+    // Alex's own numbers sometimes appear again without is_me; never count them as a recipient.
+    for (const p of parts) {
+      if (p && p.is_me && typeof p.number === "string") {
+        const n = normalizeNumber(p.number);
+        if (n) seen.add(n);
+      }
+    }
     const others: Array<{ name: string; number: string }> = [];
     for (const p of parts) {
       if (!p || p.is_me) continue;
