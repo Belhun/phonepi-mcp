@@ -167,7 +167,7 @@ Success is HTTP 200:
 | 200 | Allowlisted tool ran | `{ "text", "isError": false }` |
 | 400 | Bad JSON, missing tool name, or `arguments` is not an object | `{ "text", "isError": true }` |
 | 403 | Tool is not on the allowlist | `{ "text", "isError": true }` |
-| 429 | Over the per-tool rate limit (`get_notifications`, `list_notification_apps`, `get_volumes`, `get_recent_photos`, `list_alarms`, `get_location_history`, `search_places`) | `{ "text", "isError": true }` |
+| 429 | Over the per-tool rate limit (`get_notifications`, `list_notification_apps`, `get_volumes`, `get_recent_photos`, `list_alarms`, `get_location_history`, `search_places`, `get_notification_log`) | `{ "text", "isError": true }` |
 | 503 | Phone socket is not open | `{ "text", "isError": true }` |
 | 502 | The phone request failed (for example a timeout) | `{ "text", "isError": true }` |
 
@@ -189,6 +189,27 @@ Allowlist:
 - `list_alarms` (60/min). Next alarm from `AlarmManager.getNextAlarmClock()`, plus alarms PhonePi created. Not a full Clock inventory.
 - `get_location_history` (30/min). Visits and drives from `~/.phonepi/location`. Works when the phone is offline. `from` and `to` are epoch ms, ISO-8601, or `YYYY-MM-DD` (UTC day). `max` default 50, cap 200. Optional `kind`: `visit` or `drive`.
 - `search_places` (30/min). `query` (2 to 80 characters) matches every word against place name and address. `max` default 20, cap 50. Returns address and visit dates. Works when the phone is offline.
+- `get_notification_log` (60/min). Box-side running log of phone notifications. Works when the phone is offline. See **Notification log** below.
+
+### Notification log (box copy)
+
+While the phone is connected, the server polls the phone's `get_notifications` every 60 s (`since` = newest stored `postedAt` minus 10 min, `limit` 200) and backfills right after every (re)connect. Only the process that owns the phone WebSocket server captures. Entries go to `~/.phonepi/notifications/YYYY-MM.jsonl` (dir 700, files 600; filed by capture month). `server.log` gets counts only, never titles or text.
+
+Entry fields: `id`, `key`, `notificationId`, `package`, `appName`, `title`, `text`, `hiddenFields` (fields Android hid; the title/text then holds the phone's placeholder), `postedAt`/`postedAtIso`, `capturedAt`/`capturedAtIso`, `removed` (true once the phone reports it no longer active, null if unknown), `lastPostedAt`, `repeatCount`, `updatedAt`.
+
+- Dedupe: same `key` + `postedAt` + `title` + `text` is stored once.
+- Collapse: a re-post of the same `key` with identical title and text within 12 h (Clock "Upcoming alarm", ongoing Spotify/Tailscale/PhonePi notifications) does not create a new entry; it bumps `repeatCount` and `lastPostedAt` on the existing one. Changed text is a new entry.
+- Retention: `PHONEPI_NOTIFICATION_RETENTION_DAYS` (default 30, 1-365), by `lastPostedAt`. Compacted (expired dropped, files rewritten one line per entry) on startup and daily.
+- Env: `PHONEPI_NOTIFICATION_DIR`, `PHONEPI_NOTIFICATION_POLL_SEC` (default 60, 30-3600), `PHONEPI_NOTIFICATION_CAPTURE=off` to disable.
+
+`get_notification_log` arguments: `since` (cursor, exclusive, on `capturedAt`; epoch ms or ISO), `until` (capturedAt), `postedSince`/`postedUntil` (phone posted time), `package` (exact), `query` (every word in app/package/title/text, case-insensitive), `limit` (default 100, cap 500). Entries are oldest first (newest last). With `since`, pages forward from the oldest match; without it, returns the newest `limit`. Response: `count`, `hasMore`, `nextSince`, `nextSinceIso`, `totalInLog`, `retentionDays`, `capture` (poller status), `entries`.
+
+```bash
+curl -s -X POST http://127.0.0.1:11043/api/tool -H 'Content-Type: application/json' \
+  -d '{"tool":"get_notification_log","arguments":{"since":0,"limit":100}}'
+```
+
+Limits: the phone keeps only the latest version of each notification key in memory (cap 200) and clears it when the companion restarts, so a notification posted and replaced or cleared while the box could not poll is only captured if the phone still returns it. Each poll is one `get_notifications` call, so the phone's Recent activity shows a line per poll and the poll shares the 60/min `get_notifications` budget.
 
 Everything else is rejected with 403 and is not sent to the phone. That includes `make_call`, `find_phone`, `set_alarm`, `set_timer`, `dismiss_alarm`, `dismiss_timer`, `copy_to_clipboard`, `send_message`, `send_notification`, snippet or contact add/update/delete, `share_snippet`, and every `gm_*` Google Messages tool. Clock writes use `POST /api/command`.
 

@@ -15,6 +15,8 @@ import { isReadOnlyHttpTool } from "./read-only-tools.js";
 import { LocationLog, openLocationLog } from "./location-log.js";
 import { CommandRateLimiter, commandRateLimiter } from "./command-rate-limit.js";
 import { isLocationReadTool, runLocationRead } from "./location-tools.js";
+import { NotificationLog, openNotificationLog } from "./notification-log.js";
+import { isNotificationLogTool, runNotificationLogRead } from "./notification-log-tools.js";
 import {
   authorizeCommandToken,
   tokenFromHttpRequest,
@@ -55,6 +57,9 @@ export interface StartLoopbackHttpOptions {
   /** Box copy of location history. Reads do not need the phone. */
   locationLog?: LocationLog;
   locationReadLimiter?: CommandRateLimiter;
+  /** Box copy of captured notifications. Reads do not need the phone. */
+  notificationLog?: NotificationLog;
+  notificationCaptureStatus?: () => Record<string, unknown>;
 }
 
 type ToolBody = {
@@ -278,6 +283,16 @@ async function handleTool(
         }
       }
     }
+    sendJson(res, outcome.status, outcome.body);
+    return;
+  }
+  if (isNotificationLogTool(body.tool)) {
+    const outcome = runNotificationLogRead({
+      log: options.notificationLog ?? openNotificationLog(),
+      limiter: options.locationReadLimiter ?? commandRateLimiter,
+      args,
+      capture: options.notificationCaptureStatus,
+    });
     sendJson(res, outcome.status, outcome.body);
     return;
   }

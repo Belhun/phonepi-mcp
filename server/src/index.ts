@@ -18,6 +18,17 @@ import {
 import { commandRateLimiter } from "./command-rate-limit.js";
 import { openLocationLog } from "./location-log.js";
 import { isLocationReadTool, LOCATION_TOOL_SCHEMAS, runLocationRead } from "./location-tools.js";
+import { openNotificationLog } from "./notification-log.js";
+import {
+  NOTIFICATION_LOG_TOOL_SCHEMAS,
+  isNotificationLogTool,
+  runNotificationLogRead,
+} from "./notification-log-tools.js";
+import {
+  NotificationPoller,
+  captureEnabledFromEnv,
+  pollIntervalFromEnv,
+} from "./notification-poller.js";
 import {
   appendSendLog,
   sendLogFromPhone,
@@ -85,6 +96,8 @@ class PhonePiMCPServer {
   private _pingIntervalId: NodeJS.Timeout | null = null;
   private httpApi: Promise<LoopbackHttpHandle | null> | null = null;
   private locationLog = openLocationLog();
+  private notificationLog = openNotificationLog();
+  private notificationPoller: NotificationPoller | null = null;
 
   constructor(
     private serverPort: number = 11041,
@@ -109,6 +122,27 @@ class PhonePiMCPServer {
     this.setupMcpHandlers();
   }
 
+  /** Only the process that owns the phone WebSocket server captures. */
+  private startNotificationCapture() {
+    if (this.notificationPoller) return;
+    if (!captureEnabledFromEnv()) {
+      console.error("[notification-log] capture disabled by PHONEPI_NOTIFICATION_CAPTURE");
+      return;
+    }
+    this.notificationPoller = new NotificationPoller({
+      log: this.notificationLog,
+      isConnected: () => this.isPhoneOpen(),
+      fetch: (args) => this.callPhoneTool("get_notifications", args),
+      intervalMs: pollIntervalFromEnv(),
+    });
+    this.notificationPoller.start();
+  }
+
+  private notificationCaptureStatus(): Record<string, unknown> {
+    if (!this.notificationPoller) return { enabled: false };
+    return { ...this.notificationPoller.captureStatus() };
+  }
+
   private startLocalHttpApi() {
     if (this.httpApiPort === this.serverPort) {
       console.error(
@@ -127,6 +161,8 @@ class PhonePiMCPServer {
       },
       locationLog: this.locationLog,
       locationReadLimiter: commandRateLimiter,
+      notificationLog: this.notificationLog,
+      notificationCaptureStatus: () => this.notificationCaptureStatus(),
     });
   }
 
@@ -294,6 +330,7 @@ class PhonePiMCPServer {
           `WebSocket server is listening on port ${this.serverPort}`
         );
         this.setupWebSocket();
+        this.startNotificationCapture();
       });
 
       // Additional error handling for the server
@@ -1484,6 +1521,7 @@ class PhonePiMCPServer {
         ...VOLUME_TOOL_SCHEMAS,
         ...ALARM_TOOL_SCHEMAS,
         ...LOCATION_TOOL_SCHEMAS,
+        ...NOTIFICATION_LOG_TOOL_SCHEMAS,
         ...PHONE_COMMAND_SCHEMAS,
         ...GM_TOOL_SCHEMAS,
       ],
@@ -1522,6 +1560,22 @@ class PhonePiMCPServer {
           }
         }
         return { content: [{ type: "text", text }] };
+      }
+
+      if (isNotificationLogTool(request.params.name)) {
+        const outcome = runNotificationLogRead({
+          log: this.notificationLog,
+          limiter: commandRateLimiter,
+          args: (request.params.arguments || {}) as Record<string, unknown>,
+          capture: () => this.notificationCaptureStatus(),
+        });
+        if (outcome.status === 400) {
+          throw new McpError(ErrorCode.InvalidParams, outcome.body.text);
+        }
+        if (outcome.status === 429) {
+          throw new McpError(ErrorCode.InvalidRequest, outcome.body.text);
+        }
+        return { content: [{ type: "text", text: outcome.body.text }] };
       }
 
       if (isGmTool(request.params.name)) {
@@ -1650,6 +1704,7 @@ class PhonePiMCPServer {
 
   private async cleanup() {
     console.error("Cleaning up server...");
+    this.notificationPoller?.stop();
     stopGmessagesSidecar();
 
     // Clear ping interval if set

@@ -38,13 +38,14 @@ Responses are always `{"text": "<JSON string>", "isError": bool}`. **HTTP 200 do
 curl -s -X POST http://127.0.0.1:11043/api/tool -H 'Content-Type: application/json' \
   -d '{"tool":"get_battery_level","arguments":{}}'
 ```
-Allowlist (exact): `get_battery_level`, `get_volumes`, `get_contacts`, `search_contacts` {query, limit≤50}, `get_contact_by_id` {id}, `get_recent_calls` {limit, hours (default 168) | since (epoch ms), type/types, number, includeContactNames}, `get_notifications` {package, since (epoch ms), limit default 50 cap 200}, `list_notification_apps`, `get_recent_photos` {limit default 5, hard cap 20, since (epoch ms)}, `list_alarms`, `get_location_history`, `search_places`, `get_all_snippets`, `get_snippet_by_id`, `get_snippets_by_type`, `search_snippets`.
+Allowlist (exact): `get_battery_level`, `get_volumes`, `get_contacts`, `search_contacts` {query, limit≤50}, `get_contact_by_id` {id}, `get_recent_calls` {limit, hours (default 168) | since (epoch ms), type/types, number, includeContactNames}, `get_notifications` {package, since (epoch ms), limit default 50 cap 200}, `list_notification_apps`, `get_recent_photos` {limit default 5, hard cap 20, since (epoch ms)}, `list_alarms`, `get_location_history`, `search_places`, `get_notification_log` {since, until, postedSince, postedUntil, package, query, limit default 100 cap 500}, `get_all_snippets`, `get_snippet_by_id`, `get_snippets_by_type`, `search_snippets`.
 - Battery → `level`, `isCharging`, `chargingStatus`.
 - Volumes → per-stream `current`/`max`, `ringerMode`, `dnd`, `notificationPolicyAccess`, `exactAlarmsAllowed`, `midnightMaxEnabled`.
 - Notifications: only apps Alex allowlisted in the app (default: none). Unshared apps are counted in `omittedUnsharedCount`.
 - Recent photos: metadata only (id, display name, dateTaken, dateAdded, size, width, height, mime type). No image bytes. Needs the in-app **Share recent photos** switch (off by default) and the Photos permission. 30/min. The scan is the newest 100 images.
 - `list_alarms` (60/min): `nextAlarm` from `AlarmManager.getNextAlarmClock()` (`triggerAt` epoch ms, or null), plus `phonePiAlarms` (hour, minute, label, repeat day names, createdAt) for alarms PhonePi itself asked Clock to create. This is not the Clock app's full list.
 - `get_location_history` and `search_places` (30/min each) read the box copy. They work when the phone is offline. See the location history section below.
+- `get_notification_log` (60/min) reads the box's running notification log. Works when the phone is offline. See section c2.
 
 ### b) Commands — `POST /api/command`, token required
 Token = `PHONEPI_WS_TOKEN` in `/home/box/.phonepi/env` (mode 600). Never print, log, or paste it.
@@ -103,6 +104,25 @@ A date-only `from`/`to` is UTC. For "afternoon" send an offset, or the window wi
 Pause and delete are token commands, not `/api/tool`. The phone also has **Pause logging** and **Delete all history**. Import of a hand-exported Timeline JSON is on the phone only (share sheet or **Import Timeline export**).
 
 These two reads do not need `phoneConnected:true`. `activityLogged` is false when the phone was offline, so Recent activity could not record that read.
+
+### c2) Notification log (box copy, works offline)
+
+The box polls the phone's notifications about once a minute while it is connected (and backfills on reconnect) into `~/.phonepi/notifications/`. Keeps 30 days. Prefer this over `get_notifications` for context: it survives phone disconnects and app restarts, dedupes, and folds identical re-posts (Clock "Upcoming alarm", ongoing media/VPN notifications) into one entry with `repeatCount`.
+
+Poll for new entries only: keep `nextSince` from the last response and pass it as `since`. `since`/`until` are on `capturedAt` (when the box logged it), so late backfills are never skipped. To ask about a time window ("what came in this morning"), use `postedSince`/`postedUntil` with an offset, e.g. `"2026-10-20T06:00:00-07:00"`. `query` matches every word in app, title and text. `package` is exact (e.g. `com.google.android.gm`). If `hasMore` is true, call again with the new `nextSince`.
+
+```bash
+# first call (newest 100), then keep nextSince
+curl -s -X POST http://127.0.0.1:11043/api/tool -H 'Content-Type: application/json' \
+  -d '{"tool":"get_notification_log","arguments":{"limit":100}}'
+# later: only what is new
+curl -s -X POST http://127.0.0.1:11043/api/tool -H 'Content-Type: application/json' \
+  -d '{"tool":"get_notification_log","arguments":{"since":1792504379504}}'
+```
+
+Entry: `package`, `appName`, `title`, `text`, `postedAtIso`, `capturedAtIso`, `removed` (true once dismissed or cleared), `repeatCount`, `hiddenFields` (Android hid those fields; the value is a placeholder). `capture.lastPollAt` / `capture.lastPollOk` in the response show whether capture is live. Notification text is Alex's private data: quote only what the task needs. Read-only; it never dismisses or replies.
+
+Limit: anything posted and then replaced or cleared while the phone was disconnected is caught only if the phone still returns it on reconnect.
 
 ## 3. Goal → action: "take me to X"
 1. **Health check.** If `phoneConnected:false`, stop and go to section 6 (no retry spam).
@@ -261,7 +281,7 @@ Full rules: [send-text.md](send-text.md).
 - **Texts**: **Allow bots to request texts** (off by default) plus SMS, contacts, and notifications. Microphone for spoken confirm. Physical activity and nearby Bluetooth devices help detect driving. **Allow assistant-signed texts without confirm** is a second switch, also off. Details in section 3d.
 
 ## 5. What PhonePi can and cannot do (as of companion 0.3.2)
-Can (via HTTP, any bot): navigation to anything Maps can search, saved places, volumes (read/set/max all), battery, contacts (read/search), recent calls, allowlisted notifications, snippets, recent photo metadata (`get_recent_photos`), one recompressed photo at a time (`get_photo`, shared token), `list_alarms`, Clock `set_alarm` / `set_timer` / `dismiss_alarm` / `dismiss_timer` (those four need the shared token), location history (`get_location_history`, `search_places`) from the box copy even when the phone is offline, and `request_send_text` / `get_send_status` (token, phone confirm, switches off by default).
+Can (via HTTP, any bot): navigation to anything Maps can search, saved places, volumes (read/set/max all), battery, contacts (read/search), recent calls, allowlisted notifications, snippets, recent photo metadata (`get_recent_photos`), one recompressed photo at a time (`get_photo`, shared token), `list_alarms`, Clock `set_alarm` / `set_timer` / `dismiss_alarm` / `dismiss_timer` (those four need the shared token), `request_send_text` / `get_send_status` (token, phone confirm, switches off by default), location history (`get_location_history`, `search_places`) and the notification log (`get_notification_log`) from the box copy even when the phone is offline.
 On-phone only: "Max volumes at midnight" toggle, reconnect-on-boot, reconnect after update, the Location history switch, pause, delete, and Timeline JSON import.
 
 Exists on the phone but NOT reachable from bots right now: `find_phone` (ring), `copy_to_clipboard`, `make_call`, `get_location`, `send_notification`, contact edits, snippet writes. Don't promise these; `/api/tool` returns 403.
