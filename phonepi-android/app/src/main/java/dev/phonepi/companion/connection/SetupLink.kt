@@ -7,9 +7,35 @@ import java.net.URI
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
 
-/** phonepi://setup?host=&port=&token= (Odysseus Settings QR). Also accepts wss/ws/https paste. */
+/**
+ * A parsed setup link. [name] and [primary] come from the 0.3.3 `name=` / `primary=true`
+ * params. A blank target token means "keep the token already saved".
+ */
+data class SetupRequest(
+    val target: ConnectEndpoint.Target,
+    val name: String? = null,
+    val primary: Boolean = false,
+)
+
+/**
+ * phonepi://setup?host=&port=&token=&name=&primary=true (Odysseus Settings QR).
+ * Also accepts wss/ws/https paste. `token` is optional: when missing, the saved token is kept.
+ */
 object SetupLink {
     const val SCHEME = "phonepi"
+
+    fun parseRequest(raw: String): SetupRequest? {
+        val target = parse(raw) ?: return null
+        val q = try {
+            val uri = URI(raw.trim())
+            if (uri.scheme?.lowercase() in setOf(SCHEME, "intent")) queryMap(uri.rawQuery) else emptyMap()
+        } catch (_: Exception) {
+            emptyMap()
+        }
+        val name = q["name"]?.trim()?.takeIf { it.isNotEmpty() }?.take(40)
+        val primary = q["primary"]?.trim()?.lowercase() in setOf("true", "1", "yes")
+        return SetupRequest(target, name, primary)
+    }
 
     fun parse(raw: String): ConnectEndpoint.Target? {
         val text = raw.trim()
@@ -77,10 +103,10 @@ object SetupLink {
 }
 
 object SetupBus {
-    private val _pending = MutableStateFlow<ConnectEndpoint.Target?>(null)
-    val pending: StateFlow<ConnectEndpoint.Target?> = _pending.asStateFlow()
+    private val _pending = MutableStateFlow<SetupRequest?>(null)
+    val pending: StateFlow<SetupRequest?> = _pending.asStateFlow()
 
-    fun offer(target: ConnectEndpoint.Target) {
+    fun offer(target: SetupRequest) {
         _pending.value = target
     }
 

@@ -18,6 +18,7 @@ import javax.net.SocketFactory
 object TailscaleNet {
     val hostToIp: Map<String, String> = mapOf(
         "dell-mini-pc.tailcbcc46.ts.net" to "100.79.4.36",
+        "hp1.tailcbcc46.ts.net" to "100.108.138.113",
     )
     val ipToHost: Map<String, String> = hostToIp.entries.associate { it.value to it.key }
 

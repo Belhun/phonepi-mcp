@@ -26,25 +26,30 @@ object SavedConnectionReconnect {
     fun startIfSaved(context: Context, trigger: Trigger) {
         val app = context.applicationContext
         val saved = ConnectionPrefs.getLastSuccessful(app)
+        val servers = ServerPrefs.load(app)
         val title = when (trigger) {
             Trigger.BOOT -> "Boot"
             Trigger.PACKAGE_REPLACED -> "Update"
         }
-        if (!shouldStart(trigger, ConnectionPrefs.reconnectOnBoot(app), saved != null)) {
+        val hasSaved = saved != null && servers.servers.isNotEmpty()
+        if (!shouldStart(trigger, ConnectionPrefs.reconnectOnBoot(app), hasSaved)) {
             val detail = when {
-                saved == null -> "No saved host; not connecting"
+                !hasSaved -> "No saved host; not connecting"
                 trigger == Trigger.BOOT -> "Reconnect on boot is off"
                 else -> "Not connecting"
             }
             ActivityLog.logConnection(title, detail, "info")
             return
         }
-        val endpoint = checkNotNull(saved)
+        val first = ServerList.ordered(servers.servers).let { list ->
+            servers.pinnedId?.let { id -> list.firstOrNull { it.id == id } } ?: list.firstOrNull()
+        }
         ActivityLog.logConnection(
             title,
-            "Reconnecting to ${endpoint.host}:${endpoint.port}",
+            "Reconnecting to ${first?.name ?: "saved server"}" +
+                (first?.let { " (${it.host}:${it.port})" } ?: ""),
             "info",
         )
-        ConnectionService.start(app, endpoint.host, endpoint.port, endpoint.wsToken)
+        ConnectionService.start(app)
     }
 }

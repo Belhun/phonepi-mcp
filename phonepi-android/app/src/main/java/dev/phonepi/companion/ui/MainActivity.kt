@@ -58,7 +58,7 @@ class MainActivity : ComponentActivity() {
             if (uri != null) TimelineImportBus.offer(uri)
         }
         val data = intent?.data?.toString() ?: return
-        val target = SetupLink.parse(data) ?: return
+        val target = SetupLink.parseRequest(data) ?: return
         SetupBus.offer(target)
     }
 

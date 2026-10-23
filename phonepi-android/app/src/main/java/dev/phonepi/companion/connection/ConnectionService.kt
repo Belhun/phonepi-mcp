@@ -186,15 +186,13 @@ class ConnectionService : Service() {
             manager.publishPermissions(force = true)
             return START_STICKY
         }
-        val endpoint = ConnectionPrefs.resolveEndpoint(
-            applicationContext,
-            intent?.getStringExtra(EXTRA_HOST),
-            intent?.getIntExtra(EXTRA_PORT, -1)?.takeIf { it > 0 },
-            intent?.getStringExtra(EXTRA_WS_TOKEN),
-        )
-        ConnectionPrefs.saveEndpoint(applicationContext, endpoint.host, endpoint.port, endpoint.wsToken)
+        if (intent?.action == ACTION_SETTINGS) {
+            manager.applySettings(ServerPrefs.load(applicationContext))
+            return START_STICKY
+        }
+        // 0.3.3: connect from the saved Servers list (primary first, auto-failover).
         startForegroundNotification()
-        manager.connect(endpoint.host, endpoint.port, endpoint.wsToken)
+        manager.start(ServerPrefs.load(applicationContext))
         return START_STICKY
     }
 
@@ -280,9 +278,7 @@ class ConnectionService : Service() {
         private const val NOTIF_ID = 1
         private const val ACTION_STOP = "dev.phonepi.companion.action.STOP"
         private const val ACTION_NUDGE = "dev.phonepi.companion.action.NUDGE"
-        private const val EXTRA_HOST = "host"
-        private const val EXTRA_PORT = "port"
-        private const val EXTRA_WS_TOKEN = "ws_token"
+        private const val ACTION_SETTINGS = "dev.phonepi.companion.action.SERVER_SETTINGS"
 
         @Volatile
         private var serviceRunning = false
@@ -296,13 +292,18 @@ class ConnectionService : Service() {
             context.startService(intent)
         }
 
-        fun start(context: Context, host: String, port: Int, wsToken: String = "") {
+        /** (Re)connect using the saved Servers list. Restarts the link on the pinned or primary server. */
+        fun start(context: Context) {
+            context.startForegroundService(Intent(context, ConnectionService::class.java))
+        }
+
+        /** Auto-failover toggle changed; apply without dropping a live link. */
+        fun applySettingsIfRunning(context: Context) {
+            if (!serviceRunning) return
             val intent = Intent(context, ConnectionService::class.java).apply {
-                putExtra(EXTRA_HOST, host)
-                putExtra(EXTRA_PORT, port)
-                putExtra(EXTRA_WS_TOKEN, wsToken)
+                action = ACTION_SETTINGS
             }
-            context.startForegroundService(intent)
+            context.startService(intent)
         }
 
         fun stop(context: Context) {

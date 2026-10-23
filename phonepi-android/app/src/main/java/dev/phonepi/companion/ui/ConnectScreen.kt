@@ -34,11 +34,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import dev.phonepi.companion.connection.ActiveServer
 import dev.phonepi.companion.connection.ConnectionController
 import dev.phonepi.companion.connection.ConnectionPrefs
 import dev.phonepi.companion.connection.ConnectionService
+import dev.phonepi.companion.connection.ServerList
+import dev.phonepi.companion.connection.ServerPrefs
 import dev.phonepi.companion.connection.SetupBus
 import dev.phonepi.companion.connection.statusLabel
+import dev.phonepi.companion.log.ActivityLog
 
 @Composable
 fun ConnectScreen(modifier: Modifier = Modifier) {
@@ -57,6 +61,11 @@ fun ConnectScreen(modifier: Modifier = Modifier) {
     var reconnectOnBoot by remember {
         mutableStateOf(ConnectionPrefs.reconnectOnBoot(context.applicationContext))
     }
+    val active by ActiveServer.info.collectAsState()
+    var serverSnap by remember { mutableStateOf(ServerPrefs.load(context.applicationContext)) }
+    fun reloadServers() {
+        serverSnap = ServerPrefs.load(context.applicationContext)
+    }
 
     val notifPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -74,22 +83,70 @@ fun ConnectScreen(modifier: Modifier = Modifier) {
         block()
     }
 
-    fun connectNow(nextHost: String, nextPort: String, nextToken: String = "") {
-        ensureNotifThen {
-            ConnectionService.start(
-                context,
-                nextHost.trim(),
-                nextPort.toIntOrNull() ?: ConnectionPrefs.DEFAULT_PORT,
-                nextToken,
-            )
-        }
+    fun startLink() {
+        ensureNotifThen { ConnectionService.start(context) }
+    }
+
+    /**
+     * Save [nextHost] into the Servers list (blank token keeps the saved one).
+     * makePrimary=true → it becomes the primary and auto-failover picks the order.
+     * Otherwise it is pinned (manual pick, same as connecting to one host in 0.3.2).
+     */
+    fun saveAndConnect(
+        nextHost: String,
+        nextPort: String,
+        nextToken: String,
+        name: String? = null,
+        makePrimary: Boolean = false,
+    ) {
+        val app = context.applicationContext
+        val trimmed = nextHost.trim()
+        if (trimmed.isEmpty()) return
+        val (list, entry) = ServerList.upsert(
+            ServerPrefs.load(app).servers,
+            name,
+            trimmed,
+            nextPort.toIntOrNull() ?: ConnectionPrefs.DEFAULT_PORT,
+            nextToken,
+            makePrimary,
+        )
+        ServerPrefs.saveServers(app, list)
+        ServerPrefs.setPinned(app, if (makePrimary) null else entry.id)
+        ActivityLog.logConnection(
+            "Server saved",
+            "${entry.name} (${entry.host}:${entry.port})" +
+                if (makePrimary) " is now primary" else " (manual pick)",
+            "info",
+        )
+        reloadServers()
+        startLink()
+    }
+
+    fun switchTo(id: String?) {
+        val app = context.applicationContext
+        ServerPrefs.setPinned(app, id)
+        val name = id?.let { pid -> serverSnap.servers.firstOrNull { it.id == pid }?.name }
+        ActivityLog.logConnection(
+            "Server switch",
+            if (name != null) "Manual: $name" else "Manual: back to automatic (primary first)",
+            "info",
+        )
+        reloadServers()
+        startLink()
     }
 
     LaunchedEffect(setup) {
-        val target = setup ?: return@LaunchedEffect
+        val request = setup ?: return@LaunchedEffect
+        val target = request.target
         host = target.host
         port = target.port.toString()
-        connectNow(target.host, target.port.toString(), target.wsToken)
+        saveAndConnect(
+            target.host,
+            target.port.toString(),
+            target.wsToken,
+            name = request.name,
+            makePrimary = request.primary,
+        )
         SetupBus.consume()
     }
 
@@ -109,9 +166,73 @@ fun ConnectScreen(modifier: Modifier = Modifier) {
             ) {
             Text("PhonePi companion", style = MaterialTheme.typography.headlineSmall)
             Text("Status: ${state.statusLabel()}", style = MaterialTheme.typography.bodyLarge)
+            val activeLine = active?.let { a ->
+                val role = if (a.isPrimary) "primary" else "fallback"
+                val mode = when {
+                    a.pinned -> "manual"
+                    a.autoFailover -> "auto-failover on"
+                    else -> "auto-failover off"
+                }
+                "Server: ${a.name} ($role) · $mode"
+            } ?: "Server: not connected"
+            Text(activeLine, style = MaterialTheme.typography.bodyLarge)
+
+            if (serverSnap.servers.isNotEmpty()) {
+                Text("Switch server", style = MaterialTheme.typography.titleSmall)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val autoSelected = serverSnap.pinnedId == null
+                    if (autoSelected) {
+                        Button(onClick = { switchTo(null) }) { Text("Auto") }
+                    } else {
+                        OutlinedButton(onClick = { switchTo(null) }) { Text("Auto") }
+                    }
+                    for (server in ServerList.ordered(serverSnap.servers)) {
+                        if (serverSnap.pinnedId == server.id) {
+                            Button(onClick = { switchTo(server.id) }) { Text(server.name) }
+                        } else {
+                            OutlinedButton(onClick = { switchTo(server.id) }) { Text(server.name) }
+                        }
+                    }
+                }
+                for (server in ServerList.ordered(serverSnap.servers)) {
+                    Text(
+                        (if (server.primary) "★ " else "• ") + server.label() +
+                            if (server.primary) " — primary" else " — fallback",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "Automatic failover (primary first, fallback after ~15 s)",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Switch(
+                        checked = serverSnap.autoFailover,
+                        onCheckedChange = { enabled ->
+                            val app = context.applicationContext
+                            ServerPrefs.setAutoFailover(app, enabled)
+                            ActivityLog.logConnection(
+                                "Auto-failover",
+                                if (enabled) "On" else "Off",
+                                "info",
+                            )
+                            reloadServers()
+                            ConnectionService.applySettingsIfRunning(app)
+                        },
+                    )
+                }
+            }
+
             Text(
                 "Scan the Odysseus Settings → Phone QR, or paste the Tailscale host. " +
-                    "Serve uses port 443. Disconnect keeps the saved host; Forget saved host wipes it.",
+                    "Serve uses port 443. Connect saves the host to Servers and uses it (manual). " +
+                    "Tap Auto to go back to primary-first failover. " +
+                    "Disconnect keeps the saved servers; Forget saved host wipes them.",
                 style = MaterialTheme.typography.bodySmall,
             )
 
@@ -147,7 +268,7 @@ fun ConnectScreen(modifier: Modifier = Modifier) {
             )
 
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button(onClick = { connectNow(host, port, wsToken) }) {
+                Button(onClick = { saveAndConnect(host, port, wsToken) }) {
                     Text("Connect")
                 }
 
@@ -176,6 +297,8 @@ fun ConnectScreen(modifier: Modifier = Modifier) {
             OutlinedButton(onClick = {
                 ConnectionService.stop(context)
                 ConnectionPrefs.clear(context.applicationContext)
+                ServerPrefs.forget(context.applicationContext)
+                reloadServers()
                 host = ConnectionPrefs.DEFAULT_HOST
                 port = ConnectionPrefs.DEFAULT_PORT.toString()
                 wsToken = ""
