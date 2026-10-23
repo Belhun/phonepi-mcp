@@ -6,7 +6,8 @@
 #     (survives refresh; box-owned so the home sync can copy it).
 #  3) If logged out and TS_AUTHKEY is set: tailscale up --hostname=grokbot-box with the key.
 #  4) tailscale serve --https=443 -> 127.0.0.1:11041.
-#  5) Rebuild server/dist if missing; start the watchdog if /api/health is not ok.
+#  5) Rebuild server/dist if missing; start the watchdog if the box server's own bot API
+#     (127.0.0.1:11045) is not ok; start the failover front on 127.0.0.1:11043 (HP primary, box standby).
 #  6) Start the read-only Google Messages bridge (127.0.0.1:11042) if it's down.
 set -uo pipefail
 umask 077
@@ -85,14 +86,24 @@ if [[ ! -f "$REPO/server/dist/index.js" ]]; then
   log "building server/dist"
   (exec 9>&-; cd "$REPO/server" && npm ci --silent && npm run build --silent) >/tmp/phonepi-build.log 2>&1 || log "build failed (see /tmp/phonepi-build.log)"
 fi
-if ! curl -fsS -m 3 http://127.0.0.1:11043/api/health 2>/dev/null | grep -q '"ok":true'; then
+# The box server's bot API is on 11045 (PHONEPI_HTTP_PORT in ~/.phonepi/env); 11043 is the failover front.
+BOX_API="http://127.0.0.1:${PHONEPI_BOX_HTTP_PORT:-11045}/api/health"
+grep -q '^PHONEPI_HTTP_PORT=' "$PP/env" 2>/dev/null || echo 'PHONEPI_HTTP_PORT=11045' >> "$PP/env"
+if ! curl -fsS -m 3 "$BOX_API" 2>/dev/null | grep -q '"ok":true'; then
   if ! "$REPO/scripts/phonepi-watchdog.sh" status 2>/dev/null | grep -q "watchdog running"; then
     rm -f "$PP/watchdog.pid" "$PP/server.pid"
     "$REPO/scripts/phonepi-watchdog.sh" start >/dev/null 9>&-
   fi
-  for _ in $(seq 1 20); do curl -fsS -m 2 http://127.0.0.1:11043/api/health 2>/dev/null | grep -q '"ok":true' && break; sleep 1; done
+  for _ in $(seq 1 20); do curl -fsS -m 2 "$BOX_API" 2>/dev/null | grep -q '"ok":true' && break; sleep 1; done
 fi
-log "health: $(curl -fsS -m 3 http://127.0.0.1:11043/api/health 2>/dev/null | python3 -c 'import sys,json; h=json.load(sys.stdin); print("ok" if h.get("ok") else "NOT ok", "phoneConnected=%s" % h.get("phoneConnected"))' 2>/dev/null || echo DOWN)"
+log "box server: $(curl -fsS -m 3 "$BOX_API" 2>/dev/null | python3 -c 'import sys,json; h=json.load(sys.stdin); print("ok" if h.get("ok") else "NOT ok", "phoneConnected=%s" % h.get("phoneConnected"))' 2>/dev/null || echo DOWN)"
+# 5b) failover front (HP primary, box standby) on 127.0.0.1:11043
+if ! "$REPO/scripts/phonepi-failover.sh" status 2>/dev/null | grep -q "failover running"; then
+  rm -f "$PP/failover-watchdog.pid" "$PP/failover.pid"
+  "$REPO/scripts/phonepi-failover.sh" start >/dev/null 2>&1 9>&- || log "failover front did not start"
+  for _ in $(seq 1 20); do curl -fsS -m 2 http://127.0.0.1:11043/api/failover >/dev/null 2>&1 && break; sleep 1; done
+fi
+log "failover: $(curl -fsS -m 3 http://127.0.0.1:11043/api/failover 2>/dev/null | python3 -c 'import sys,json; s=json.load(sys.stdin); print("active=%s (%s) hp_up=%s box_up=%s" % (s["active"], s["reason"], s["hp"].get("up"), s["box"].get("up")))' 2>/dev/null || echo DOWN)"
 
 # 6) Google Messages bridge (read-only, loopback). Same launch as get-texts.sh -status.
 if [[ -x "$GM_DIR/get-texts.sh" ]] && ! (exec 3<>/dev/tcp/127.0.0.1/11042) 2>/dev/null; then

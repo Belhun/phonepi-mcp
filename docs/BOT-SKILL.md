@@ -11,6 +11,8 @@ description: >-
 
 PhonePi = Android companion app on Alex's phone + a Node server on the box (`/workspace/phonepi/server`, repo `Belhun/phonepi-mcp`, branch `cursor/phone-navigate-locations-1ceb`). The phone dials OUT to the box over Tailscale and keeps one WebSocket open. Bots never talk to the phone directly; they call the box's loopback HTTP API, which forwards one allowlisted request over that socket. The phone runs only allowlisted handlers, rate-limits them, and logs every call in its on-phone **Recent activity**.
 
+> **Since 2026-10-23:** `127.0.0.1:11043` is a failover front. It forwards to the PhonePi server the phone is connected to: the HP (primary) or the box (standby, its own API on 11045). Calls are unchanged. `servedBy` in `/api/health` and the `X-PhonePi-Server` header say which. `scripts/phonepi-target` shows both. Texting (11042/11044) stays on the box.
+
 ## 1. Always check health first (read-only, free)
 ```bash
 curl -s http://127.0.0.1:11043/api/health
