@@ -69,6 +69,9 @@ const DEBUG_WEBSOCKET = false;
 // Parse command line arguments
 const args = process.argv.slice(2);
 let port = 11041; // Default port
+// Phone WebSocket bind address. Default stays 0.0.0.0 (box behavior unchanged).
+// Use --host 127.0.0.1 (or PHONEPI_WS_HOST) when Tailscale Serve is the only entry point.
+let wsHost = process.env.PHONEPI_WS_HOST?.trim() || "0.0.0.0";
 let useStdio = false;
 const httpPort = resolveHttpPort(args, process.env);
 
@@ -82,6 +85,9 @@ for (let i = 0; i < args.length; i++) {
       console.error("Invalid port number specified. Using default port 11041.");
       port = 11041;
     }
+  } else if (args[i] === "--host" && i + 1 < args.length) {
+    wsHost = args[i + 1].trim() || "0.0.0.0";
+    i++;
   } else if (args[i] === "--stdio") {
     useStdio = true;
   }
@@ -295,7 +301,7 @@ class PhonePiMCPServer {
       console.error(`Starting WebSocket server on port ${this.serverPort}...`);
       this.wss = createPhoneWebSocketServer({
         port: this.serverPort,
-        host: "0.0.0.0", // Explicitly listen on all interfaces
+        host: wsHost, // 0.0.0.0 by default; --host / PHONEPI_WS_HOST overrides
         verifyClient: createPhoneVerifyClient(),
       });
 
@@ -327,7 +333,7 @@ class PhonePiMCPServer {
 
       this.wss.on("listening", () => {
         console.error(
-          `WebSocket server is listening on port ${this.serverPort}`
+          `WebSocket server is listening on ${wsHost}:${this.serverPort}`
         );
         this.setupWebSocket();
         this.startNotificationCapture();
