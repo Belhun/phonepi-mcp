@@ -265,3 +265,13 @@ Alex: "Make the HP the main computer we run everything off of… HP primary, the
 - **Setup links:** `~/.phonepi/setup-links/{hp,box}-setup-{link.txt,qr.png}` (mode 600) hold `phonepi://setup?host=…&port=443&token=…&name=…`. Never paste them in chat.
 - **Mistake fixed:** `/phonepi/update/manifest` returned 404 "manifest sha256 does not match phonepi-0.3.0-12.apk" on both servers. `pickApkFile` takes the newest mtime and the post-refresh copy left 0.3.0 newer than 0.3.2. Fixed by touching `phonepi-0.3.2-14.apk`; a code fix (prefer the manifest's `fileName`) is still open.
 - **Open:** the HP node key expires 2026-12-22 08:27 UTC (Dec 22 12:27 AM PST); disable key expiry for hp1 in the admin console.
+
+## PhonePi Clock 0.1.0 (versionCode 1)
+
+Separate app, `dev.phonepi.clock`, so a companion update cannot drop an alarm. Phase 1 only. Sounds are ringtones and files the user picked. Spotify is a reserved redirect (`phonepi-clock://spotify-callback`) with no client code. "Hey Google" alarms stay in Google Clock. The Saturday Google Clock alarms were not copied.
+
+- Alarm state is on the phone (Room, device-protected storage). The box keeps `~/.phonepi/clock/snapshot.json` for offline reads (`stale:true`). Writes are HTTP 503 when the phone is offline and are not queued.
+- Idempotency is the phone ledger (`requestId` UUID, 7 days, first body wins). The server passes the id through and does not replay.
+- IPC is a signature permission, `dev.phonepi.clock.permission.CONTROL`, plus provider `dev.phonepi.clock.provider`. Both APKs must share a cert. Debug uses `~/.android/debug.keystore` (`androiddebugkey` / `android`). Release uses `PHONEPI_RELEASE_STORE_FILE`, the same keystore as the companion. SHA-1 for a future Spotify app: `./gradlew :app:signingReport` in `phonepi-clock`, or `keytool -list -v`. Use the cert of the build that is installed. Details in [clock/IPC.md](clock/IPC.md).
+- Day bits are Mon=1 through Sun=64. A spring-forward gap rings at the next valid minute. A fall-back hour rings once, on the earlier offset.
+- `scripts/clock-emulator-test.sh` refuses anything that is not an emulator. Do not point it at the Pixel.

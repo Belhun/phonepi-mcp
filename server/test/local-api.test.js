@@ -18,6 +18,7 @@ import { resolveHttpPort, startLoopbackHttp } from "../dist/loopback-http.js";
 import { createPhoneWebSocketServer } from "../dist/phone-ws.js";
 
 const FORBIDDEN = [
+  "clock_create_alarm",
   "make_call",
   "find_phone",
   "set_timer",
@@ -117,6 +118,10 @@ test("read-only allowlist is exactly the phone read tools", () => {
   assert.deepEqual(
     [...READ_ONLY_HTTP_TOOLS].sort(),
     [
+      "clock_get_alarm",
+      "clock_health",
+      "clock_history",
+      "clock_list_alarms",
       "get_all_snippets",
       "get_battery_level",
       "get_contact_by_id",
@@ -213,7 +218,10 @@ test("each allowlisted tool can be called when the phone answers", async () => {
     async ({ port }) => {
       for (const tool of READ_ONLY_HTTP_TOOLS) {
         if (tool === "get_location_history" || tool === "search_places") continue;
-        const res = await postTool(port, { tool, arguments: { query: "x" } });
+        const res = await postTool(port, {
+          tool,
+          arguments: { query: "x", id: "alarm-1" },
+        });
         assert.equal(res.status, 200, tool);
         assert.equal(res.json.isError, false, tool);
         assert.equal(JSON.parse(res.json.text).name, tool);
@@ -252,6 +260,7 @@ test("GET /api/health reports ports, phone state, and empty history", async () =
       const res = await getHealth(port);
       assert.equal(res.status, 200);
       assert.deepEqual(Object.keys(res.json).sort(), [
+        "clockHealth",
         "httpPort",
         "lastConnectedAt",
         "lastDisconnectCode",
@@ -265,6 +274,7 @@ test("GET /api/health reports ports, phone state, and empty history", async () =
         "wsPort",
       ]);
       assert.equal(res.json.ok, true);
+      assert.match(res.json.clockHealth, /^(ok|degraded|watching|unknown)$/);
       assert.equal(res.json.phoneConnected, false);
       assert.equal(res.json.wsPort, 11041);
       assert.equal(res.json.httpPort, port);

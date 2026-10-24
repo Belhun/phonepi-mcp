@@ -10,6 +10,10 @@ object PhoneReadTools {
         "get_volumes" to 60,
         "get_recent_photos" to PhotoLimits.LIST_PER_MINUTE,
         "list_alarms" to 60,
+        "clock_list_alarms" to 60,
+        "clock_get_alarm" to 60,
+        "clock_health" to 60,
+        "clock_history" to 60,
     )
 
     fun maxPerMinute(name: String): Int? = RATE_LIMITS[name]

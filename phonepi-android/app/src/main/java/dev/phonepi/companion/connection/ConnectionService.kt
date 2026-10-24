@@ -59,6 +59,7 @@ import dev.phonepi.companion.tools.ShareSnippetTool
 import dev.phonepi.companion.tools.StopAlarmTool
 import dev.phonepi.companion.tools.DismissAlarmTool
 import dev.phonepi.companion.tools.DismissTimerTool
+import dev.phonepi.companion.clock.clockTools
 import dev.phonepi.companion.tools.ListAlarmsTool
 import dev.phonepi.companion.tools.SetAlarmTool
 import dev.phonepi.companion.tools.TimerTool
@@ -102,6 +103,7 @@ class ConnectionService : Service() {
                 DismissAlarmTool(ctx),
                 DismissTimerTool(ctx),
                 ListAlarmsTool(ctx),
+                *clockTools(ctx).toTypedArray(),
                 SendNotificationTool(ctx),
                 FindPhoneTool(ctx),
                 StopAlarmTool(ctx),

@@ -192,7 +192,7 @@ object ActivityLog {
                 if (skipped.isNotEmpty()) append(" skipped $skipped")
             }
         }
-        else -> "OK"
+        else -> if (tool.startsWith("clock_")) tool else "OK"
     }
 
     fun logClock(detail: String, status: String) {

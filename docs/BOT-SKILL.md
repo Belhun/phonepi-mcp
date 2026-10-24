@@ -40,12 +40,12 @@ Responses are always `{"text": "<JSON string>", "isError": bool}`. **HTTP 200 do
 curl -s -X POST http://127.0.0.1:11043/api/tool -H 'Content-Type: application/json' \
   -d '{"tool":"get_battery_level","arguments":{}}'
 ```
-Allowlist (exact): `get_battery_level`, `get_volumes`, `get_contacts`, `search_contacts` {query, limit≤50}, `get_contact_by_id` {id}, `get_recent_calls` {limit, hours (default 168) | since (epoch ms), type/types, number, includeContactNames}, `get_notifications` {package, since (epoch ms), limit default 50 cap 200}, `list_notification_apps`, `get_recent_photos` {limit default 5, hard cap 20, since (epoch ms)}, `list_alarms`, `get_location_history`, `search_places`, `get_notification_log` {since, until, postedSince, postedUntil, package, query, limit default 100 cap 500}, `get_all_snippets`, `get_snippet_by_id`, `get_snippets_by_type`, `search_snippets`.
+Allowlist (exact): `get_battery_level`, `get_volumes`, `get_contacts`, `search_contacts` {query, limit≤50}, `get_contact_by_id` {id}, `get_recent_calls` {limit, hours (default 168) | since (epoch ms), type/types, number, includeContactNames}, `get_notifications` {package, since (epoch ms), limit default 50 cap 200}, `list_notification_apps`, `get_recent_photos` {limit default 5, hard cap 20, since (epoch ms)}, `list_alarms`, `clock_list_alarms`, `clock_get_alarm` {id}, `clock_health`, `clock_history` {limit 1-200}, `get_location_history`, `search_places`, `get_notification_log` {since, until, postedSince, postedUntil, package, query, limit default 100 cap 500}, `get_all_snippets`, `get_snippet_by_id`, `get_snippets_by_type`, `search_snippets`.
 - Battery → `level`, `isCharging`, `chargingStatus`.
 - Volumes → per-stream `current`/`max`, `ringerMode`, `dnd`, `notificationPolicyAccess`, `exactAlarmsAllowed`, `midnightMaxEnabled`.
 - Notifications: only apps Alex allowlisted in the app (default: none). Unshared apps are counted in `omittedUnsharedCount`.
 - Recent photos: metadata only (id, display name, dateTaken, dateAdded, size, width, height, mime type). No image bytes. Needs the in-app **Share recent photos** switch (off by default) and the Photos permission. 30/min. The scan is the newest 100 images.
-- `list_alarms` (60/min): `nextAlarm` from `AlarmManager.getNextAlarmClock()` (`triggerAt` epoch ms, or null), plus `phonePiAlarms` (hour, minute, label, repeat day names, createdAt) for alarms PhonePi itself asked Clock to create. This is not the Clock app's full list.
+- `list_alarms` (60/min): `nextAlarm` from `AlarmManager.getNextAlarmClock()` (`triggerAt` epoch ms, or null), plus `phonePiAlarms` (hour, minute, label, repeat day names, createdAt) for alarms PhonePi itself asked Google Clock to create. This is not the Clock app's full list. PhonePi Clock alarms are `clock_list_alarms` (section 3e).
 - `get_location_history` and `search_places` (30/min each) read the box copy. They work when the phone is offline. See the location history section below.
 - `get_notification_log` (60/min) reads the box's running notification log. Works when the phone is offline. See section c2.
 
@@ -72,6 +72,7 @@ curl -s -X POST http://127.0.0.1:11043/api/command \
 | `set_timer` | `seconds` (1 through 86400). Optional `message` or `label` (max 100) | 10 | `AlarmClock.ACTION_SET_TIMER` with `SKIP_UI`. A 15 minute timer is `seconds: 900`. |
 | `dismiss_alarm` | `search`: `time` (`hour` + `minute`) or `label` (`message` or `label`) | 10 | `ACTION_DISMISS_ALARM`. There is no dismiss-all. |
 | `dismiss_timer` | optional `message` or `label` | 10 | `ACTION_DISMISS_TIMER`. |
+| `clock_create_alarm`, `clock_update_alarm`, `clock_delete_alarm`, `clock_enable_alarm`, `clock_disable_alarm`, `clock_skip_next`, `clock_unskip`, `clock_snooze`, `clock_dismiss` | `requestId` (UUID) on every write. Create needs `hour` and `minute`. See section 3e. | 20 | PhonePi Clock (`dev.phonepi.clock`). Not Google Clock. Offline writes are HTTP 503 and are not queued. |
 | `pause_location_logging` | `paused` true or false | 10 | Stops or resumes new visits and drives. History stays. |
 | `clear_location_history` | `confirm` must be `"delete"` | 4 | Deletes history on the phone and on the box. |
 | `request_send_text` | `recipient`, `message` (max 1000). Optional `mode`: `as_alex` (default) or `attributed` | 5/min and 30/day for `as_alex`; 5/min and 20/day for `attributed` | Does not send by itself. See section 3d. |
@@ -270,6 +271,27 @@ Rates: `as_alex` is 5 per minute and 30 per day. `attributed` is 5 per minute an
 
 Full rules: [send-text.md](send-text.md).
 
+## 3e. Goal → action: PhonePi Clock
+
+Use this for alarms a bot should own. Leave "Hey Google" alarms in Google Clock. The existing Saturday alarms stay in Google Clock until a later migration. Do not copy them here.
+
+`clock_list_alarms`, `clock_get_alarm`, `clock_health`, and `clock_history` are reads (`POST /api/tool`, 60/min). They try the phone, then the last box copy. A box copy sets `stale:true`. `clock_history` is empty when the phone is offline. `GET /api/health` adds `clockHealth` (`ok`, `degraded`, `watching`, or `unknown`).
+
+Writes are `POST /api/command` (token, 20/min). Each one needs `requestId`, a new UUID. The phone keeps the first result. Sending the same id again still calls the phone, and the phone returns `replayed:true`. If `phoneConnected` is false, the write is HTTP 503. Do not retry it until the phone is back.
+
+Days: Mon=1, Tue=2, Wed=4, Thu=8, Fri=16, Sat=32, Sun=64. `weekdays` is 31, `weekends` is 96, `daily` is 127. Omit `days` for a one-time alarm.
+
+```bash
+TOKEN=$(sed -n 's/^\(export \)\{0,1\}PHONEPI_WS_TOKEN=//p' /home/box/.phonepi/env)
+curl -s -X POST http://127.0.0.1:11043/api/command \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"command":"clock_create_alarm","arguments":{"requestId":"11111111-1111-4111-8111-111111111111","hour":6,"minute":30,"days":"weekdays","label":"Work"}}'
+```
+
+REST aliases, same rules: `GET /api/clock/alarms`, `GET /api/clock/alarms/:id`, `POST /api/clock/alarms`, `PATCH` and `DELETE` that id, `POST .../skip-next`, `.../unskip`, `.../enable`, `.../disable`, `POST /api/clock/ringing/snooze`, `POST /api/clock/ringing/dismiss`, `GET /api/clock/health`, `GET /api/clock/history`. Mutations need the token.
+
+Sounds in this phase are the default alarm, a ringtone, a file the user picked, or silent. There is no Spotify code yet. Contract: [clock/IPC.md](clock/IPC.md).
+
 ## 4. Phone-side permissions that matter
 - **Display over other apps**: required for Maps to open from the background.
 - Notifications + **full-screen intents** (Android 14+): needed for the fallback.
@@ -283,7 +305,7 @@ Full rules: [send-text.md](send-text.md).
 - **Texts**: **Allow bots to request texts** (off by default) plus SMS, contacts, and notifications. Microphone for spoken confirm. Physical activity and nearby Bluetooth devices help detect driving. **Allow assistant-signed texts without confirm** is a second switch, also off. Details in section 3d.
 
 ## 5. What PhonePi can and cannot do (as of companion 0.3.2)
-Can (via HTTP, any bot): navigation to anything Maps can search, saved places, volumes (read/set/max all), battery, contacts (read/search), recent calls, allowlisted notifications, snippets, recent photo metadata (`get_recent_photos`), one recompressed photo at a time (`get_photo`, shared token), `list_alarms`, Clock `set_alarm` / `set_timer` / `dismiss_alarm` / `dismiss_timer` (those four need the shared token), `request_send_text` / `get_send_status` (token, phone confirm, switches off by default), location history (`get_location_history`, `search_places`) and the notification log (`get_notification_log`) from the box copy even when the phone is offline.
+Can (via HTTP, any bot): navigation to anything Maps can search, saved places, volumes (read/set/max all), battery, contacts (read/search), recent calls, allowlisted notifications, snippets, recent photo metadata (`get_recent_photos`), one recompressed photo at a time (`get_photo`, shared token), `list_alarms`, Google Clock `set_alarm` / `set_timer` / `dismiss_alarm` / `dismiss_timer` (those four need the shared token), PhonePi Clock `clock_list_alarms` / `clock_get_alarm` / `clock_health` / `clock_history` (box copy when the phone is offline) and `clock_create_alarm` / `clock_update_alarm` / `clock_delete_alarm` / `clock_enable_alarm` / `clock_disable_alarm` / `clock_skip_next` / `clock_unskip` / `clock_snooze` / `clock_dismiss` (token, UUID `requestId`, 503 when the phone is offline), `request_send_text` / `get_send_status` (token, phone confirm, switches off by default), location history (`get_location_history`, `search_places`) and the notification log (`get_notification_log`) from the box copy even when the phone is offline.
 On-phone only: "Max volumes at midnight" toggle, reconnect-on-boot, reconnect after update, the Location history switch, pause, delete, and Timeline JSON import.
 
 Exists on the phone but NOT reachable from bots right now: `find_phone` (ring), `copy_to_clipboard`, `make_call`, `get_location`, `send_notification`, contact edits, snippet writes. Don't promise these; `/api/tool` returns 403.

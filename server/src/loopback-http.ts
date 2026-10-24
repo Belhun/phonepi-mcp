@@ -22,6 +22,9 @@ import {
   tokenFromHttpRequest,
   wsTokenFromEnv,
 } from "./ws-token.js";
+import { isClockRead, isClockWrite } from "./clock-commands.js";
+import { ClockSnapshotStore, openClockSnapshot } from "./clock-snapshot.js";
+import { dispatchClock, matchClockRoute } from "./clock-api.js";
 
 export const DEFAULT_HTTP_PORT = 11043;
 const LOOPBACK_HOST = "127.0.0.1";
@@ -60,6 +63,8 @@ export interface StartLoopbackHttpOptions {
   /** Box copy of captured notifications. Reads do not need the phone. */
   notificationLog?: NotificationLog;
   notificationCaptureStatus?: () => Record<string, unknown>;
+  /** Last PhonePi Clock snapshot. Reads fall back here when the phone is offline. */
+  clockSnapshot?: ClockSnapshotStore;
 }
 
 type ToolBody = {
@@ -172,9 +177,11 @@ async function handleRequest(
       return;
     }
     const details = healthDetailsFrom(options.bridge);
+    const clock = options.clockSnapshot ?? openClockSnapshot();
     sendJson(res, 200, {
       ok: true,
       phoneConnected: options.bridge.isPhoneConnected(),
+      clockHealth: clock.healthStatus(),
       wsPort: options.wsPort,
       httpPort: boundPort(server, options.port),
       lastConnectedAt: details.lastConnectedAt,
@@ -203,6 +210,11 @@ async function handleRequest(
       return;
     }
     await handleCommand(req, res, options);
+    return;
+  }
+
+  if (path.startsWith("/api/clock")) {
+    await handleClock(req, res, options, path);
     return;
   }
 
@@ -257,6 +269,18 @@ async function handleTool(
   }
 
   const args = (body.arguments ?? {}) as Record<string, unknown>;
+  if (isClockRead(body.tool)) {
+    const outcome = await dispatchClock({
+      tool: body.tool,
+      args,
+      connected: bridge.isPhoneConnected(),
+      callPhone: (name, toolArgs) => bridge.callPhoneTool(name, toolArgs),
+      store: options.clockSnapshot ?? openClockSnapshot(),
+      limiter: options.locationReadLimiter ?? commandRateLimiter,
+    });
+    sendJson(res, outcome.status, outcome.body);
+    return;
+  }
   if (isLocationReadTool(body.tool)) {
     const log = options.locationLog ?? openLocationLog();
     const limiter = options.locationReadLimiter ?? commandRateLimiter;
@@ -420,6 +444,9 @@ async function handleCommand(
       spec?.phoneTool ?? commandName,
       validated.args
     );
+    if (isClockWrite(commandName)) {
+      (options.clockSnapshot ?? openClockSnapshot()).saveFromPhone(result);
+    }
     sendJson(res, 200, {
       text: JSON.stringify(result, null, 2),
       isError: false,
@@ -440,6 +467,76 @@ async function handleCommand(
       );
     sendJson(res, unavailable ? 503 : 502, { text: message, isError: true });
   }
+}
+
+async function handleClock(
+  req: IncomingMessage,
+  res: ServerResponse,
+  options: StartLoopbackHttpOptions,
+  path: string
+): Promise<void> {
+  const route = matchClockRoute(req.method || "GET", path);
+  if (!route) {
+    sendJson(res, 404, { text: "Not found", isError: true });
+    return;
+  }
+  if (route.write) {
+    const expected =
+      options.commandToken !== undefined ? options.commandToken : wsTokenFromEnv();
+    const auth = authorizeCommandToken(tokenFromHttpRequest(req), expected);
+    if (!auth.ok) {
+      sendJson(res, auth.status, { text: auth.text, isError: true });
+      return;
+    }
+  }
+
+  let bodyArgs: Record<string, unknown> = {};
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    let parsed: unknown;
+    try {
+      const raw = await readBody(req);
+      if (raw.trim()) parsed = JSON.parse(raw);
+    } catch (err) {
+      const status = (err as { statusCode?: number }).statusCode === 413 ? 413 : 400;
+      sendJson(res, status, {
+        text: status === 413 ? "Request body too large" : "Invalid JSON",
+        isError: true,
+      });
+      return;
+    }
+    if (parsed !== undefined) {
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        sendJson(res, 400, { text: "Expected a JSON object", isError: true });
+        return;
+      }
+      const record = parsed as Record<string, unknown>;
+      bodyArgs =
+        record.arguments && typeof record.arguments === "object" && !Array.isArray(record.arguments)
+          ? (record.arguments as Record<string, unknown>)
+          : record;
+    }
+  }
+
+  const args: Record<string, unknown> = { ...bodyArgs };
+  if (route.id) args.id = route.id;
+  if (route.tool === "clock_history") {
+    try {
+      const limit = new URL(req.url || "/", "http://127.0.0.1").searchParams.get("limit");
+      if (limit != null && limit !== "" && args.limit === undefined) args.limit = Number(limit);
+    } catch {
+      // Ignore a bad URL. The tool still runs with no limit.
+    }
+  }
+
+  const outcome = await dispatchClock({
+    tool: route.tool,
+    args,
+    connected: options.bridge.isPhoneConnected(),
+    callPhone: (name, toolArgs) => options.bridge.callPhoneTool(name, toolArgs),
+    store: options.clockSnapshot ?? openClockSnapshot(),
+    limiter: options.locationReadLimiter ?? commandRateLimiter,
+  });
+  sendJson(res, outcome.status, outcome.body);
 }
 
 function readBody(req: IncomingMessage): Promise<string> {

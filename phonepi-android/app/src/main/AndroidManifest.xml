@@ -69,6 +69,7 @@
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
 
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="dev.phonepi.clock.permission.CONTROL" />
 
 
 
@@ -89,6 +90,8 @@
             <action android:name="android.intent.action.DISMISS_TIMER" />
         </intent>
         <package android:name="com.google.android.deskclock" />
+        <package android:name="dev.phonepi.clock" />
+        <provider android:authorities="dev.phonepi.clock.provider" />
         <package android:name="com.google.android.apps.maps" />
         <intent>
             <action android:name="android.intent.action.VIEW" />
@@ -348,6 +351,15 @@
         <receiver
             android:name=".history.LocationCaptureReceiver"
             android:exported="false" />
+
+        <receiver
+            android:name=".clock.ClockSnapshotReceiver"
+            android:exported="true"
+            android:permission="dev.phonepi.clock.permission.CONTROL">
+            <intent-filter>
+                <action android:name="dev.phonepi.clock.action.SNAPSHOT" />
+            </intent-filter>
+        </receiver>
 
         <receiver
 

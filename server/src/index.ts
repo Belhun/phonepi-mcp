@@ -17,6 +17,9 @@ import {
 } from "./gmessages/index.js";
 import { commandRateLimiter } from "./command-rate-limit.js";
 import { openLocationLog } from "./location-log.js";
+import { CLOCK_READ_SCHEMAS, isClockRead, isClockWrite } from "./clock-commands.js";
+import { dispatchClock } from "./clock-api.js";
+import { openClockSnapshot } from "./clock-snapshot.js";
 import { isLocationReadTool, LOCATION_TOOL_SCHEMAS, runLocationRead } from "./location-tools.js";
 import { openNotificationLog } from "./notification-log.js";
 import {
@@ -102,6 +105,7 @@ class PhonePiMCPServer {
   private _pingIntervalId: NodeJS.Timeout | null = null;
   private httpApi: Promise<LoopbackHttpHandle | null> | null = null;
   private locationLog = openLocationLog();
+  private clockSnapshot = openClockSnapshot();
   private notificationLog = openNotificationLog();
   private notificationPoller: NotificationPoller | null = null;
 
@@ -169,6 +173,7 @@ class PhonePiMCPServer {
       locationReadLimiter: commandRateLimiter,
       notificationLog: this.notificationLog,
       notificationCaptureStatus: () => this.notificationCaptureStatus(),
+      clockSnapshot: this.clockSnapshot,
     });
   }
 
@@ -232,7 +237,7 @@ class PhonePiMCPServer {
     }
   }
 
-  private callPhoneTool(
+  private async callPhoneTool(
     name: string,
     args: Record<string, unknown>
   ): Promise<unknown> {
@@ -282,7 +287,7 @@ class PhonePiMCPServer {
       }
     }
     const requestId = `req-${++this.requestCounter}`;
-    return requestPhoneTool({
+    const result = await requestPhoneTool({
       connection: this.session.currentSocket(),
       pending: this.pendingRequests,
       requestId,
@@ -290,6 +295,10 @@ class PhonePiMCPServer {
       params,
       debug: DEBUG_WEBSOCKET,
     });
+    if (isClockRead(name) || isClockWrite(name)) {
+      this.clockSnapshot.saveFromPhone(result);
+    }
+    return result;
   }
 
   private initializeWebSocketServer() {
@@ -481,6 +490,17 @@ class PhonePiMCPServer {
         (message.type === "location_sync" || message.type === "location_cleared")
       ) {
         this.handleLocationFrame(ws, message);
+        return;
+      }
+      if (message && message.type === "clock_snapshot") {
+        if (!this.session.isCurrent(ws)) {
+          console.error("[WebSocket] Ignored clock snapshot from a stale socket");
+          return;
+        }
+        const saved = this.clockSnapshot.saveFrame(
+          (message as { snapshot?: unknown }).snapshot
+        );
+        if (!saved) console.error("[WebSocket] Ignored clock snapshot");
         return;
       }
       if(DEBUG_WEBSOCKET) {
@@ -1526,6 +1546,7 @@ class PhonePiMCPServer {
         ...PHOTO_TOOL_SCHEMAS,
         ...VOLUME_TOOL_SCHEMAS,
         ...ALARM_TOOL_SCHEMAS,
+        ...CLOCK_READ_SCHEMAS,
         ...LOCATION_TOOL_SCHEMAS,
         ...NOTIFICATION_LOG_TOOL_SCHEMAS,
         ...PHONE_COMMAND_SCHEMAS,
@@ -1535,6 +1556,27 @@ class PhonePiMCPServer {
 
     // Handle tool calls
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
+      if (isClockRead(request.params.name)) {
+        const outcome = await dispatchClock({
+          tool: request.params.name,
+          args: (request.params.arguments || {}) as Record<string, unknown>,
+          connected: this.isPhoneOpen(),
+          callPhone: (name, toolArgs) => this.callPhoneTool(name, toolArgs),
+          store: this.clockSnapshot,
+          limiter: commandRateLimiter,
+        });
+        if (outcome.status === 400) {
+          throw new McpError(ErrorCode.InvalidParams, outcome.body.text);
+        }
+        if (outcome.status === 429) {
+          throw new McpError(ErrorCode.InvalidRequest, outcome.body.text);
+        }
+        if (outcome.status >= 500) {
+          throw new McpError(ErrorCode.InternalError, outcome.body.text);
+        }
+        return { content: [{ type: "text", text: outcome.body.text }] };
+      }
+
       if (isLocationReadTool(request.params.name)) {
         const args = (request.params.arguments || {}) as Record<string, unknown>;
         const outcome = runLocationRead({

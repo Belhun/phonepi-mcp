@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">PhonePi Clock</string>
+    <string name="control_permission_label">Control PhonePi Clock</string>
+    <string name="control_permission_description">Lets the PhonePi companion, signed with the same certificate, read and change alarms.</string>
+    <string name="channel_ring">Ringing alarm</string>
+    <string name="channel_upcoming">Upcoming alarm</string>
+    <string name="channel_missed">Missed alarm</string>
+    <string name="channel_health">Clock health</string>
+</resources>

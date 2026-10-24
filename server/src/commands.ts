@@ -13,6 +13,12 @@ import {
 import type { ValidatedCommandArgs } from "./alarm-commands.js";
 import { validateLocationAdminArgs } from "./location-tools.js";
 import { validateSendTextArgs } from "./send-text.js";
+import {
+  isClockRead,
+  isClockWrite,
+  validateClockReadArgs,
+  validateClockWriteArgs,
+} from "./clock-commands.js";
 
 export {
   ALARM_LABEL_MAX_LENGTH,
@@ -25,6 +31,8 @@ export function validatePhoneCommandArgs(
   name: string,
   args: Record<string, unknown>
 ): ValidatedCommandArgs {
+  if (isClockWrite(name)) return validateClockWriteArgs(name, args);
+  if (isClockRead(name)) return validateClockReadArgs(name, args);
   const location = validateLocationAdminArgs(name, args);
   if (location) return location;
   if (name === "request_send_text" || name === "get_send_status") {
@@ -222,6 +230,160 @@ export const PHONE_COMMANDS: readonly PhoneCommand[] = [
         },
       },
       required: ["id"],
+    },
+  },
+  {
+    name: "clock_create_alarm",
+    kind: "write",
+    phoneTool: "clock_create_alarm",
+    maxPerMinute: 20,
+    description:
+      "Create an alarm in PhonePi Clock (dev.phonepi.clock), not Google Clock. hour 0-23, minute 0-59. days is a bitmask (Mon=1 Tue=2 Wed=4 Thu=8 Fri=16 Sat=32 Sun=64), weekday names, weekdays, weekends, or daily. Omit days for a one-time alarm. requestId is a UUID. The phone stores the first result for that id. A repeat still reaches the phone. The server does not queue this when the phone is offline.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        requestId: { type: "string", description: "UUID. First body wins on the phone." },
+        hour: { type: "number", description: "Hour 0-23" },
+        minute: { type: "number", description: "Minute 0-59" },
+        days: { description: "Bitmask 0-127, weekday names, weekdays, weekends, or daily" },
+        label: { type: "string", description: "At most 100 characters" },
+        enabled: { type: "boolean" },
+        vibrate: { type: "boolean" },
+        soundType: { type: "string", description: "default, ringtone, file, or silent" },
+        snoozeMinutes: { type: "number", description: "1-120, default 10" },
+        preAlarmMinutes: { type: "number", description: "0-180, default 30. 0 turns the upcoming notice off." },
+      },
+      required: ["requestId", "hour", "minute"],
+    },
+  },
+  {
+    name: "clock_update_alarm",
+    kind: "write",
+    phoneTool: "clock_update_alarm",
+    maxPerMinute: 20,
+    description:
+      "Update one PhonePi Clock alarm. id is required. Send ifVersion to reject a stale edit. requestId is a UUID.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        requestId: { type: "string", description: "UUID" },
+        id: { type: "string", description: "Alarm id" },
+        ifVersion: { type: "number", description: "Current alarm version. Mismatch returns a conflict." },
+        hour: { type: "number" },
+        minute: { type: "number" },
+        days: { description: "Bitmask, weekday names, weekdays, weekends, or daily" },
+        label: { type: "string" },
+        enabled: { type: "boolean" },
+      },
+      required: ["requestId", "id"],
+    },
+  },
+  {
+    name: "clock_delete_alarm",
+    kind: "write",
+    phoneTool: "clock_delete_alarm",
+    maxPerMinute: 20,
+    description: "Delete one PhonePi Clock alarm by id. requestId is a UUID.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        requestId: { type: "string", description: "UUID" },
+        id: { type: "string", description: "Alarm id" },
+      },
+      required: ["requestId", "id"],
+    },
+  },
+  {
+    name: "clock_enable_alarm",
+    kind: "write",
+    phoneTool: "clock_enable_alarm",
+    maxPerMinute: 20,
+    description: "Enable one PhonePi Clock alarm by id. requestId is a UUID.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        requestId: { type: "string" },
+        id: { type: "string" },
+      },
+      required: ["requestId", "id"],
+    },
+  },
+  {
+    name: "clock_disable_alarm",
+    kind: "write",
+    phoneTool: "clock_disable_alarm",
+    maxPerMinute: 20,
+    description: "Disable one PhonePi Clock alarm by id. requestId is a UUID. The alarm stays in the list.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        requestId: { type: "string" },
+        id: { type: "string" },
+      },
+      required: ["requestId", "id"],
+    },
+  },
+  {
+    name: "clock_skip_next",
+    kind: "write",
+    phoneTool: "clock_skip_next",
+    maxPerMinute: 20,
+    description:
+      "Skip the next ring of one PhonePi Clock alarm. A one-time alarm will not ring. A repeating alarm rings on the occurrence after the next one. requestId is a UUID.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        requestId: { type: "string" },
+        id: { type: "string" },
+      },
+      required: ["requestId", "id"],
+    },
+  },
+  {
+    name: "clock_unskip",
+    kind: "write",
+    phoneTool: "clock_unskip",
+    maxPerMinute: 20,
+    description: "Clear skip-next on one PhonePi Clock alarm. requestId is a UUID.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        requestId: { type: "string" },
+        id: { type: "string" },
+      },
+      required: ["requestId", "id"],
+    },
+  },
+  {
+    name: "clock_snooze",
+    kind: "write",
+    phoneTool: "clock_snooze",
+    maxPerMinute: 20,
+    description:
+      "Snooze the ringing PhonePi Clock alarm. id is optional and selects one alarm when more than one is ringing. requestId is a UUID.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        requestId: { type: "string" },
+        id: { type: "string" },
+      },
+      required: ["requestId"],
+    },
+  },
+  {
+    name: "clock_dismiss",
+    kind: "write",
+    phoneTool: "clock_dismiss",
+    maxPerMinute: 20,
+    description:
+      "Stop the ringing PhonePi Clock alarm. A one-time alarm turns off after it rings. requestId is a UUID. id is optional.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        requestId: { type: "string" },
+        id: { type: "string" },
+      },
+      required: ["requestId"],
     },
   },
   {

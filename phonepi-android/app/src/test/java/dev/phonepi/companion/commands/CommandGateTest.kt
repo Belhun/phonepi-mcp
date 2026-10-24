@@ -11,6 +11,15 @@ class CommandGateTest {
         assertEquals(
             setOf(
                 "clear_location_history",
+                "clock_create_alarm",
+                "clock_delete_alarm",
+                "clock_disable_alarm",
+                "clock_dismiss",
+                "clock_enable_alarm",
+                "clock_skip_next",
+                "clock_snooze",
+                "clock_unskip",
+                "clock_update_alarm",
                 "dismiss_alarm",
                 "dismiss_timer",
                 "get_photo",
@@ -46,7 +55,11 @@ class CommandGateTest {
         assertEquals(60, PhoneReadTools.maxPerMinute("get_volumes"))
         assertEquals(30, PhoneReadTools.maxPerMinute("get_recent_photos"))
         assertEquals(60, PhoneReadTools.maxPerMinute("list_alarms"))
+        assertEquals(60, PhoneReadTools.maxPerMinute("clock_list_alarms"))
+        assertEquals(60, PhoneReadTools.maxPerMinute("clock_health"))
+        assertEquals(20, PhoneCommands.byName.getValue("clock_create_alarm").maxPerMinute)
         assertFalse(PhoneCommands.isAllowlisted("list_alarms"))
+        assertFalse(PhoneCommands.isAllowlisted("clock_list_alarms"))
         assertEquals(10, PhoneCommands.byName.getValue("set_alarm").maxPerMinute)
         assertEquals(PhoneCommandSpec.Kind.ACTION, PhoneCommands.byName.getValue("set_timer").kind)
         assertFalse(PhoneCommands.isAllowlisted("get_recent_photos"))

@@ -2,6 +2,7 @@ package dev.phonepi.companion.connection
 
 import android.content.Context
 import android.util.Log
+import dev.phonepi.companion.clock.ClockSnapshotSync
 import dev.phonepi.companion.history.LocationHistorySync
 import dev.phonepi.companion.log.ActivityLog
 import dev.phonepi.companion.protocol.ToolRouter
@@ -315,7 +316,10 @@ class WebSocketManager(
             socket = null
             generation += 1
             keepaliveJob?.cancel()
-            if (linkUp) LocationHistorySync.detach()
+            if (linkUp) {
+                LocationHistorySync.detach()
+                ClockSnapshotSync.detach()
+            }
             try {
                 old.close(1000, "switching server")
             } catch (_: Exception) {
@@ -401,6 +405,7 @@ class WebSocketManager(
         if (socket !== webSocket) return
         socket = null
         LocationHistorySync.detach()
+        ClockSnapshotSync.detach()
         keepaliveJob?.cancel()
         attemptTimeoutJob?.cancel()
         probeJob?.cancel()
@@ -481,6 +486,15 @@ class WebSocketManager(
                     true
                 } catch (t: Throwable) {
                     Log.w(TAG, "location sync send failed: ${t.message}")
+                    false
+                }
+            }
+            ClockSnapshotSync.attach(appContext) { payload ->
+                try {
+                    webSocket.send(payload)
+                    true
+                } catch (t: Throwable) {
+                    Log.w(TAG, "clock snapshot send failed: ${t.message}")
                     false
                 }
             }

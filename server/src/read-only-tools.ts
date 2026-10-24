@@ -1,5 +1,9 @@
 /** Tools a local PowerShell assistant may call over the loopback HTTP API. */
 export const READ_ONLY_HTTP_TOOLS = new Set<string>([
+  "clock_list_alarms",
+  "clock_get_alarm",
+  "clock_health",
+  "clock_history",
   "get_battery_level",
   "get_recent_calls",
   "get_contacts",
@@ -20,6 +24,10 @@ export const READ_ONLY_HTTP_TOOLS = new Set<string>([
 
 /** Sliding-window limits (per minute) for sensitive read tools. */
 export const READ_ONLY_TOOL_RATE_LIMITS: Record<string, number> = {
+  clock_list_alarms: 60,
+  clock_get_alarm: 60,
+  clock_health: 60,
+  clock_history: 60,
   get_notifications: 60,
   list_notification_apps: 60,
   get_volumes: 60,
