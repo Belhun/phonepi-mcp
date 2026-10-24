@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 997" role="img">
+  <title>PhonePi Clock bedtime wireframe</title>
+  <desc>Bedtime schedule arc from 11:00 PM to 7:45 AM, with reminder, wake alarm, and an opt-in Do Not Disturb row.</desc>
+  <rect width="448" height="997" fill="#101412"/>
+  <text x="20" y="28" fill="#8B938C" font-family="Roboto, sans-serif" font-size="12" font-weight="500">Bedtime | dark | schedule set</text>
+  <rect x="20" y="44" width="408" height="56" rx="28" fill="#1E2521"/>
+  <rect x="20" y="48" width="4" height="48" rx="2" fill="#7DDBB4"/>
+  <text x="40" y="78" fill="#E7E6E1" font-family="Roboto, sans-serif" font-size="15" font-weight="500">Next | Sat 7:45 AM | in 7 h 12 min</text>
+  <circle cx="224" cy="280" r="100" fill="none" stroke="#28302B" stroke-width="16"/>
+  <path d="M 174 193.4 A 100 100 0 1 1 144.7 340.9" fill="none" stroke="#8FD9C6" stroke-width="16" stroke-linecap="round"/>
+  <circle cx="174" cy="193" r="8" fill="#F3F0E8"/>
+  <circle cx="145" cy="341" r="8" fill="#F3F0E8"/>
+  <text x="224" y="274" text-anchor="middle" fill="#E7E6E1" font-family="Roboto, sans-serif" font-size="18" font-weight="500">8 h 45 min</text>
+  <text x="224" y="298" text-anchor="middle" fill="#C1C8C2" font-family="Roboto, sans-serif" font-size="14">in bed</text>
+  <text x="90" y="420" text-anchor="middle" fill="#8B938C" font-family="Roboto, sans-serif" font-size="12">Bedtime</text>
+  <text x="90" y="448" text-anchor="middle" fill="#E7E6E1" font-family="Roboto, sans-serif" font-size="20" font-weight="500">11:00 PM</text>
+  <text x="330" y="420" text-anchor="middle" fill="#8B938C" font-family="Roboto, sans-serif" font-size="12">Wake-up</text>
+  <text x="330" y="448" text-anchor="middle" fill="#E7E6E1" font-family="Roboto, sans-serif" font-size="20" font-weight="500">7:45 AM</text>
+  <g font-family="Roboto, sans-serif" font-size="12" font-weight="500">
+    <rect x="20" y="480" width="52" height="40" rx="20" fill="#28302B"/><text x="46" y="505" text-anchor="middle" fill="#C1C8C2">Mon</text>
+    <rect x="78" y="480" width="52" height="40" rx="20" fill="#28302B"/><text x="104" y="505" text-anchor="middle" fill="#C1C8C2">Tue</text>
+    <rect x="136" y="480" width="52" height="40" rx="20" fill="#28302B"/><text x="162" y="505" text-anchor="middle" fill="#C1C8C2">Wed</text>
+    <rect x="194" y="480" width="52" height="40" rx="20" fill="#28302B"/><text x="220" y="505" text-anchor="middle" fill="#C1C8C2">Thu</text>
+    <rect x="252" y="480" width="52" height="40" rx="20" fill="#28302B"/><text x="278" y="505" text-anchor="middle" fill="#C1C8C2">Fri</text>
+    <rect x="310" y="480" width="52" height="40" rx="20" fill="#1E4E44"/><text x="336" y="505" text-anchor="middle" fill="#B7F0E2">Sat</text>
+    <rect x="368" y="480" width="52" height="40" rx="20" fill="#1E4E44"/><text x="394" y="505" text-anchor="middle" fill="#B7F0E2">Sun</text>
+  </g>
+  <rect x="20" y="540" width="408" height="72" rx="28" fill="#1E2521"/>
+  <text x="40" y="570" fill="#C1C8C2" font-family="Roboto, sans-serif" font-size="13">Reminder</text>
+  <text x="40" y="594" fill="#E7E6E1" font-family="Roboto, sans-serif" font-size="16">30 min before bedtime</text>
+  <rect x="20" y="624" width="408" height="80" rx="28" fill="#1E2521"/>
+  <text x="40" y="654" fill="#C1C8C2" font-family="Roboto, sans-serif" font-size="13">Wake alarm</text>
+  <text x="40" y="680" fill="#E7E6E1" font-family="Roboto, sans-serif" font-size="16">Saturday morning | 7:45 AM</text>
+  <rect x="20" y="716" width="408" height="88" rx="28" fill="#1E2521"/>
+  <text x="40" y="748" fill="#E7E6E1" font-family="Roboto, sans-serif" font-size="16">Do Not Disturb</text>
+  <text x="40" y="772" fill="#C1C8C2" font-family="Roboto, sans-serif" font-size="12">At bedtime. Alarms still ring. Off until you opt in.</text>
+  <rect x="340" y="740" width="52" height="32" rx="16" fill="#28302B"/>
+  <circle cx="356" cy="756" r="12" fill="#8B938C"/>
+  <rect x="20" y="816" width="408" height="64" rx="28" fill="#1E2521"/>
+  <text x="40" y="844" fill="#C1C8C2" font-family="Roboto, sans-serif" font-size="13">Sleep sound</text>
+  <text x="40" y="866" fill="#E7E6E1" font-family="Roboto, sans-serif" font-size="16">Rain | 30 min</text>
+  <text x="48" y="962" text-anchor="middle" fill="#8B938C" font-family="Roboto, sans-serif" font-size="12">Alarms</text>
+  <text x="140" y="962" text-anchor="middle" fill="#8B938C" font-family="Roboto, sans-serif" font-size="12">Timers</text>
+  <text x="230" y="962" text-anchor="middle" fill="#8B938C" font-family="Roboto, sans-serif" font-size="12">Watch</text>
+  <text x="320" y="962" text-anchor="middle" fill="#8B938C" font-family="Roboto, sans-serif" font-size="12">World</text>
+  <text x="400" y="962" text-anchor="middle" fill="#8FD9C6" font-family="Roboto, sans-serif" font-size="12" font-weight="500">Bed</text>
+</svg>
