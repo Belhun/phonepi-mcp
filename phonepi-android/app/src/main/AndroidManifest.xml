@@ -16,6 +16,12 @@
 
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <uses-permission android:name="android.permission.VIBRATE" />
@@ -24,17 +30,24 @@
 
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+
+    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
+
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
 
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
-    <!-- Required by Google Clock to accept SET_TIMER from third-party apps (Android 14+) -->
+    <!-- Lets the Clock app accept SET_ALARM, SET_TIMER, and dismiss intents (Android 14+). -->
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
 
-    <!-- Legacy carrier SMS — disabled; use Google Messages gm_* tools on desktop -->
-    <!-- <uses-permission android:name="android.permission.SEND_SMS" /> -->
-    <!-- <uses-permission android:name="android.permission.READ_SMS" /> -->
-    <!-- <uses-permission android:name="android.permission.READ_PHONE_STATE" /> -->
+    <!-- Safe text send. Off until Alex turns on Allow bots to request texts. -->
+    <uses-permission android:name="android.permission.SEND_SMS" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
 
     <uses-permission android:name="android.permission.CALL_PHONE" />
 
@@ -44,6 +57,25 @@
 
     <uses-permission android:name="android.permission.WRITE_CONTACTS" />
 
+    <!-- Recent photos. Android 13+ uses READ_MEDIA_IMAGES. Older releases use storage. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+
+    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
+
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
+
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <permission
+        android:name="dev.phonepi.clock.permission.CONTROL"
+        android:protectionLevel="signature"
+        android:label="@string/clock_control_permission_label"
+        android:description="@string/clock_control_permission_description" />
+    <uses-permission android:name="dev.phonepi.clock.permission.CONTROL" />
+
 
 
     <uses-feature android:name="android.hardware.telephony" android:required="false" />
@@ -51,9 +83,36 @@
     <!-- Required on Android 11+ so we can find the Clock app for SET_TIMER -->
     <queries>
         <intent>
+            <action android:name="android.intent.action.SET_ALARM" />
+        </intent>
+        <intent>
             <action android:name="android.intent.action.SET_TIMER" />
         </intent>
+        <intent>
+            <action android:name="android.intent.action.DISMISS_ALARM" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.DISMISS_TIMER" />
+        </intent>
         <package android:name="com.google.android.deskclock" />
+        <package android:name="dev.phonepi.clock" />
+        <provider android:authorities="dev.phonepi.clock.provider" />
+        <package android:name="com.google.android.apps.maps" />
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="google.navigation" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="geo" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
     </queries>
 
     <application
@@ -87,6 +146,21 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="phonepi" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/json" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/octet-stream" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
             </intent-filter>
         </activity>
 
@@ -122,6 +196,80 @@
 
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
+        <activity
+
+            android:name=".ui.ClockBridgeActivity"
+
+            android:exported="false"
+
+            android:excludeFromRecents="true"
+
+            android:showWhenLocked="true"
+
+            android:turnScreenOn="true"
+
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+
+
+        <activity
+
+            android:name=".ui.NavigateBridgeActivity"
+
+            android:exported="false"
+
+            android:excludeFromRecents="true"
+
+            android:showWhenLocked="true"
+
+            android:turnScreenOn="true"
+
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+
+
+        <activity
+
+            android:name=".ui.InstallBridgeActivity"
+
+            android:exported="false"
+
+            android:excludeFromRecents="true"
+
+            android:showWhenLocked="true"
+
+            android:turnScreenOn="true"
+
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+
+
+        <provider
+
+            android:name="androidx.core.content.FileProvider"
+
+            android:authorities="${applicationId}.fileprovider"
+
+            android:exported="false"
+
+            android:grantUriPermissions="true">
+
+            <meta-data
+
+                android:name="android.support.FILE_PROVIDER_PATHS"
+
+                android:resource="@xml/file_paths" />
+
+        </provider>
+
+
+
+        <receiver
+
+            android:name=".update.InstallStatusReceiver"
+
+            android:exported="false" />
+
 
 
         <service
@@ -144,11 +292,48 @@
 
 
 
+        <service
+
+            android:name=".notify.PhonePiNotificationListener"
+
+            android:exported="true"
+
+            android:label="PhonePi notification access"
+
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+
+            <intent-filter>
+
+                <action android:name="android.service.notification.NotificationListenerService" />
+
+            </intent-filter>
+
+        </service>
+
+
+
         <receiver
 
             android:name=".receiver.MessageActionReceiver"
 
             android:exported="false" />
+
+        <receiver
+            android:name=".textsend.SendTextActionReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".textsend.SendTextSentReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".textsend.InVehicleReceiver"
+            android:exported="false" />
+
+        <service
+            android:name=".textsend.SendTextSpeechService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
 
 
 
@@ -157,6 +342,63 @@
             android:name=".receiver.TimerReceiver"
 
             android:exported="false" />
+
+
+
+        <receiver
+
+            android:name=".receiver.MidnightVolumeReceiver"
+
+            android:exported="false" />
+
+
+
+        <receiver
+            android:name=".history.LocationCaptureReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".clock.ClockSnapshotReceiver"
+            android:exported="true"
+            android:permission="dev.phonepi.clock.permission.CONTROL">
+            <intent-filter>
+                <action android:name="dev.phonepi.clock.action.SNAPSHOT" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+
+            android:name=".receiver.BootReceiver"
+
+            android:exported="true"
+
+            android:permission="android.permission.RECEIVE_BOOT_COMPLETED">
+
+            <intent-filter>
+
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+
+            </intent-filter>
+
+        </receiver>
+
+
+
+        <receiver
+
+            android:name=".receiver.PackageReplacedReceiver"
+
+            android:exported="true">
+
+            <intent-filter>
+
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+
+            </intent-filter>
+
+        </receiver>
 
     </application>
 

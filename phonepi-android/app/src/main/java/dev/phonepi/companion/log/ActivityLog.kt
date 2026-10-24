@@ -77,10 +77,34 @@ object ActivityLog {
         }
         "copy_to_clipboard" -> "Copied ${data["length"]?.jsonPrimitive?.contentOrNull ?: "?"} chars"
         "set_timer" -> {
-            val via = data["via"]?.jsonPrimitive?.contentOrNull ?: "unknown"
-            val extra = data["handoffDetail"]?.jsonPrimitive?.contentOrNull
-            val suffix = if (extra != null) " — $extra" else ""
-            "Timer ${data["seconds"]?.jsonPrimitive?.contentOrNull ?: "?"}s via $via$suffix"
+            val seconds = data["seconds"]?.jsonPrimitive?.contentOrNull ?: "?"
+            val started = data["started"]?.jsonPrimitive?.contentOrNull ?: "?"
+            val label = data["label"]?.jsonPrimitive?.contentOrNull
+            val suffix = if (label != null) " $label" else ""
+            "Timer ${seconds}s$suffix started=$started"
+        }
+        "set_alarm" -> {
+            val hour = data["hour"]?.jsonPrimitive?.contentOrNull ?: "?"
+            val minute = data["minute"]?.jsonPrimitive?.contentOrNull ?: "?"
+            val label = data["label"]?.jsonPrimitive?.contentOrNull
+            val started = data["started"]?.jsonPrimitive?.contentOrNull ?: "?"
+            val suffix = if (label != null) " $label" else ""
+            "Alarm $hour:$minute$suffix started=$started"
+        }
+        "dismiss_alarm" -> {
+            val search = data["search"]?.jsonPrimitive?.contentOrNull ?: "?"
+            val started = data["started"]?.jsonPrimitive?.contentOrNull ?: "?"
+            "Dismiss alarm by $search started=$started"
+        }
+        "dismiss_timer" -> {
+            val started = data["started"]?.jsonPrimitive?.contentOrNull ?: "?"
+            "Dismiss timer started=$started"
+        }
+        "list_alarms" -> {
+            val next = data["nextAlarm"]
+            val hasNext = next != null && next !is kotlinx.serialization.json.JsonNull
+            val count = (data["phonePiAlarms"] as? kotlinx.serialization.json.JsonArray)?.size
+            "next=$hasNext phonePi=${count ?: "?"}"
         }
         "send_notification" -> "Posted notification"
         "find_phone" -> {
@@ -118,10 +142,80 @@ object ActivityLog {
         }
         "make_call" -> "Call to ${data["to"]?.jsonPrimitive?.contentOrNull ?: "?"}"
         "get_recent_calls" -> "${data["count"]?.jsonPrimitive?.contentOrNull ?: "?"} recent calls"
+        "get_notifications" -> {
+            val count = data["count"]?.jsonPrimitive?.contentOrNull ?: "?"
+            val omitted = data["omittedUnsharedCount"]?.jsonPrimitive?.contentOrNull ?: "0"
+            "$count notification(s) (omitted unshared=$omitted)"
+        }
+        "list_notification_apps" -> "${data["count"]?.jsonPrimitive?.contentOrNull ?: "?"} notification app(s)"
         "get_contacts" -> "Listed ${data["count"]?.jsonPrimitive?.contentOrNull ?: "?"} contacts"
         "search_contacts" -> "Found ${data["count"]?.jsonPrimitive?.contentOrNull ?: "?"} contacts"
         "add_contact", "update_contact", "get_contact_by_id" -> "Contact updated"
         "delete_contact" -> "Deleted contact"
-        else -> "OK"
+        "phone_list_locations" -> "${data["count"]?.jsonPrimitive?.contentOrNull ?: "?"} saved locations"
+        "phone_add_location" -> "Saved ${data["location"]?.toString()?.take(80) ?: "location"}"
+        "phone_remove_location" -> "Removed ${data["removed"]?.jsonPrimitive?.contentOrNull ?: "location"}"
+        "phone_navigate" -> {
+            val query = data["display"]?.jsonPrimitive?.contentOrNull
+                ?: data["query"]?.jsonPrimitive?.contentOrNull
+                ?: "?"
+            val method = data["method"]?.jsonPrimitive?.contentOrNull ?: "unknown"
+            "Navigate $query via $method"
+        }
+        "phone_push_update" -> {
+            val shown = data["promptShown"]?.jsonPrimitive?.contentOrNull ?: "?"
+            val method = data["method"]?.jsonPrimitive?.contentOrNull ?: "none"
+            "Update promptShown=$shown via $method"
+        }
+        "get_recent_photos" ->
+            "${data["count"]?.jsonPrimitive?.contentOrNull ?: "?"} photo(s)"
+        "get_photo" -> {
+            val id = data["id"]?.jsonPrimitive?.contentOrNull ?: "?"
+            val name = data["displayName"]?.jsonPrimitive?.contentOrNull ?: ""
+            val bytes = (data["encoding"] as? JsonObject)
+                ?.get("byteLength")
+                ?.jsonPrimitive
+                ?.contentOrNull
+            "Photo $id $name (${bytes ?: "?"} bytes)"
+        }
+        "get_volumes" ->
+            "ringer=${data["ringerMode"]?.jsonPrimitive?.contentOrNull ?: "?"} " +
+                "dnd=${data["dnd"]?.jsonPrimitive?.contentOrNull ?: "?"}"
+        "pause_location_logging" ->
+            "paused=${data["paused"]?.jsonPrimitive?.contentOrNull ?: "?"}"
+        "clear_location_history" -> "Deleted location history"
+        "phone_set_volume" -> {
+            val changed = data["changed"]?.jsonPrimitive?.contentOrNull ?: ""
+            val skipped = data["skipped"]?.jsonPrimitive?.contentOrNull ?: ""
+            buildString {
+                append(changed.ifEmpty { "no change" })
+                if (skipped.isNotEmpty()) append(" skipped $skipped")
+            }
+        }
+        else -> if (tool.startsWith("clock_")) tool else "OK"
+    }
+
+    fun logClock(detail: String, status: String) {
+        write(category = "clock", title = "clock", detail = detail, status = status)
+    }
+
+    fun logNavigation(detail: String, status: String) {
+        write(category = "navigation", title = "phone_navigate", detail = detail, status = status)
+    }
+
+    fun logTextSend(detail: String, status: String) {
+        write(category = "text", title = "text", detail = detail, status = status)
+    }
+
+    fun logUpdate(detail: String, status: String = "info") {
+        write(category = "update", title = "update", detail = detail, status = status)
+    }
+
+    fun logLocation(detail: String, status: String = "info") {
+        write(category = "location", title = "location history", detail = detail, status = status)
+    }
+
+    fun logRemoteAction(title: String, detail: String, status: String) {
+        write(category = "tool", title = title, detail = detail, status = status)
     }
 }

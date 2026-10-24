@@ -7,8 +7,7 @@ import {
   ListToolsRequestSchema,
   McpError,
 } from "@modelcontextprotocol/sdk/types.js";
-import { WebSocket, WebSocketServer, VerifyClientCallbackSync } from "ws";
-import { IncomingMessage } from "http";
+import { WebSocket, WebSocketServer } from "ws";
 import {
   GM_TOOL_SCHEMAS,
   ensureGmessagesSidecar,
@@ -16,6 +15,56 @@ import {
   isGmTool,
   stopGmessagesSidecar,
 } from "./gmessages/index.js";
+import { commandRateLimiter } from "./command-rate-limit.js";
+import { openLocationLog } from "./location-log.js";
+import { CLOCK_READ_SCHEMAS, isClockRead, isClockWrite } from "./clock-commands.js";
+import { dispatchClock } from "./clock-api.js";
+import { openClockSnapshot } from "./clock-snapshot.js";
+import { isLocationReadTool, LOCATION_TOOL_SCHEMAS, runLocationRead } from "./location-tools.js";
+import { openNotificationLog } from "./notification-log.js";
+import {
+  NOTIFICATION_LOG_TOOL_SCHEMAS,
+  isNotificationLogTool,
+  runNotificationLogRead,
+} from "./notification-log-tools.js";
+import {
+  NotificationPoller,
+  captureEnabledFromEnv,
+  pollIntervalFromEnv,
+} from "./notification-poller.js";
+import {
+  appendSendLog,
+  sendLogFromPhone,
+  sendLogFromRejection,
+  sendTextRateLimiter,
+} from "./send-text.js";
+import {
+  PHONE_COMMAND_SCHEMAS,
+  CommandValidationError,
+  RateLimitError,
+  getPhoneCommand,
+  isPhoneCommand,
+  validatePhoneCommandArgs,
+} from "./commands.js";
+import {
+  ALARM_TOOL_SCHEMAS,
+  NOTIFICATION_TOOL_SCHEMAS,
+  PHOTO_TOOL_SCHEMAS,
+  VOLUME_TOOL_SCHEMAS,
+  readOnlyToolRateLimit,
+} from "./read-only-tools.js";
+import {
+  LoopbackHttpHandle,
+  resolveHttpPort,
+  startLoopbackHttp,
+} from "./loopback-http.js";
+import { installTimestampedConsole } from "./log.js";
+import { requestPhoneTool } from "./phone-request.js";
+import { PhoneSession, bindPhoneConnection } from "./phone-session.js";
+import { createPhoneWebSocketServer } from "./phone-ws.js";
+import { createPhoneVerifyClient } from "./ws-token.js";
+
+installTimestampedConsole();
 
 // Toggle this to true to enable debug logging for websocket
 const DEBUG_WEBSOCKET = false;
@@ -23,7 +72,11 @@ const DEBUG_WEBSOCKET = false;
 // Parse command line arguments
 const args = process.argv.slice(2);
 let port = 11041; // Default port
+// Phone WebSocket bind address. Default stays 0.0.0.0 (box behavior unchanged).
+// Use --host 127.0.0.1 (or PHONEPI_WS_HOST) when Tailscale Serve is the only entry point.
+let wsHost = process.env.PHONEPI_WS_HOST?.trim() || "0.0.0.0";
 let useStdio = false;
+const httpPort = resolveHttpPort(args, process.env);
 
 // Process arguments
 for (let i = 0; i < args.length; i++) {
@@ -35,6 +88,9 @@ for (let i = 0; i < args.length; i++) {
       console.error("Invalid port number specified. Using default port 11041.");
       port = 11041;
     }
+  } else if (args[i] === "--host" && i + 1 < args.length) {
+    wsHost = args[i + 1].trim() || "0.0.0.0";
+    i++;
   } else if (args[i] === "--stdio") {
     useStdio = true;
   }
@@ -43,13 +99,20 @@ for (let i = 0; i < args.length; i++) {
 class PhonePiMCPServer {
   private server: Server;
   private wss: WebSocketServer | null = null;
-  private phoneConnection: WebSocket | null = null;
+  private session = new PhoneSession<WebSocket>();
   private pendingRequests: Map<string, (response: any) => void> = new Map();
   private requestCounter = 0;
-  private lastPing: number = 0;
   private _pingIntervalId: NodeJS.Timeout | null = null;
+  private httpApi: Promise<LoopbackHttpHandle | null> | null = null;
+  private locationLog = openLocationLog();
+  private clockSnapshot = openClockSnapshot();
+  private notificationLog = openNotificationLog();
+  private notificationPoller: NotificationPoller | null = null;
 
-  constructor(private serverPort: number = 11041) {
+  constructor(
+    private serverPort: number = 11041,
+    private httpApiPort: number = 11043
+  ) {
     // Initialize MCP Server
     this.server = new Server(
       {
@@ -65,7 +128,177 @@ class PhonePiMCPServer {
 
     // Try to initialize WebSocket Server, or connect to existing one
     this.initializeWebSocketServer();
+    this.startLocalHttpApi();
     this.setupMcpHandlers();
+  }
+
+  /** Only the process that owns the phone WebSocket server captures. */
+  private startNotificationCapture() {
+    if (this.notificationPoller) return;
+    if (!captureEnabledFromEnv()) {
+      console.error("[notification-log] capture disabled by PHONEPI_NOTIFICATION_CAPTURE");
+      return;
+    }
+    this.notificationPoller = new NotificationPoller({
+      log: this.notificationLog,
+      isConnected: () => this.isPhoneOpen(),
+      fetch: (args) => this.callPhoneTool("get_notifications", args),
+      intervalMs: pollIntervalFromEnv(),
+    });
+    this.notificationPoller.start();
+  }
+
+  private notificationCaptureStatus(): Record<string, unknown> {
+    if (!this.notificationPoller) return { enabled: false };
+    return { ...this.notificationPoller.captureStatus() };
+  }
+
+  private startLocalHttpApi() {
+    if (this.httpApiPort === this.serverPort) {
+      console.error(
+        `Local HTTP API port ${this.httpApiPort} matches the phone WebSocket port. Continuing without the HTTP API.`
+      );
+      return;
+    }
+    this.httpApi = startLoopbackHttp({
+      port: this.httpApiPort,
+      wsPort: this.serverPort,
+      bridge: {
+        isPhoneConnected: () => this.isPhoneOpen(),
+        callPhoneTool: (name, args) => this.callPhoneTool(name, args),
+        healthDetails: () => this.session.healthDetails(),
+        noteActivity: (entry) => this.notePhoneActivity(entry),
+      },
+      locationLog: this.locationLog,
+      locationReadLimiter: commandRateLimiter,
+      notificationLog: this.notificationLog,
+      notificationCaptureStatus: () => this.notificationCaptureStatus(),
+      clockSnapshot: this.clockSnapshot,
+    });
+  }
+
+  private isPhoneOpen(): boolean {
+    return this.session.isConnected();
+  }
+
+  private notePhoneActivity(entry: { title: string; detail: string }): boolean {
+    const phone = this.session.currentSocket();
+    if (!phone || phone.readyState !== WebSocket.OPEN) return false;
+    const title = entry.title.slice(0, 80);
+    const detail = entry.detail.slice(0, 240);
+    try {
+      phone.send(
+        JSON.stringify({
+          type: "activity",
+          category: "tool",
+          title,
+          detail,
+          status: "success",
+        })
+      );
+      return true;
+    } catch (err) {
+      console.error("[WebSocket] Failed to record location activity on the phone");
+      return false;
+    }
+  }
+
+  private handleLocationFrame(ws: WebSocket, message: { type?: string; events?: unknown }): void {
+    if (!this.session.isCurrent(ws)) {
+      console.error("[WebSocket] Ignored location frame from a stale socket");
+      return;
+    }
+    if (message.type === "location_cleared") {
+      this.locationLog.clear();
+      try {
+        ws.send(JSON.stringify({ type: "location_cleared_ack" }));
+      } catch (err) {
+        console.error("[WebSocket] Failed to ack location clear");
+      }
+      return;
+    }
+    const result = this.locationLog.ingest(message.events);
+    console.error(
+      `[WebSocket] location sync accepted=${result.accepted.length} rejected=${result.rejected.length}`
+    );
+    try {
+      ws.send(
+        JSON.stringify({
+          type: "location_sync_ack",
+          accepted: result.accepted,
+          rejected: result.rejected.map((item) => ({
+            id: item.id,
+            error: item.error,
+          })),
+        })
+      );
+    } catch (err) {
+      console.error("[WebSocket] Failed to ack location sync");
+    }
+  }
+
+  private async callPhoneTool(
+    name: string,
+    args: Record<string, unknown>
+  ): Promise<unknown> {
+    const validated = validatePhoneCommandArgs(name, args);
+    if (!validated.ok) {
+      if (name === "request_send_text") {
+        appendSendLog(sendLogFromRejection(args, "rejected", validated.error));
+      }
+      return Promise.reject(new CommandValidationError(validated.error));
+    }
+    const params = validated.args;
+    if (name === "request_send_text") {
+      const mode = params.mode === "attributed" ? "attributed" : "as_alex";
+      const budget = sendTextRateLimiter.allow(mode);
+      if (!budget.ok) {
+        appendSendLog(
+          sendLogFromRejection(
+            params,
+            "rate_limited",
+            `Rate limited: request_send_text ${mode} ${budget.scope}`
+          )
+        );
+        return Promise.reject(
+          new RateLimitError("request_send_text", budget.retryAfterSec)
+        );
+      }
+    }
+    if (isPhoneCommand(name)) {
+      const spec = getPhoneCommand(name);
+      if (spec) {
+        const budget = commandRateLimiter.allow(spec.name, spec.maxPerMinute);
+        if (!budget.ok) {
+          return Promise.reject(
+            new RateLimitError(spec.name, budget.retryAfterSec)
+          );
+        }
+      }
+    } else {
+      const maxPerMinute = readOnlyToolRateLimit(name);
+      if (maxPerMinute != null) {
+        const budget = commandRateLimiter.allow(name, maxPerMinute);
+        if (!budget.ok) {
+          return Promise.reject(
+            new RateLimitError(name, budget.retryAfterSec)
+          );
+        }
+      }
+    }
+    const requestId = `req-${++this.requestCounter}`;
+    const result = await requestPhoneTool({
+      connection: this.session.currentSocket(),
+      pending: this.pendingRequests,
+      requestId,
+      tool: getPhoneCommand(name)?.phoneTool ?? name,
+      params,
+      debug: DEBUG_WEBSOCKET,
+    });
+    if (isClockRead(name) || isClockWrite(name)) {
+      this.clockSnapshot.saveFromPhone(result);
+    }
+    return result;
   }
 
   private initializeWebSocketServer() {
@@ -75,24 +308,10 @@ class PhonePiMCPServer {
     try {
       // Initialize WebSocket Server with debug logging
       console.error(`Starting WebSocket server on port ${this.serverPort}...`);
-      this.wss = new WebSocketServer({
+      this.wss = createPhoneWebSocketServer({
         port: this.serverPort,
-        host: "0.0.0.0", // Explicitly listen on all interfaces
-        verifyClient: (info: { req: IncomingMessage }) => {
-          const address = info.req.socket.remoteAddress;
-          console.error(`Connection attempt from ${address || "unknown"}`);
-          return true;
-        },
-        clientTracking: true,
-        perMessageDeflate: {
-          zlibDeflateOptions: {
-            level: 6, // Higher level = more compression but slower
-          },
-          zlibInflateOptions: {
-            chunkSize: 10 * 1024, // Larger chunk size for faster inflation
-          },
-          threshold: 1024, // Only compress messages larger than this
-        },
+        host: wsHost, // 0.0.0.0 by default; --host / PHONEPI_WS_HOST overrides
+        verifyClient: createPhoneVerifyClient(),
       });
 
       this.wss.on("error", (error: any) => {
@@ -123,9 +342,10 @@ class PhonePiMCPServer {
 
       this.wss.on("listening", () => {
         console.error(
-          `WebSocket server is listening on port ${this.serverPort}`
+          `WebSocket server is listening on ${wsHost}:${this.serverPort}`
         );
         this.setupWebSocket();
+        this.startNotificationCapture();
       });
 
       // Additional error handling for the server
@@ -176,29 +396,14 @@ class PhonePiMCPServer {
     ws.on("open", () => {
       clearTimeout(connectionTimeout);
       console.error("Connected to existing WebSocket server");
-      // Use the existing connection as if it were a server connection
-      this.phoneConnection = ws;
-      this.lastPing = Date.now();
-
-      ws.on("message", async (data) => {
-        await this.processIncomingMessage(ws, data);
+      bindPhoneConnection(this.session, ws, (line) => console.error(line), {
+        onMessage: (socket, data) => {
+          void this.processIncomingMessage(socket, data);
+        },
+        onCleared: () => {
+          setTimeout(() => this.connectToExistingServer(), 5000);
+        },
       });
-
-      ws.on("close", (code, reason) => {
-        console.error(
-          `[WebSocket] Connection to existing server closed (code: ${code}, reason: ${
-            reason || "unknown"
-          })`
-        );
-        this.phoneConnection = null;
-        // Try to reconnect after a delay
-        setTimeout(() => this.connectToExistingServer(), 5000);
-      });
-
-      // Send initial ping
-      ws.send(JSON.stringify({ type: "ping" }));
-
-      // Start the ping interval for client mode too
       this.startPingInterval();
     });
 
@@ -226,34 +431,11 @@ class PhonePiMCPServer {
     }
 
     this.wss.on("connection", (ws) => {
-      // If there's an existing connection, close it
-      if (this.phoneConnection) {
-        this.phoneConnection.close();
-      }
-
-      this.phoneConnection = ws;
-      this.lastPing = Date.now();
-      console.error("[WebSocket] Phone connected");
-
-      ws.on("message", async (data) => {
-        await this.processIncomingMessage(ws, data);
+      bindPhoneConnection(this.session, ws, (line) => console.error(line), {
+        onMessage: (socket, data) => {
+          void this.processIncomingMessage(socket, data);
+        },
       });
-
-      ws.on("close", (code, reason) => {
-        console.error(
-          `[WebSocket] Phone disconnected (code: ${code}, reason: ${
-            reason || "unknown"
-          })`
-        );
-        this.phoneConnection = null;
-      });
-
-      ws.on("error", (error) => {
-        console.error("[WebSocket] Phone connection error:", error);
-      });
-
-      // Send initial ping
-      ws.send(JSON.stringify({ type: "ping" }));
     });
 
     // Start the ping interval
@@ -303,12 +485,53 @@ class PhonePiMCPServer {
         }
         return;
       }
+      if (
+        message &&
+        (message.type === "location_sync" || message.type === "location_cleared")
+      ) {
+        this.handleLocationFrame(ws, message);
+        return;
+      }
+      if (message && message.type === "clock_snapshot") {
+        if (!this.session.isCurrent(ws)) {
+          console.error("[WebSocket] Ignored clock snapshot from a stale socket");
+          return;
+        }
+        const saved = this.clockSnapshot.saveFrame(
+          (message as { snapshot?: unknown }).snapshot
+        );
+        if (!saved) console.error("[WebSocket] Ignored clock snapshot");
+        return;
+      }
       if(DEBUG_WEBSOCKET) {
         console.error(`[WebSocket] Parsed message: ${JSON.stringify(message)}`);
       }
       // Process different message types
       if (message.type === "pong") {
-        this.lastPing = Date.now();
+        if (!this.session.notePong(ws)) {
+          console.error("[WebSocket] Ignored pong from a stale socket");
+        }
+      } else if (message.type === "send_text_log") {
+        if (!this.session.isCurrent(ws)) {
+          console.error("[WebSocket] Ignored send log from a stale socket");
+          return;
+        }
+        const entry = sendLogFromPhone(message as Record<string, unknown>);
+        if (entry) appendSendLog(entry);
+      } else if (message.type === "permissions") {
+        if (!this.session.notePermissions(ws, message)) {
+          console.error("[WebSocket] Ignored permissions from a stale socket");
+        }
+      } else if (message.type === "ping") {
+        if (!this.session.isCurrent(ws)) {
+          console.error("[WebSocket] Ignored ping from a stale socket");
+          return;
+        }
+        try {
+          ws.send(JSON.stringify({ type: "pong" }));
+        } catch (err) {
+          console.error("[WebSocket] Error replying to phone ping:", err);
+        }
       } else if (message.type === "response") {
         if (!message.requestId) {
           console.error(
@@ -356,33 +579,32 @@ class PhonePiMCPServer {
 
     // Ping phone every 15 seconds to check connection
     const pingInterval = setInterval(() => {
-      if (this.phoneConnection) {
-        const now = Date.now();
-        if (now - this.lastPing > 45000) {
-          // 45 second timeout
-          console.error("[WebSocket] Phone timed out - no pong received");
-          try {
-            if (this.phoneConnection.readyState === WebSocket.OPEN) {
-              console.error("[WebSocket] Closing timed out connection");
-              if (this.phoneConnection.terminate) {
-                this.phoneConnection.terminate();
-              } else {
-                this.phoneConnection.close(1000, "Connection timeout");
-              }
+      const timedOut = this.session.takeTimedOut(45000);
+      if (timedOut) {
+        console.error("[WebSocket] Phone timed out - no pong received");
+        try {
+          if (timedOut.readyState === WebSocket.OPEN) {
+            console.error("[WebSocket] Closing timed out connection");
+            if (timedOut.terminate) {
+              timedOut.terminate();
+            } else {
+              timedOut.close(1000, "no pong received");
             }
-          } catch (err) {
-            console.error(
-              "[WebSocket] Error closing timed out connection:",
-              err
-            );
           }
-          this.phoneConnection = null;
-        } else if (this.phoneConnection.readyState === WebSocket.OPEN) {
-          try {
-            this.phoneConnection.send(JSON.stringify({ type: "ping" }));
-          } catch (err) {
-            console.error("[WebSocket] Error sending ping:", err);
-          }
+        } catch (err) {
+          console.error(
+            "[WebSocket] Error closing timed out connection:",
+            err
+          );
+        }
+        return;
+      }
+      const phone = this.session.currentSocket();
+      if (phone && phone.readyState === WebSocket.OPEN) {
+        try {
+          phone.send(JSON.stringify({ type: "ping" }));
+        } catch (err) {
+          console.error("[WebSocket] Error sending ping:", err);
         }
       }
     }, 15000);
@@ -479,12 +701,10 @@ class PhonePiMCPServer {
           });
 
           // Forward the request to the connected phone
-          if (
-            this.phoneConnection &&
-            this.phoneConnection.readyState === WebSocket.OPEN
-          ) {
+          const phone = this.session.currentSocket();
+          if (phone && phone.readyState === WebSocket.OPEN) {
             try {
-              this.phoneConnection.send(
+              phone.send(
                 JSON.stringify({
                   type: "request",
                   requestId: message.requestId,
@@ -861,35 +1081,6 @@ class PhonePiMCPServer {
               },
             },
             required: [],
-          },
-        },
-        // {
-        //   name: 'set_alarm',
-        //   description: 'Set an alarm for a specific time',
-        //   inputSchema: {
-        //     type: 'object',
-        //     properties: {
-        //       time: {
-        //         type: 'string',
-        //         description: 'Time to set the alarm for (ISO 8601 format)',
-        //       },
-        //     },
-        //     required: ['time'],
-        //   },
-        // },
-        {
-          name: "set_timer",
-          description: "Set a timer for a specific duration",
-          inputSchema: {
-            type: "object",
-            properties: {
-              seconds: {
-                type: "number",
-                description: "Duration of the timer in seconds",
-                minimum: 1,
-              },
-            },
-            required: ["seconds"],
           },
         },
         // {
@@ -1351,12 +1542,90 @@ class PhonePiMCPServer {
             required: ["title", "body"],
           },
         },
+        ...NOTIFICATION_TOOL_SCHEMAS,
+        ...PHOTO_TOOL_SCHEMAS,
+        ...VOLUME_TOOL_SCHEMAS,
+        ...ALARM_TOOL_SCHEMAS,
+        ...CLOCK_READ_SCHEMAS,
+        ...LOCATION_TOOL_SCHEMAS,
+        ...NOTIFICATION_LOG_TOOL_SCHEMAS,
+        ...PHONE_COMMAND_SCHEMAS,
         ...GM_TOOL_SCHEMAS,
       ],
     }));
 
     // Handle tool calls
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
+      if (isClockRead(request.params.name)) {
+        const outcome = await dispatchClock({
+          tool: request.params.name,
+          args: (request.params.arguments || {}) as Record<string, unknown>,
+          connected: this.isPhoneOpen(),
+          callPhone: (name, toolArgs) => this.callPhoneTool(name, toolArgs),
+          store: this.clockSnapshot,
+          limiter: commandRateLimiter,
+        });
+        if (outcome.status === 400) {
+          throw new McpError(ErrorCode.InvalidParams, outcome.body.text);
+        }
+        if (outcome.status === 429) {
+          throw new McpError(ErrorCode.InvalidRequest, outcome.body.text);
+        }
+        if (outcome.status >= 500) {
+          throw new McpError(ErrorCode.InternalError, outcome.body.text);
+        }
+        return { content: [{ type: "text", text: outcome.body.text }] };
+      }
+
+      if (isLocationReadTool(request.params.name)) {
+        const args = (request.params.arguments || {}) as Record<string, unknown>;
+        const outcome = runLocationRead({
+          log: this.locationLog,
+          limiter: commandRateLimiter,
+          tool: request.params.name,
+          args,
+          activityLogged: false,
+        });
+        if (outcome.status === 400) {
+          throw new McpError(ErrorCode.InvalidParams, String(outcome.body.text));
+        }
+        if (outcome.status === 429) {
+          throw new McpError(ErrorCode.InvalidRequest, String(outcome.body.text));
+        }
+        let text = String(outcome.body.text);
+        if (
+          this.notePhoneActivity({
+            title: request.params.name,
+            detail: "read box location history",
+          })
+        ) {
+          try {
+            const payload = JSON.parse(text);
+            payload.activityLogged = true;
+            text = JSON.stringify(payload, null, 2);
+          } catch {
+            // Keep the original success text.
+          }
+        }
+        return { content: [{ type: "text", text }] };
+      }
+
+      if (isNotificationLogTool(request.params.name)) {
+        const outcome = runNotificationLogRead({
+          log: this.notificationLog,
+          limiter: commandRateLimiter,
+          args: (request.params.arguments || {}) as Record<string, unknown>,
+          capture: () => this.notificationCaptureStatus(),
+        });
+        if (outcome.status === 400) {
+          throw new McpError(ErrorCode.InvalidParams, outcome.body.text);
+        }
+        if (outcome.status === 429) {
+          throw new McpError(ErrorCode.InvalidRequest, outcome.body.text);
+        }
+        return { content: [{ type: "text", text: outcome.body.text }] };
+      }
+
       if (isGmTool(request.params.name)) {
         try {
           const result = await gmessagesClient.callTool(
@@ -1377,84 +1646,26 @@ class PhonePiMCPServer {
         }
       }
 
-      if (!this.phoneConnection) {
+      const phone = this.session.currentSocket();
+      if (!phone) {
         throw new McpError(
           ErrorCode.InvalidParams,
           "Phone not connected - please ensure the phone app is running and connected"
         );
       }
 
-      if (this.phoneConnection.readyState !== WebSocket.OPEN) {
+      if (phone.readyState !== WebSocket.OPEN) {
         throw new McpError(
           ErrorCode.InvalidParams,
           "Phone connection is not open"
         );
       }
 
-      const requestId = `req-${++this.requestCounter}`;
-      const message = {
-        type: "request",
-        requestId,
-        tool: request.params.name,
-        params: request.params.arguments || {},
-      };
-
       try {
-        const response = await new Promise((resolve, reject) => {
-          const timeout = setTimeout(() => {
-            this.pendingRequests.delete(requestId);
-            reject(new Error("Request timed out after 30 seconds"));
-          }, 30000);
-
-          this.pendingRequests.set(requestId, (response) => {
-            clearTimeout(timeout);
-            if (DEBUG_WEBSOCKET) {
-              console.error(
-                `[WebSocket] Received response for request ${requestId}: ${JSON.stringify(
-                  response
-                )}`
-              );
-            }
-            resolve(response);
-          });
-
-          if (
-            this.phoneConnection &&
-            this.phoneConnection.readyState === WebSocket.OPEN
-          ) {
-            try {
-              const messageStr = JSON.stringify(message);
-              if (DEBUG_WEBSOCKET) {
-                console.error(
-                  `[WebSocket] Sending request to phone: ${messageStr}`
-                );
-              }
-              this.phoneConnection.send(messageStr);
-            } catch (err) {
-              clearTimeout(timeout);
-              this.pendingRequests.delete(requestId);
-              console.error(
-                `[WebSocket] Failed to send message: ${
-                  err instanceof Error ? err.message : String(err)
-                }`
-              );
-              reject(
-                new Error(
-                  `Failed to send message: ${
-                    err instanceof Error ? err.message : String(err)
-                  }`
-                )
-              );
-            }
-          } else {
-            clearTimeout(timeout);
-            this.pendingRequests.delete(requestId);
-            console.error(
-              `[WebSocket] Cannot send message: Phone not connected (readyState: ${this.phoneConnection?.readyState})`
-            );
-            reject(new Error("Phone not connected or connection not ready"));
-          }
-        });
+        const response = await this.callPhoneTool(
+          request.params.name,
+          (request.params.arguments || {}) as Record<string, unknown>
+        );
 
         // Check if this is a photo response with image data
         if (
@@ -1523,6 +1734,12 @@ class PhonePiMCPServer {
           ],
         };
       } catch (error: unknown) {
+        if (error instanceof RateLimitError) {
+          throw new McpError(ErrorCode.InvalidRequest, error.message);
+        }
+        if (error instanceof CommandValidationError) {
+          throw new McpError(ErrorCode.InvalidParams, error.message);
+        }
         throw new McpError(
           ErrorCode.InternalError,
           `Failed to execute ${request.params.name}: ${
@@ -1535,6 +1752,7 @@ class PhonePiMCPServer {
 
   private async cleanup() {
     console.error("Cleaning up server...");
+    this.notificationPoller?.stop();
     stopGmessagesSidecar();
 
     // Clear ping interval if set
@@ -1553,10 +1771,22 @@ class PhonePiMCPServer {
       }
     }
 
-    // Close phone connection if it exists
-    if (this.phoneConnection) {
+    if (this.httpApi) {
       try {
-        this.phoneConnection.close();
+        const started = await this.httpApi;
+        if (started) {
+          await new Promise<void>((resolve) => started.server.close(() => resolve()));
+          console.error("Local HTTP API closed");
+        }
+      } catch (error) {
+        console.error("Error closing local HTTP API:", error);
+      }
+    }
+
+    const phone = this.session.currentSocket();
+    if (phone) {
+      try {
+        phone.close();
         console.error("Phone connection closed");
       } catch (error) {
         console.error("Error closing phone connection:", error);
@@ -1600,7 +1830,7 @@ class PhonePiMCPServer {
 }
 
 // Create server instance with the specified port
-const server = new PhonePiMCPServer(port);
+const server = new PhonePiMCPServer(port, httpPort);
 
 // Run the server
 async function main() {

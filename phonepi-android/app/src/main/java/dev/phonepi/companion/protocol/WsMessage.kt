@@ -17,6 +17,9 @@ sealed interface WsMessage {
     /** Server keepalive probe. Reply with {"type":"pong"} at once. */
     data object Ping : WsMessage
 
+    /** Reply to a phone-side keepalive ping. Proves the socket is alive. */
+    data object Pong : WsMessage
+
     /** A tool call to run on the device. Echo [requestId] in the response. */
     data class Request(
         val requestId: String,
@@ -26,6 +29,16 @@ sealed interface WsMessage {
 
     /** Server-side protocol error (for example malformed JSON we sent). */
     data class ServerError(val error: String) : WsMessage
+
+    /** Ack for a location sync or a history wipe. The raw frame is parsed by the sync helper. */
+    data class LocationAck(val raw: String) : WsMessage
+
+    /** A box-side read that should show up in Recent activity. */
+    data class ActivityNote(
+        val title: String,
+        val detail: String,
+        val status: String,
+    ) : WsMessage
 
     /** Any other or unparseable frame. Ignored by the message loop. */
     data class Unknown(val type: String) : WsMessage
@@ -38,12 +51,19 @@ sealed interface WsMessage {
                 ?: return Unknown("malformed")
             return when (obj["type"]?.jsonPrimitive?.contentOrNull) {
                 "ping" -> Ping
+                "pong" -> Pong
                 "request" -> Request(
                     requestId = obj["requestId"]?.jsonPrimitive?.contentOrNull.orEmpty(),
                     tool = obj["tool"]?.jsonPrimitive?.contentOrNull.orEmpty(),
                     params = (obj["params"] as? JsonObject) ?: EMPTY,
                 )
                 "error" -> ServerError(obj["error"]?.jsonPrimitive?.contentOrNull ?: "unknown error")
+                "location_sync_ack", "location_cleared_ack" -> LocationAck(text)
+                "activity" -> ActivityNote(
+                    title = obj["title"]?.jsonPrimitive?.contentOrNull?.take(80) ?: "activity",
+                    detail = obj["detail"]?.jsonPrimitive?.contentOrNull?.take(240).orEmpty(),
+                    status = obj["status"]?.jsonPrimitive?.contentOrNull ?: "info",
+                )
                 else -> Unknown(obj["type"]?.jsonPrimitive?.contentOrNull ?: "none")
             }
         }

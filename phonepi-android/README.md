@@ -113,10 +113,116 @@ node ..\phonepi-android\testing\fake-server.js
 
 Watch the phone with `adb logcat -s PhonePiWS:*`. You should see the battery response printed by the fake server.
 
+## Phone navigation
+
+The app stores named destinations locally (Room) and starts Google Maps when the server sends `phone_navigate`. It never runs a caller-supplied intent, action, or shell command.
+
+### What to install and grant
+
+1. Install this companion APK (sideload, **0.3.1 release** or newer) and **Google Maps**. Moving from a debug build requires uninstalling first; see [docs/release-signing.md](../docs/release-signing.md).
+2. In PhonePi, set the same WebSocket token as `PHONEPI_WS_TOKEN` on the PC, then Connect. Notifications permission is requested on connect.
+3. Grant **Display over other apps** (Appear on top): PhonePi → Tool permissions, or Settings → Apps → PhonePi → Appear on top. That is the reliable way to open Maps while PhonePi is in the background or the screen is off. Android can swallow `startActivity` from the background without throwing.
+4. Grant **full-screen notifications** (Android 14+) as the fallback when overlay is off: Settings → Apps → PhonePi → Full screen notifications. Without overlay, PhonePi always posts a high-priority full-screen notification instead of trusting a background start.
+5. Optional: leave **Reconnect when the phone boots** on (default) so the saved host reconnects after reboot. Turn it off on the connect screen if you do not want that. After a drop the app keeps retrying (exponential backoff, about 5 minutes max) and also retries as soon as the network changes or you open PhonePi. The status line says connected, reconnecting in Ns, or why it is offline. It does not stop on Failed.
+6. Optional: keep PhonePi's link notification visible so the socket stays up while Maps takes the foreground.
+
+No extra Maps API key.
+
+## Location history
+
+**Location history** on the connect screen is off until you turn it on. Grant:
+
+1. Precise location (`ACCESS_FINE_LOCATION`) and approximate location (`ACCESS_COARSE_LOCATION`). The first prompt asks for both.
+2. **Allow all the time** (`ACCESS_BACKGROUND_LOCATION`). Without it, PhonePi only records while the app is open.
+3. **Physical activity** (`ACTIVITY_RECOGNITION`). Without it, drives are harder to tell apart from a stop.
+
+Pause logging and Delete all history are on that same screen. To backfill Google Timeline, export it yourself (Settings, Location, Location services, Timeline, Export Timeline data) and share the JSON into PhonePi, or tap **Import Timeline export**. PhonePi cannot press that Settings button for you.
+
+### How to test
+
+With the phone linked and Maps installed:
+
+```powershell
+# PC
+$env:PHONEPI_WS_TOKEN = "choose-a-long-secret"
+cd server
+npm test
+node dist/index.js --stdio --http-port 11043
+```
+
+On the phone, add a destination from the test console (`phone_add_location`, name `home`) or from MCP, then run `phone_navigate` with `{ "name": "home" }`. Maps should open driving navigation. If the phone is in Android Auto, confirm Maps' **Start now** prompt appears.
+
+Activity log on the phone records list/add/remove/navigate.
+
+## Notification reading
+
+PhonePi can show recent and currently active notifications to MCP / the loopback HTTP API. It never dismisses, replies, or otherwise acts on them.
+
+### What Alex must grant
+
+1. Sideload **0.2.9 release** (or newer). Debug → release is a one-time uninstall; in-app update cannot change signing certs.
+2. **Notification access** (once): PhonePi → Tool permissions → Notification access, which opens the system Notification listener settings. Enable PhonePi. This is separate from the usual notification *posting* permission.
+3. In PhonePi → **Notification sharing**, pick apps that have posted a notification (the list stays empty until something notifies after access is granted). Nothing is shared until then. Optional: **Share all** (off by default).
+4. Existing grants still needed for other features: WebSocket token, Display over other apps (Maps), full-screen intents (Maps fallback), call/contacts/location if those tools are used.
+
+`get_notifications` returns app name, title, text, time, and package. If Android hid a field, the value is `(hidden by Android)` plus a `hiddenFields` reason. Unshared apps are counted in `omittedUnsharedCount`, not silently dropped. Tools are rate-limited (60/min) and show up in Recent activity.
+
+The main screen scrolls (connect → update → permissions → volumes → notification sharing → **Recent activity**) and sits inside the system bars. Scroll to the bottom for **Share all**, per-app toggles, and **Recent activity** with its **Clear** button.
+
+## Alarms and timers
+
+`list_alarms` is read-only (loopback HTTP + MCP, 60/min). It reports `AlarmManager.getNextAlarmClock()` and a small local log of alarms PhonePi created (time, label, repeat days, created-at). It is not the Clock app's full list.
+
+`set_alarm`, `set_timer`, `dismiss_alarm`, and `dismiss_timer` are commands (token, 10/min, Recent activity). They fire the standard Clock intents with `SKIP_UI` on set. The manifest permission is `com.android.alarm.permission.SET_ALARM` (granted at install). Grant **Display over other apps** if you want these to run while PhonePi is in the background; otherwise the phone posts a notification and reports `started:false`.
+
+Android will not let this app delete an arbitrary Clock alarm. Dismiss asks Clock with `ACTION_DISMISS_ALARM` (search by time or label) or `ACTION_DISMISS_TIMER`. If Clock does not handle that intent, the tool returns `status:"error"` instead of claiming success. `started:true` only means the intent was handed off.
+
+Example commands: set an alarm for 6:30 AM weekdays labeled Work (`hour` 6, `minute` 30, `period` `am`, `days` `weekdays`, `label` `Work`); set a 15 minute timer (`seconds` 900).
+
+## Texts
+
+Companion **0.3.2** (versionCode 14). The phone sends carrier SMS with `SmsManager` after Alex's rules. The PC does not send the text.
+
+### What Alex has to grant
+
+1. Install this companion (**0.3.2**). Debug to release is still a one-time uninstall.
+2. Open PhonePi and scroll to **Texts**.
+3. Turn on **Allow bots to request texts**. It starts off. Off rejects every new request and cancels a pending text that has not reached the carrier.
+4. Grant what the panel asks for:
+   - **SMS** (`SEND_SMS`). Required. Without it, nothing sends.
+   - **Contacts** (`READ_CONTACTS`). Required to resolve a name. A raw number can still be one recipient.
+   - **Notifications**. Required so the Send / Cancel card and the "Sent to …" notice can show.
+   - **Microphone** (`RECORD_AUDIO`). Spoken confirm while driving. If you deny it, the tap card still works.
+   - **Physical activity** (`ACTIVITY_RECOGNITION`). Lets the phone notice `IN_VEHICLE`. If you deny it, Android Auto, a car Bluetooth kit, and the **Driving mode** switch still count.
+   - **Nearby devices** (`BLUETOOTH_CONNECT`). Lets a connected car kit or hands-free device count as driving. If you deny it, the other driving signals still work.
+5. Leave **Allow assistant-signed texts without confirm** off unless you want those texts to send with no tap. The phone adds `[Alex's assistant Grok]: ` itself. This switch also starts off.
+6. **Driving mode** is optional. Turn it on when you want the phone to read the text aloud even if it has not detected a car.
+
+A text that reads as you always needs the **Send** action, or the word "send" after the phone speaks it. "Cancel", silence, or anything else sends nothing. The card expires in 5 minutes, and that expiry is final.
+
+## Volumes
+
+`get_volumes` is read-only (loopback HTTP + MCP). `phone_set_volume` is a write command (`stream` + `level` or `"max"`, or `max_all`). Optional **Max volumes at midnight** on the Volumes panel uses an exact alarm so the clock alarm is audible even if the PC is offline. Grant **Alarms & reminders** if Android 12+ blocks exact alarms. Grant **Do Not Disturb access** only if you want ring/notification changes while DND is on — the Grant row appears when that access is actually needed.
+
+## In-app update
+
+The PC serves `GET /phonepi/update/manifest` and `GET /phonepi/update/apk` on the same WebSocket host (token required). Drop a **release** APK in `PHONEPI_UPDATE_DIR` (default `~/.phonepi/updates`) and run `scripts/sign-update-manifest.sh`. The phone checks the Ed25519 manifest signature, APK sha256, and the pinned release cert before showing Install. After Install, `ACTION_MY_PACKAGE_REPLACED` reconnects to the saved host.
+
+On the phone: **Check for update** / **Force update**, or MCP `phone_push_update`. Force update reinstalls the same versionCode only; it will not downgrade. Grant **Install unknown apps** once (Tool permissions). Keys: [docs/release-signing.md](../docs/release-signing.md).
+
+Unit tests (no device):
+
+```powershell
+cd phonepi-android
+.\gradlew.bat test
+```
+
 ## Adding a tool
 
 1. Create `tools/YourTool.kt` implementing `ToolHandler`.
 2. Return `success { put("key", value) }` or `toolError("reason")`.
 3. Register it in `ConnectionService.onCreate()`.
+4. For a new **phone action** (navigate-style), also add the same name to `commands/PhoneCommands.kt` and `server/src/commands.ts` so MCP, HTTP `/api/command`, and the phone rate-limit share one allowlist.
+5. Update [docs/LEARNINGS.md](../docs/LEARNINGS.md) in the same change (feature, mistake, or iPhone note). Do not put tokens in that file.
 
 The router catches any exception and returns an error payload, so a tool bug never drops the socket.

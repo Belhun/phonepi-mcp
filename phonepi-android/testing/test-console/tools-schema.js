@@ -17,6 +17,46 @@ const TOOLS = [
     fields: [],
   },
   {
+    id: "get_recent_photos",
+    label: "Recent photos",
+    group: "Photos",
+    description: "Metadata for the newest camera/gallery images. No bytes. Needs the Share recent photos switch.",
+    fields: [
+      { key: "limit", label: "Limit (default 5, cap 20)", type: "number", default: 5, min: 1 },
+      { key: "since", label: "Since epoch ms (optional)", type: "number", default: 0 },
+    ],
+  },
+  {
+    id: "get_photo",
+    label: "Get photo",
+    group: "Photos",
+    description: "One recompressed image as base64. Token-gated command. Read-only. EXIF/GPS is not copied.",
+    fields: [
+      { key: "id", label: "MediaStore id", type: "text", required: true, default: "" },
+      { key: "maxDimension", label: "Max long edge or full", type: "text", default: "1600" },
+      { key: "quality", label: "Quality 40-95", type: "number", default: 80, min: 40 },
+      { key: "format", label: "jpeg or webp", type: "text", default: "jpeg" },
+    ],
+  },
+  {
+    id: "get_volumes",
+    label: "Get volumes",
+    group: "Device",
+    description: "Read alarm/ring/notification/media/voice/system current and max, ringer mode, and DND.",
+    fields: [],
+  },
+  {
+    id: "phone_set_volume",
+    label: "Set volume",
+    group: "Device",
+    description: "Set one stream to a level or max, or max_all. Ring/notification in DND need Do Not Disturb access.",
+    fields: [
+      { key: "stream", label: "Stream", type: "text", default: "alarm" },
+      { key: "level", label: "Level or max", type: "text", default: "max" },
+      { key: "max_all", label: "Max all streams", type: "checkbox", default: false },
+    ],
+  },
+  {
     id: "copy_to_clipboard",
     label: "Copy to clipboard",
     group: "Device",
@@ -66,6 +106,24 @@ const TOOLS = [
     label: "Get location",
     group: "Device",
     description: "Returns a basic lat/lng fix. Requires location permission on the phone.",
+    fields: [],
+  },
+  {
+    id: "get_notifications",
+    label: "Get notifications",
+    group: "Notifications",
+    description: "Read recent/active notifications from allowlisted apps. Never dismisses or replies.",
+    fields: [
+      { key: "package", label: "Package filter (optional)", type: "text", default: "" },
+      { key: "since", label: "Since epoch ms (optional)", type: "number", default: 0 },
+      { key: "limit", label: "Max results", type: "number", default: 50, min: 1 },
+    ],
+  },
+  {
+    id: "list_notification_apps",
+    label: "List notification apps",
+    group: "Notifications",
+    description: "Apps that have posted a notification, plus whether each is shared. No bodies.",
     fields: [],
   },
   {
@@ -257,6 +315,51 @@ const TOOLS = [
   //     { key: "includeSent", label: "Include sent", type: "checkbox", default: true },
   //   ],
   // },
+  {
+    id: "phone_list_locations",
+    label: "List saved locations",
+    group: "Navigation",
+    description: "Destinations stored on the phone for phone_navigate.",
+    fields: [],
+  },
+  {
+    id: "phone_add_location",
+    label: "Add saved location",
+    group: "Navigation",
+    fields: [
+      { key: "name", label: "Name", type: "text", required: true, default: "home" },
+      { key: "address", label: "Address", type: "text", default: "1600 Amphitheatre Parkway, Mountain View" },
+      { key: "mapsUrl", label: "Maps URL (optional)", type: "text", default: "" },
+    ],
+  },
+  {
+    id: "phone_remove_location",
+    label: "Remove saved location",
+    group: "Navigation",
+    fields: [
+      { key: "name", label: "Name", type: "text", required: true, default: "home" },
+    ],
+  },
+  {
+    id: "phone_push_update",
+    label: "Push update",
+    group: "Device",
+    description: "Download the server APK, verify it, and show the system installer. Alex still taps Install.",
+    fields: [
+      { key: "force", label: "Force (reinstall even if versionCode matches)", type: "checkbox", default: true },
+    ],
+  },
+  {
+    id: "phone_navigate",
+    label: "Navigate",
+    group: "Navigation",
+    description: "Opens Google Maps navigation. Uses a saved name, address, or Maps link. Does not skip Android Auto Start now.",
+    fields: [
+      { key: "name", label: "Saved name", type: "text", default: "home" },
+      { key: "address", label: "Address (if no name)", type: "text", default: "" },
+      { key: "mapsUrl", label: "Maps URL (if no name)", type: "text", default: "" },
+    ],
+  },
   {
     id: "make_call",
     label: "Make call",

@@ -1,0 +1,8 @@
+# >>> phonepi autorestore >>>
+# Self-heal PhonePi + Tailscale after a box refresh. Silent, detached, never blocks the shell.
+# Fires from any agent's shell startup (bash -ilc) when tailscaled, the PhonePi watchdog, or the failover front is down.
+# Script: /workspace/phonepi/scripts/restore-after-refresh.sh (flock-guarded, idempotent).
+if [ -x /workspace/phonepi/scripts/restore-after-refresh.sh ] && { ! pgrep -x tailscaled >/dev/null 2>&1 || ! pgrep -f "phonepi-watchdog.sh run" >/dev/null 2>&1 || ! pgrep -f "phonepi-failover.sh run" >/dev/null 2>&1; }; then
+  ( setsid nohup /workspace/phonepi/scripts/restore-after-refresh.sh </dev/null >>/home/box/.phonepi/autorestore.log 2>&1 & ) >/dev/null 2>&1
+fi
+# <<< phonepi autorestore <<<
