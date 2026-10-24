@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 997" role="img">
+  <title>PhonePi Clock timers wireframe</title>
+  <desc>Running timers. One large timer, a second row, presets that fill the keypad, and a Start button that does not fire on preset tap.</desc>
+  <rect width="448" height="997" fill="#101412"/>
+  <text x="20" y="28" fill="#8B938C" font-family="Roboto, sans-serif" font-size="12" font-weight="500">Timers | dark | running</text>
+  <rect x="20" y="48" width="408" height="64" rx="28" fill="#1E2521"/>
+  <rect x="20" y="56" width="4" height="48" rx="2" fill="#7DDBB4"/>
+  <text x="40" y="76" fill="#E7E6E1" font-family="Roboto, sans-serif" font-size="15" font-weight="500">Next | Sat 7:45 AM</text>
+  <text x="40" y="96" fill="#C1C8C2" font-family="Roboto, sans-serif" font-size="12">in 7 h 12 min | Armed</text>
+  <text x="224" y="210" text-anchor="middle" fill="#F3F0E8" font-family="Roboto, sans-serif" font-size="64" font-weight="600">12:04</text>
+  <text x="224" y="248" text-anchor="middle" fill="#E7E6E1" font-family="Roboto, sans-serif" font-size="18">Pasta</text>
+  <text x="224" y="274" text-anchor="middle" fill="#F3E2B8" font-family="Roboto, sans-serif" font-size="13">Bot | Set by Morning bot</text>
+  <rect x="20" y="300" width="196" height="64" rx="32" fill="#28302B"/>
+  <text x="118" y="338" text-anchor="middle" fill="#E7E6E1" font-family="Roboto, sans-serif" font-size="16" font-weight="500">Pause</text>
+  <rect x="232" y="300" width="196" height="64" rx="32" fill="#28302B"/>
+  <text x="330" y="338" text-anchor="middle" fill="#E7E6E1" font-family="Roboto, sans-serif" font-size="16" font-weight="500">+1:00</text>
+  <text x="224" y="392" text-anchor="middle" fill="#FFB4AB" font-family="Roboto, sans-serif" font-size="14">Stop</text>
+  <rect x="20" y="420" width="408" height="88" rx="28" fill="#1E2521"/>
+  <text x="40" y="458" fill="#E7E6E1" font-family="Roboto, sans-serif" font-size="22" font-weight="500">4:10</text>
+  <text x="40" y="484" fill="#C1C8C2" font-family="Roboto, sans-serif" font-size="13">Rice | Running</text>
+  <text x="280" y="470" fill="#E7E6E1" font-family="Roboto, sans-serif" font-size="13">Pause   +1:00</text>
+  <text x="20" y="548" fill="#8B938C" font-family="Roboto, sans-serif" font-size="12">Presets fill the keypad. They do not start.</text>
+  <g font-family="Roboto, sans-serif" font-size="13" font-weight="500" fill="#E7E6E1">
+    <rect x="20" y="564" width="88" height="40" rx="20" fill="#28302B"/><text x="64" y="589" text-anchor="middle">1 min</text>
+    <rect x="116" y="564" width="88" height="40" rx="20" fill="#28302B"/><text x="160" y="589" text-anchor="middle">5 min</text>
+    <rect x="212" y="564" width="96" height="40" rx="20" fill="#1E4E44"/><text x="260" y="589" text-anchor="middle" fill="#B7F0E2">10 min</text>
+    <rect x="316" y="564" width="96" height="40" rx="20" fill="#28302B"/><text x="364" y="589" text-anchor="middle">15 min</text>
+  </g>
+  <text x="224" y="680" text-anchor="middle" fill="#E7E6E1" font-family="Roboto, sans-serif" font-size="28" font-weight="500">0 h  10 m  00 s</text>
+  <text x="224" y="708" text-anchor="middle" fill="#8B938C" font-family="Roboto, sans-serif" font-size="12">Hours    Minutes    Seconds</text>
+  <rect x="20" y="820" width="408" height="64" rx="32" fill="#8FD9C6"/>
+  <text x="224" y="858" text-anchor="middle" fill="#062E26" font-family="Roboto, sans-serif" font-size="16" font-weight="500">Start</text>
+  <text x="48" y="962" text-anchor="middle" fill="#8B938C" font-family="Roboto, sans-serif" font-size="12">Alarms</text>
+  <text x="140" y="962" text-anchor="middle" fill="#8FD9C6" font-family="Roboto, sans-serif" font-size="12" font-weight="500">Timers</text>
+  <text x="230" y="962" text-anchor="middle" fill="#8B938C" font-family="Roboto, sans-serif" font-size="12">Watch</text>
+  <text x="320" y="962" text-anchor="middle" fill="#8B938C" font-family="Roboto, sans-serif" font-size="12">World</text>
+  <text x="400" y="962" text-anchor="middle" fill="#8B938C" font-family="Roboto, sans-serif" font-size="12">Bed</text>
+</svg>

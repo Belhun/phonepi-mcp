@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 997" role="img">
+  <title>PhonePi Clock ringing screen wireframe</title>
+  <desc>Lock-screen alarm. Near-black field, still digits, snooze on the chin, hold-to-stop above it.</desc>
+  <rect width="448" height="997" fill="#0B0E0D"/>
+  <circle cx="224" cy="320" r="110" fill="none" stroke="#F3F0E8" stroke-opacity="0.35" stroke-width="2"/>
+  <text x="224" y="80" text-anchor="middle" fill="#8B938C" font-family="Roboto, sans-serif" font-size="12">Ringing | brightness capped | no wallpaper</text>
+  <text x="224" y="348" text-anchor="middle" fill="#F3F0E8" font-family="Roboto, sans-serif" font-size="72" font-weight="600">7:45</text>
+  <text x="224" y="400" text-anchor="middle" fill="#F3F0E8" font-family="Roboto, sans-serif" font-size="22" font-weight="500">Saturday morning</text>
+  <text x="224" y="432" text-anchor="middle" fill="#F3E2B8" font-family="Roboto, sans-serif" font-size="14">Set by Morning bot</text>
+  <text x="224" y="464" text-anchor="middle" fill="#C1C8C2" font-family="Roboto, sans-serif" font-size="14">Next, 7:55 AM, is waiting.</text>
+  <text x="224" y="500" text-anchor="middle" fill="#8B938C" font-family="Roboto, sans-serif" font-size="13">Getting louder</text>
+  <rect x="20" y="700" width="408" height="88" rx="44" fill="#F3F0E8"/>
+  <rect x="20" y="700" width="150" height="88" rx="44" fill="#E07A5F"/>
+  <text x="224" y="752" text-anchor="middle" fill="#141210" font-family="Roboto, sans-serif" font-size="18" font-weight="500">Hold to stop</text>
+  <rect x="20" y="804" width="408" height="72" rx="36" fill="#1C2622"/>
+  <text x="224" y="848" text-anchor="middle" fill="#F3F0E8" font-family="Roboto, sans-serif" font-size="18" font-weight="500">Snooze 10 min</text>
+  <text x="224" y="910" text-anchor="middle" fill="#C1C8C2" font-family="Roboto, sans-serif" font-size="13">Volume down snoozes. Volume up does nothing.</text>
+  <text x="224" y="940" text-anchor="middle" fill="#8B938C" font-family="Roboto, sans-serif" font-size="12">The chin snoozes. Stop is the hold above it.</text>
+</svg>
