@@ -53,7 +53,7 @@ android {
         applicationId = "dev.phonepi.clock"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
+        versionCode = phonepiProp("clockVersionCode")?.toIntOrNull() ?: 1
         versionName = "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "RELEASE_CERT_SHA1", "\"${certSha1(releaseStoreFile, releaseStorePassword, releaseKeyAlias)}\"")

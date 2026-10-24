@@ -6,7 +6,7 @@ Google Clock still owns "Hey Google" alarms. `set_alarm`, `set_timer`, `dismiss_
 
 ## Control permission
 
-The clock app defines `dev.phonepi.clock.permission.CONTROL` with `protectionLevel="signature"`.
+PhonePi Clock and the companion both declare `dev.phonepi.clock.permission.CONTROL` with `protectionLevel="signature"`. The grant does not depend on which app is installed first. Android still grants it only when both APKs share a certificate.
 
 The companion holds `uses-permission` for that name. Android grants it only when both APKs are signed by the same certificate. A debug clock build cannot be controlled by a release companion, and the reverse is also denied.
 

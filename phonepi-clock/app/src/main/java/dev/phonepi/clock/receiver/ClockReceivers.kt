@@ -3,6 +3,7 @@ package dev.phonepi.clock.receiver
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 import dev.phonepi.clock.AlarmIntents
 import dev.phonepi.clock.ClockEngine
 import dev.phonepi.clock.ring.RingingService
@@ -62,10 +63,13 @@ class AlarmFireReceiver : BroadcastReceiver() {
     }
 }
 
+private const val TAG = "PhonePiClock"
+
 class RearmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val pending = goAsync()
         val reason = intent.action ?: "rearm"
+        Log.i(TAG, "rearm $reason")
         ClockEngine.enqueue {
             try {
                 ClockEngine.rearm(context.applicationContext, reason)

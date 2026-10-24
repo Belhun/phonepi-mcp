@@ -1,5 +1,7 @@
 <resources>
     <string name="app_name">PhonePi</string>
+    <string name="clock_control_permission_label">Control PhonePi Clock</string>
+    <string name="clock_control_permission_description">Lets this companion, signed with the same certificate as PhonePi Clock, read and change alarms.</string>
     <string name="find_phone_notification_title">Find phone ringing</string>
     <string name="find_phone_notification_body">Tap Stop to silence the alarm.</string>
     <string name="find_phone_stop">Stop</string>

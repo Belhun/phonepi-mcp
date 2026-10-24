@@ -19,6 +19,7 @@ import android.os.PowerManager
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import dev.phonepi.clock.AlarmIntents
@@ -45,6 +46,7 @@ class RingingService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val alarmId = intent?.getStringExtra(AlarmIntents.EXTRA_ALARM_ID).orEmpty()
+        Log.i(TAG, "RingingService start")
         startInForeground(ringingNotification(this, "Alarm", alarmId.ifBlank { null }))
         if (alarmId.isBlank()) {
             stopSelf()
@@ -197,6 +199,7 @@ class RingingService : Service() {
     }
 
     companion object {
+        private const val TAG = "PhonePiClock"
         private const val NOTIF_ID = 42
         private var instance: RingingService? = null
 

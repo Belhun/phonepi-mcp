@@ -2,6 +2,7 @@ package dev.phonepi.clock.ui
 
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.view.KeyEvent
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -9,12 +10,15 @@ import androidx.activity.compose.setContent
 import dev.phonepi.clock.AlarmIntents
 import dev.phonepi.clock.ClockEngine
 
+private const val TAG = "PhonePiClock"
+
 class RingActivity : ComponentActivity() {
     private val alarmId: String?
         get() = intent.getStringExtra(AlarmIntents.EXTRA_ALARM_ID)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Log.i(TAG, "RingActivity start")
         if (Build.VERSION.SDK_INT >= 27) {
             setShowWhenLocked(true)
             setTurnScreenOn(true)
