@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Which PhonePi server is active, and the health of each. Never prints tokens.
+#   phonepi-target            status (default)
+#   phonepi-target pin hp|box force bot traffic to one server (if it is up)
+#   phonepi-target auto       remove the pin (follow the phone; HP primary)
+set -uo pipefail
+PP="$HOME/.phonepi"
+case "${1:-status}" in
+  pin) [[ "${2:-}" =~ ^(hp|box)$ ]] || { echo "usage: phonepi-target pin hp|box" >&2; exit 2; }
+       echo "$2" > "$PP/failover-pin"; echo "pinned to $2 (takes effect within 5s)";;
+  auto) rm -f "$PP/failover-pin"; echo "pin removed: following the phone, HP primary";;
+  status) ;;
+  *) echo "usage: phonepi-target [status|pin hp|box|auto]" >&2; exit 2;;
+esac
+[[ "${1:-status}" == status ]] || exit 0
+SCRIPT_DIR=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)
+"$SCRIPT_DIR/phonepi-failover.sh" status
+curl -fsS -m 5 http://127.0.0.1:11043/api/failover 2>/dev/null | python3 -c '
+import json,sys
+s=json.load(sys.stdin)
+print("active (bots on 127.0.0.1:11043): %s  - %s" % (s["active"].upper(), s["reason"]))
+for n,label in (("hp","HP  hp1.tailcbcc46.ts.net"),("box","box grokbot-box.tailcbcc46.ts.net")):
+    h=s.get(n,{})
+    print("  %-36s server %-4s phone %s%s" % (label, "up" if h.get("up") else "DOWN", "CONNECTED" if h.get("phoneConnected") else "not here", ("  ("+h["error"]+")") if h.get("error") else ""))
+print("  checked %s; pin: %s" % (s.get("checkedAt"), open("'"$PP"'/failover-pin").read().strip() if __import__("os").path.exists("'"$PP"'/failover-pin") else "none (auto)"))
+' || echo "failover front not answering on 127.0.0.1:11043"
+for p in 11042:gmessages-bridge 11044:send-gateway; do (exec 3<>/dev/tcp/127.0.0.1/${p%%:*}) 2>/dev/null && echo "  box ${p#*:} (${p%%:*}): listening" || echo "  box ${p#*:} (${p%%:*}): DOWN"; done
