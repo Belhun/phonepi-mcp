@@ -3,6 +3,8 @@ package dev.phonepi.companion.receiver
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import androidx.core.app.RemoteInput
+import dev.phonepi.companion.assistant.AssistantProtocol
 import dev.phonepi.companion.messaging.MessageRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -20,6 +22,17 @@ class MessageActionReceiver : BroadcastReceiver() {
                         val index = intent.getIntExtra(EXTRA_RESPONSE_INDEX, 0)
                         MessageRepository.recordResponse(context, messageId, response, index)
                     }
+                    ACTION_REPLY -> {
+                        val results = RemoteInput.getResultsFromIntent(intent)
+                        val text = results
+                            ?.getCharSequence(AssistantProtocol.KEY_TEXT_REPLY)
+                            ?.toString()
+                            ?.trim()
+                            .orEmpty()
+                        if (text.isNotEmpty()) {
+                            MessageRepository.recordReply(context, messageId, text)
+                        }
+                    }
                     ACTION_DISMISS -> MessageRepository.recordDismiss(context, messageId)
                 }
             } finally {
@@ -30,6 +43,7 @@ class MessageActionReceiver : BroadcastReceiver() {
 
     companion object {
         const val ACTION_RESPOND = "dev.phonepi.companion.action.MESSAGE_RESPOND"
+        const val ACTION_REPLY = "dev.phonepi.companion.action.MESSAGE_REPLY"
         const val ACTION_DISMISS = "dev.phonepi.companion.action.MESSAGE_DISMISS"
         const val EXTRA_MESSAGE_ID = "messageId"
         const val EXTRA_RESPONSE = "response"

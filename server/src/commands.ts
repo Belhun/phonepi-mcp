@@ -11,6 +11,7 @@ import {
   validatePhoneCommandArgs as validateClockCommandArgs,
 } from "./alarm-commands.js";
 import type { ValidatedCommandArgs } from "./alarm-commands.js";
+import { validateSendNotificationArgs } from "./assistant-events.js";
 import { validateLocationAdminArgs } from "./location-tools.js";
 import { validateSendTextArgs } from "./send-text.js";
 
@@ -29,6 +30,9 @@ export function validatePhoneCommandArgs(
   if (location) return location;
   if (name === "request_send_text" || name === "get_send_status") {
     return validateSendTextArgs(name, args);
+  }
+  if (name === "send_notification") {
+    return validateSendNotificationArgs(args);
   }
   return validateClockCommandArgs(name, args);
 }
@@ -400,6 +404,43 @@ export const PHONE_COMMANDS: readonly PhoneCommand[] = [
         },
       },
       required: ["recipient", "message"],
+    },
+  },
+  {
+    name: "send_notification",
+    kind: "action",
+    phoneTool: "send_notification",
+    maxPerMinute: 20,
+    description:
+      "Post an actionable PhonePi notification on the phone. It mirrors to a paired Galaxy Watch. Up to 3 action buttons (OK, Snooze 1h, Yes, No, or any short labels) plus an inline Reply (voice or keyboard on the watch). requestId makes retries idempotent. Default priority is high (the existing PhonePi urgent channel). When Alex taps or replies, the phone sends the result to the box; read it with get_notification_replies. The wake hook fires immediately so bots do not wait for the next poll.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: {
+          type: "string",
+          description: "Notification title, at most 120 characters",
+        },
+        body: {
+          type: "string",
+          description: "Notification body, at most 1000 characters",
+        },
+        requestId: {
+          type: "string",
+          description:
+            "Stable id for retries (8-80 letters, digits, _ . or -). Same id does not post a second notification",
+        },
+        actions: {
+          type: "array",
+          description:
+            "Up to 3 button labels, for example OK, Snooze 1h, Yes, No. Reply is always included",
+          items: { type: "string" },
+        },
+        priority: {
+          type: "string",
+          description: "default, high, or urgent (default high). high and urgent use the PhonePi urgent channel",
+        },
+      },
+      required: ["title", "body"],
     },
   },
   {

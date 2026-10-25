@@ -24,6 +24,13 @@ import {
   isNotificationLogTool,
   runNotificationLogRead,
 } from "./notification-log-tools.js";
+import { openAssistantStore } from "./assistant-events.js";
+import {
+  ASSISTANT_TOOL_SCHEMAS,
+  isAssistantReadTool,
+  runAssistantRead,
+} from "./assistant-tools.js";
+import { WakeHook } from "./wake-hook.js";
 import {
   NotificationPoller,
   captureEnabledFromEnv,
@@ -98,6 +105,8 @@ class PhonePiMCPServer {
   private locationLog = openLocationLog();
   private notificationLog = openNotificationLog();
   private notificationPoller: NotificationPoller | null = null;
+  private assistantStore = openAssistantStore();
+  private wakeHook = new WakeHook();
 
   constructor(
     private serverPort: number = 11041,
@@ -163,6 +172,8 @@ class PhonePiMCPServer {
       locationReadLimiter: commandRateLimiter,
       notificationLog: this.notificationLog,
       notificationCaptureStatus: () => this.notificationCaptureStatus(),
+      assistantStore: this.assistantStore,
+      wakeHookStatus: () => this.wakeHook.status(),
     });
   }
 
@@ -190,6 +201,37 @@ class PhonePiMCPServer {
       console.error("[WebSocket] Failed to record location activity on the phone");
       return false;
     }
+  }
+
+  private handleAssistantFrame(
+    ws: WebSocket,
+    message: Record<string, unknown>
+  ): void {
+    if (!this.session.isCurrent(ws)) {
+      console.error("[WebSocket] Ignored assistant frame from a stale socket");
+      return;
+    }
+    const kind = message.type;
+    const result =
+      kind === "notification_reply"
+        ? this.assistantStore.ingestReply(message)
+        : this.assistantStore.ingestPrompt(message);
+    if (result.rejected.length > 0) {
+      console.error(
+        `[WebSocket] assistant ${String(kind)} rejected=${result.rejected.length}`
+      );
+      return;
+    }
+    console.error(
+      `[WebSocket] assistant ${String(kind)} accepted=${result.accepted.length} duplicate=${result.duplicate}`
+    );
+    if (result.duplicate) return;
+    const id = result.accepted[0];
+    if (!id) return;
+    const ts = typeof message.ts === "number" ? message.ts : Date.now();
+    const event =
+      kind === "notification_reply" ? "notification_reply" : "inbound_prompt";
+    this.wakeHook.notify(event, id, ts);
   }
 
   private handleLocationFrame(ws: WebSocket, message: { type?: string; events?: unknown }): void {
@@ -492,6 +534,11 @@ class PhonePiMCPServer {
         }
         const entry = sendLogFromPhone(message as Record<string, unknown>);
         if (entry) appendSendLog(entry);
+      } else if (
+        message.type === "notification_reply" ||
+        message.type === "inbound_prompt"
+      ) {
+        this.handleAssistantFrame(ws, message as Record<string, unknown>);
       } else if (message.type === "permissions") {
         if (!this.session.notePermissions(ws, message)) {
           console.error("[WebSocket] Ignored permissions from a stale socket");
@@ -1488,40 +1535,13 @@ class PhonePiMCPServer {
             required: ["messageId"],
           },
         },
-        {
-          name: "send_notification",
-          description: "Send a notification to the phone",
-          inputSchema: {
-            type: "object",
-            properties: {
-              title: {
-                type: "string",
-                description: "Title of the notification",
-              },
-              body: {
-                type: "string",
-                description: "Content of the notification",
-              },
-              priority: {
-                type: "string",
-                enum: ["default", "high"],
-                description: "Priority level of the notification",
-                default: "default",
-              },
-              data: {
-                type: "object",
-                description: "Additional data to include with the notification",
-              },
-            },
-            required: ["title", "body"],
-          },
-        },
         ...NOTIFICATION_TOOL_SCHEMAS,
         ...PHOTO_TOOL_SCHEMAS,
         ...VOLUME_TOOL_SCHEMAS,
         ...ALARM_TOOL_SCHEMAS,
         ...LOCATION_TOOL_SCHEMAS,
         ...NOTIFICATION_LOG_TOOL_SCHEMAS,
+        ...ASSISTANT_TOOL_SCHEMAS,
         ...PHONE_COMMAND_SCHEMAS,
         ...GM_TOOL_SCHEMAS,
       ],
@@ -1576,6 +1596,38 @@ class PhonePiMCPServer {
           throw new McpError(ErrorCode.InvalidRequest, outcome.body.text);
         }
         return { content: [{ type: "text", text: outcome.body.text }] };
+      }
+
+      if (isAssistantReadTool(request.params.name)) {
+        const outcome = runAssistantRead({
+          store: this.assistantStore,
+          limiter: commandRateLimiter,
+          tool: request.params.name,
+          args: (request.params.arguments || {}) as Record<string, unknown>,
+          activityLogged: false,
+        });
+        if (outcome.status === 400) {
+          throw new McpError(ErrorCode.InvalidParams, outcome.body.text);
+        }
+        if (outcome.status === 429) {
+          throw new McpError(ErrorCode.InvalidRequest, outcome.body.text);
+        }
+        let text = outcome.body.text;
+        if (
+          this.notePhoneActivity({
+            title: request.params.name,
+            detail: "read box assistant events",
+          })
+        ) {
+          try {
+            const payload = JSON.parse(text);
+            payload.activityLogged = true;
+            text = JSON.stringify(payload, null, 2);
+          } catch {
+            // Keep the original success text.
+          }
+        }
+        return { content: [{ type: "text", text }] };
       }
 
       if (isGmTool(request.params.name)) {

@@ -37,6 +37,7 @@ object PhoneCommands {
         // 10/min is a shared backstop. The text budget enforces 5/min and the daily cap per mode.
         PhoneCommandSpec("request_send_text", PhoneCommandSpec.Kind.ACTION, 10),
         PhoneCommandSpec("get_send_status", PhoneCommandSpec.Kind.READ, 60),
+        PhoneCommandSpec("send_notification", PhoneCommandSpec.Kind.ACTION, 20),
     )
 
     val byName: Map<String, PhoneCommandSpec> = ALL.associateBy { it.name }

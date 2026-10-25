@@ -130,11 +130,13 @@ const TOOLS = [
     id: "send_notification",
     label: "Send notification",
     group: "Notifications",
-    description: "Post a one-way notification on the phone.",
+    description: "Actionable PhonePi notification (up to 3 buttons plus Reply). Mirrors to a paired watch.",
     fields: [
-      { key: "title", label: "Title", type: "text", required: true, default: "PhonePi test" },
-      { key: "body", label: "Body", type: "textarea", required: true, default: "Custom notification from test console" },
-      { key: "priority", label: "Priority", type: "select", options: ["default", "high"], default: "default" },
+      { key: "title", label: "Title", type: "text", required: true, default: "Leave soon?" },
+      { key: "body", label: "Body", type: "textarea", required: true, default: "Dinner in 20. Head out?" },
+      { key: "requestId", label: "requestId (idempotent)", type: "text", default: "notif-test-1" },
+      { key: "actions", label: "Actions (comma-separated, max 3)", type: "text", default: "OK,Snooze 1h,No" },
+      { key: "priority", label: "Priority", type: "select", options: ["default", "high", "urgent"], default: "high" },
     ],
   },
   {

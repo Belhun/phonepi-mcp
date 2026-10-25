@@ -9,6 +9,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 
@@ -106,7 +107,12 @@ object ActivityLog {
             val count = (data["phonePiAlarms"] as? kotlinx.serialization.json.JsonArray)?.size
             "next=$hasNext phonePi=${count ?: "?"}"
         }
-        "send_notification" -> "Posted notification"
+        "send_notification" -> {
+            val id = data["messageId"]?.jsonPrimitive?.contentOrNull ?: ""
+            val dup = data["duplicate"]?.jsonPrimitive
+            val isDup = dup?.booleanOrNull == true || dup?.contentOrNull == "true"
+            if (isDup) "Notification $id already posted" else "Posted notification $id"
+        }
         "find_phone" -> {
             val maps = data["mapsUrl"]?.jsonPrimitive?.contentOrNull
             val suffix = if (maps != null) " @ $maps" else ""

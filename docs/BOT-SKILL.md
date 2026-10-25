@@ -4,8 +4,9 @@ description: >-
   Use when Alex asks any bot to do something on his Android phone through
   PhonePi: "take me to <place>", start Google Maps / Android Auto navigation,
   save or list places, set phone volume, read battery, contacts, recent calls,
-  notifications, volumes, recent photos, or a text Alex asked you to send, or when PhonePi says "Phone not connected" and you
-  need to diagnose it.
+  notifications, volumes, recent photos, or a text Alex asked you to send, post
+  an actionable phone/watch notification, read a prompt he started from Ask assistant,
+  or when PhonePi says "Phone not connected" and you need to diagnose it.
 ---
 # PhonePi phone actions
 
@@ -14,7 +15,7 @@ PhonePi = Android companion app on Alex's phone + a Node server on the box (`/wo
 ## 1. Always check health first (read-only, free)
 ```bash
 curl -s http://127.0.0.1:11043/api/health
-# {"ok":true,"phoneConnected":true|false,"wsPort":11041,"httpPort":11043,"lastConnectedAt":"2026-10-17T06:00:00.000Z","lastDisconnectedAt":"2026-10-17T05:40:00.000Z","lastDisconnectCode":1006,"lastDisconnectReason":"abnormal closure","lastPongAt":"2026-10-17T06:04:30.000Z","phonePermissions":{"overlay":true,"post_notifications":true,"full_screen_intent":true,"notification_listener":false,"dnd_access":false,"exact_alarms":true},"missingPermissions":["notification_listener","dnd_access"]}
+# {"ok":true,"phoneConnected":true|false,"wsPort":11041,"httpPort":11043,"lastConnectedAt":"2026-10-17T06:00:00.000Z","lastDisconnectedAt":"2026-10-17T05:40:00.000Z","lastDisconnectCode":1006,"lastDisconnectReason":"abnormal closure","lastPongAt":"2026-10-17T06:04:30.000Z","phonePermissions":{"overlay":true,"post_notifications":true,"full_screen_intent":true,"notification_listener":false,"dnd_access":false,"exact_alarms":true},"missingPermissions":["notification_listener","dnd_access"],"wakeHookEnabled":false,"hookFailed":0}
 ```
 - No answer at all → the server process is down (see section 6).
 - `phoneConnected:false` → do NOT retry actions; go to section 6 and tell Alex plainly.
@@ -38,7 +39,7 @@ Responses are always `{"text": "<JSON string>", "isError": bool}`. **HTTP 200 do
 curl -s -X POST http://127.0.0.1:11043/api/tool -H 'Content-Type: application/json' \
   -d '{"tool":"get_battery_level","arguments":{}}'
 ```
-Allowlist (exact): `get_battery_level`, `get_volumes`, `get_contacts`, `search_contacts` {query, limit≤50}, `get_contact_by_id` {id}, `get_recent_calls` {limit, hours (default 168) | since (epoch ms), type/types, number, includeContactNames}, `get_notifications` {package, since (epoch ms), limit default 50 cap 200}, `list_notification_apps`, `get_recent_photos` {limit default 5, hard cap 20, since (epoch ms)}, `list_alarms`, `get_location_history`, `search_places`, `get_notification_log` {since, until, postedSince, postedUntil, package, query, limit default 100 cap 500}, `get_all_snippets`, `get_snippet_by_id`, `get_snippets_by_type`, `search_snippets`.
+Allowlist (exact): `get_battery_level`, `get_volumes`, `get_contacts`, `search_contacts` {query, limit≤50}, `get_contact_by_id` {id}, `get_recent_calls` {limit, hours (default 168) | since (epoch ms), type/types, number, includeContactNames}, `get_notifications` {package, since (epoch ms), limit default 50 cap 200}, `list_notification_apps`, `get_recent_photos` {limit default 5, hard cap 20, since (epoch ms)}, `list_alarms`, `get_location_history`, `search_places`, `get_notification_log` {since, until, postedSince, postedUntil, package, query, limit default 100 cap 500}, `get_notification_replies` {since, until, messageId, limit default 50 cap 200}, `get_inbound_prompts` {since, until, limit default 50 cap 200}, `get_all_snippets`, `get_snippet_by_id`, `get_snippets_by_type`, `search_snippets`.
 - Battery → `level`, `isCharging`, `chargingStatus`.
 - Volumes → per-stream `current`/`max`, `ringerMode`, `dnd`, `notificationPolicyAccess`, `exactAlarmsAllowed`, `midnightMaxEnabled`.
 - Notifications: only apps Alex allowlisted in the app (default: none). Unshared apps are counted in `omittedUnsharedCount`.
@@ -46,6 +47,8 @@ Allowlist (exact): `get_battery_level`, `get_volumes`, `get_contacts`, `search_c
 - `list_alarms` (60/min): `nextAlarm` from `AlarmManager.getNextAlarmClock()` (`triggerAt` epoch ms, or null), plus `phonePiAlarms` (hour, minute, label, repeat day names, createdAt) for alarms PhonePi itself asked Clock to create. This is not the Clock app's full list.
 - `get_location_history` and `search_places` (30/min each) read the box copy. They work when the phone is offline. See the location history section below.
 - `get_notification_log` (60/min) reads the box's running notification log. Works when the phone is offline. See section c2.
+- `get_notification_replies` (60/min) reads action taps and RemoteInput replies for `send_notification`. Box copy. Works offline. See section 3e.
+- `get_inbound_prompts` (60/min) reads prompts Alex started from the Ask assistant tile, shortcut, Quick Tap, or a watch relay. Box copy. Works offline. See section 3e.
 
 ### b) Commands — `POST /api/command`, token required
 Token = `PHONEPI_WS_TOKEN` in `/home/box/.phonepi/env` (mode 600). Never print, log, or paste it.
@@ -74,6 +77,7 @@ curl -s -X POST http://127.0.0.1:11043/api/command \
 | `clear_location_history` | `confirm` must be `"delete"` | 4 | Deletes history on the phone and on the box. |
 | `request_send_text` | `recipient`, `message` (max 1000). Optional `mode`: `as_alex` (default) or `attributed` | 5/min and 30/day for `as_alex`; 5/min and 20/day for `attributed` | Does not send by itself. See section 3d. |
 | `get_send_status` | `id` from the request | 60 | `pending`, `sent`, `cancelled`, `expired`, `failed`, `needs_clarification`, or `rejected`. |
+| `send_notification` | `title`, `body`. Optional `requestId`, `actions` (up to 3 labels), `priority` (`default`/`high`/`urgent`, default `high`) | 20 | Posts an actionable PhonePi notification that mirrors to the watch. Reply is always included. Same `requestId` is idempotent. Poll `get_notification_replies`. See section 3e. |
 
 Saved places known: `Home` = 338 E Fallbrook St #A, Fallbrook CA 92028 (confirm with `phone_list_locations`).
 
@@ -268,6 +272,37 @@ Rates: `as_alex` is 5 per minute and 30 per day. `attributed` is 5 per minute an
 
 Full rules: [send-text.md](send-text.md).
 
+## 3e. Goal → action: notify Alex on the phone or watch, or read a prompt he started
+
+Companion **0.3.4**. Details: [assistant-notifications.md](assistant-notifications.md).
+
+**Post a question** (`POST /api/command`, token, 20/min). Up to 3 buttons plus Reply (voice or keyboard on the Galaxy Watch). Default priority is high (existing urgent channel). Reuse `requestId` on retries.
+
+```bash
+TOKEN=$(sed -n 's/^\(export \)\{0,1\}PHONEPI_WS_TOKEN=//p' /home/box/.phonepi/env)
+curl -s -X POST http://127.0.0.1:11043/api/command \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"command":"send_notification","arguments":{"title":"Leave soon?","body":"Dinner in 20","requestId":"notif-dinner-20","actions":["OK","Snooze 1h","No"]}}'
+```
+
+HTTP 200 means the phone posted it (or returned a duplicate). It does not mean Alex answered. Then:
+
+```bash
+curl -s -X POST http://127.0.0.1:11043/api/tool -H 'Content-Type: application/json' \
+  -d '{"tool":"get_notification_replies","arguments":{"messageId":"notif-dinner-20"}}'
+```
+
+A button tap has `action` equal to the label. A spoken or typed reply has `action` `"reply"` and `replyText`. Keep `since` from the last `ts` to poll only new rows.
+
+**Read a prompt Alex started** (tile, shortcut, Quick Tap, watch relay):
+
+```bash
+curl -s -X POST http://127.0.0.1:11043/api/tool -H 'Content-Type: application/json' \
+  -d '{"tool":"get_inbound_prompts","arguments":{}}'
+```
+
+When `PHONEPI_WAKE_HOOK_URL` is set, the box POSTs `{event, id, ts}` immediately (no message text) so you do not wait for a 10-minute poll. Then read the matching tool. Never print that URL or `PHONEPI_WAKE_HOOK_SECRET`. `GET /api/health` has `wakeHookEnabled` and `hookFailed`.
+
 ## 4. Phone-side permissions that matter
 - **Display over other apps**: required for Maps to open from the background.
 - Notifications + **full-screen intents** (Android 14+): needed for the fallback.
@@ -280,11 +315,11 @@ Full rules: [send-text.md](send-text.md).
 - **Clock**: `SET_ALARM` is granted at install. Google Clock (or another app that handles the Clock intents) must be installed. **Display over other apps** is what lets `set_alarm` / `set_timer` / dismiss run without a tap. There is no permission that lets PhonePi edit someone else's alarms.
 - **Texts**: **Allow bots to request texts** (off by default) plus SMS, contacts, and notifications. Microphone for spoken confirm. Physical activity and nearby Bluetooth devices help detect driving. **Allow assistant-signed texts without confirm** is a second switch, also off. Details in section 3d.
 
-## 5. What PhonePi can and cannot do (as of companion 0.3.2)
-Can (via HTTP, any bot): navigation to anything Maps can search, saved places, volumes (read/set/max all), battery, contacts (read/search), recent calls, allowlisted notifications, snippets, recent photo metadata (`get_recent_photos`), one recompressed photo at a time (`get_photo`, shared token), `list_alarms`, Clock `set_alarm` / `set_timer` / `dismiss_alarm` / `dismiss_timer` (those four need the shared token), `request_send_text` / `get_send_status` (token, phone confirm, switches off by default), location history (`get_location_history`, `search_places`) and the notification log (`get_notification_log`) from the box copy even when the phone is offline.
+## 5. What PhonePi can and cannot do (as of companion 0.3.4)
+Can (via HTTP, any bot): navigation to anything Maps can search, saved places, volumes (read/set/max all), battery, contacts (read/search), recent calls, allowlisted notifications, snippets, recent photo metadata (`get_recent_photos`), one recompressed photo at a time (`get_photo`, shared token), `list_alarms`, Clock `set_alarm` / `set_timer` / `dismiss_alarm` / `dismiss_timer` (those four need the shared token), `request_send_text` / `get_send_status` (token, phone confirm, switches off by default), location history (`get_location_history`, `search_places`) and the notification log (`get_notification_log`) from the box copy even when the phone is offline, `send_notification` (token; watch-actionable buttons + Reply), `get_notification_replies` and `get_inbound_prompts` (box copy, work offline).
 On-phone only: "Max volumes at midnight" toggle, reconnect-on-boot, reconnect after update, the Location history switch, pause, delete, and Timeline JSON import.
 
-Exists on the phone but NOT reachable from bots right now: `find_phone` (ring), `copy_to_clipboard`, `make_call`, `get_location`, `send_notification`, contact edits, snippet writes. Don't promise these; `/api/tool` returns 403.
+Exists on the phone but NOT reachable from bots right now: `find_phone` (ring), `copy_to_clipboard`, `make_call`, `get_location`, contact edits, snippet writes. Don't promise these; `/api/tool` returns 403. `send_notification` is a token command, not `/api/tool`.
 
 Cannot: read SMS or RCS, send RCS, send a text with no phone-side rule, press Android Auto's Start now, install updates silently, run arbitrary commands, report what is on screen, list or delete arbitrary Clock alarms, trigger Google's Timeline export, or work at all when the phone is off the tailnet (location history reads of the box copy are the exception). A dismiss result is a request to the Clock app, not proof the alarm is gone. A text request is not proof the text was sent. `gm_send_message` is not this flow. Do not use it to skip the phone. Location history stays empty until Alex opts in.
 

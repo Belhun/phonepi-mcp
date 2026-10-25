@@ -2,7 +2,7 @@
 
 Standing log for this PR branch (`cursor/phone-navigate-locations-1ceb`). Update this file in the same change as every future PhonePi feature, bugfix, or device lesson. Do not merge this branch from this log. Never commit secrets (`PHONEPI_WS_TOKEN`, command tokens, hostnames with tokens in the URL, APK signing keystores, or personal MagicDNS names that are not already public in the repo).
 
-Current companion: **0.3.2** (versionCode **14**). 0.3.1 / versionCode 13 is the location-history release.
+Current companion: **0.3.4** (versionCode **16**). 0.3.3 / versionCode 15 is the server-list failover release. 0.3.2 / versionCode 14 is the safe-text release.
 
 Bot-facing skill: [BOT-SKILL.md](BOT-SKILL.md).
 
@@ -199,6 +199,7 @@ Android-only (do not assume iOS equivalents):
 - `AlarmClock` intents (`SET_ALARM`, `SET_TIMER`, `DISMISS_ALARM`, `DISMISS_TIMER`), `SET_ALARM` permission, and `AlarmManager.getNextAlarmClock()`. iOS has no public API for another app to create or dismiss Clock alarms. Keep the tool names and the honest "not confirmed" status; an iPhone companion would have to say the action is unsupported.
 - `FusedLocationProvider`, `ACCESS_BACKGROUND_LOCATION`, `ACTIVITY_RECOGNITION`, activity-transition PendingIntents, geofences, `Sensor.TYPE_SIGNIFICANT_MOTION`, and `Geocoder`. iOS would use Core Location visits and `CLGeocoder`. Keep the tool names, the opt-in default off, the JSONL copy on the box, and the rule that a Timeline export is a file the person shares. Google's Settings path for Timeline export is Android-only.
 - `SmsManager`, `SEND_SMS`, notification actions, `TextToSpeech`, `SpeechRecognizer`, `ACTIVITY_RECOGNITION`, and Bluetooth device class. Keep the command names, the two modes, the phone-added prefix, the default-off switches, and "HTTP 200 is not sent". iOS cannot send SMS from a third-party app without the system composer, which the user can edit. An iPhone companion would have to say direct send is unsupported.
+- Wear OS notification mirroring, `RemoteInput`, Quick Settings `TileService`, static shortcuts, and Pixel Quick Tap (a Pixel-only gesture). Keep the tool names, the box JSONL copy, and the wake hook. An iPhone companion would use Notification Content Extensions for actions and a Control Center control / App Intent for Ask assistant; Quick Tap has no iOS equivalent.
 - Forever reconnect with a capped exponential backoff is portable. `ConnectivityManager` callbacks and the foreground-service keepalive are Android-only. On iOS, retry when the app becomes active and when a path monitor reports a change. Do not show connected until the socket has had recent traffic.
 
 iPhone maps/nav sketch (not implemented): open an Apple Maps or Google Maps iOS URL when the companion is allowed to become foreground. Do not expect to start Maps from a background daemon the way overlay+FSI does on Android. A tap-to-open notification is the likely fallback.
@@ -214,7 +215,8 @@ iPhone notification reading sketch (not implemented): without an Apple entitleme
 - Location history stays off until Alex turns it on and grants precise location plus **Allow all the time**. **Physical activity** improves drives. Pause and Delete all history are on the phone. A Timeline backfill is a file he exports himself and shares into PhonePi.
 - Clock alarms need Google Clock (or another app that handles the intents) and, for a silent background set, **Display over other apps**. `SET_ALARM` is granted at install. Dismiss can fail when the Clock app has no dismiss activity; the tool says so.
 - Recent photos stay off until Alex turns on **Share recent photos** and grants Photos. `get_photo` needs the shared token. The bytes are recompressed, so GPS EXIF is not in the payload.
-- Texts stay off until Alex turns on **Allow bots to request texts** and grants SMS, contacts, and notifications. Assistant-signed texts stay off until the second switch. Spoken confirm needs the microphone. Car detection also wants physical activity and nearby Bluetooth devices. Sideload **0.3.2** (versionCode 14).
+- Texts stay off until Alex turns on **Allow bots to request texts** and grants SMS, contacts, and notifications. Assistant-signed texts stay off until the second switch. Spoken confirm needs the microphone. Car detection also wants physical activity and nearby Bluetooth devices. Sideload **0.3.2** (versionCode 14) or newer.
+- Ask assistant and watch-actionable notifications: sideload **0.3.4** (versionCode 16). Add the Quick Settings tile and optionally Pixel Quick Tap → Open app → Ask assistant. No extra watch app. Notifications posting is the same Connect grant.
 
 ## Box refresh recovery (2026-10-18)
 
@@ -246,3 +248,15 @@ Tailscale state does not survive a refresh, so login is needed every time: `sudo
 - **Setup link**: `phonepi://setup?host=&port=&token=&name=&primary=true`. A missing `token` keeps the saved one, and a new server borrows the shared token. `primary=true` makes it the primary and returns to Auto. Without `primary=true` the link adds or updates the server and pins it (the same "connect there" meaning as 0.3.2).
 - **Send retry**: `send_text_log` frames (the phone → server record of each text) carry a stable `requestId`, reused on every retry. If the first hand-off fails because there is no live socket, the app retries after **2 s, 5 s, 10 s** (17 s total, which covers the 15 s failover) through `PhoneUplink`, so a retry goes to whichever server is now active. After that it logs an error in Recent activity, and the line stays in the outbox for the next connect. A frame the socket accepted is never resent. Retry and outbox flush remove the line under one lock, so the phone sends each line at most once. The SMS itself is sent by the phone's carrier path and is never retried by this code. **Follow-up (server):** the server does not ack `send_text_log` or dedupe by `requestId` yet. Add both so retries can also cover "socket accepted, but the link died before the server read it".
 - Release flow: build → `~/.phonepi/updates-staging/0.3.3/` → `scripts/sign-update-manifest.sh --dir <staging> --apk phonepi-0.3.3-15.apk --min-version 8`. Copy the APK and manifest into `~/.phonepi/updates` (and the HP's update dir) only after the HP server is confirmed. Because of the migration, the first connect after install goes to the HP.
+
+## 0.3.4 (versionCode 16): watch-actionable notifications and Ask assistant
+
+Alex answers the assistant from the Pixel or Galaxy Watch 7 with no watch app. Phone notifications already mirror to Wear OS.
+
+- Command `send_notification` (`POST /api/command`, 20/min): title, body, optional `requestId` (idempotent), up to 3 action labels, plus an inline `RemoteInput` Reply (voice or keyboard on the watch). Default priority `high` uses the existing PhonePi urgent channel. Same `requestId` does not post twice.
+- Phone sends `notification_reply` frames through `SendLogOutbox`. Box store `~/.phonepi/assistant/replies/` (dir 700, files 600). Read-only `get_notification_replies` (60/min, works offline).
+- Ask assistant: Quick Settings tile, static home shortcut, exported `AskAssistantActivity` (`dev.phonepi.companion.action.ASK_ASSISTANT`, `phonepi://ask`), and a LAUNCHER activity-alias labeled **Ask assistant** so Pixel Quick Tap → Open app can pick it. Frames: `inbound_prompt`. Read-only `get_inbound_prompts`.
+- Wake hook (`server/src/wake-hook.ts`): `PHONEPI_WAKE_HOOK_URL` plus optional `PHONEPI_WAKE_HOOK_SECRET`. POST `{event, id, ts}` only. Short timeout, 3 attempts, backoff, dedupe by id, non-blocking. `GET /api/health` has `wakeHookEnabled` and `hookFailed`. Unset URL disables it. Never log the URL or secret.
+- This feature does not change DND, volumes, or other phone settings. `POST_NOTIFICATIONS` is the same grant Connect already asks for.
+
+Pixel Quick Tap steps: Settings → System → Gestures → Quick Tap → Use Quick Tap on → Open app → Ask assistant.

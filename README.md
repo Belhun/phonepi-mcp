@@ -84,6 +84,10 @@ One recipient. An unclear name returns `needs_clarification` and sends nothing. 
 
 Read-only `get_volumes` (loopback `POST /api/tool` and MCP) returns alarm, ring, notification, media, voice, and system current/max, plus ringer mode and Do Not Disturb. `phone_set_volume` is a write command (`stream` + `level` or `"max"`, or `max_all`). Optional **Max volumes at midnight** on the phone uses an exact alarm so the clock is audible if the PC is offline. Ring/notification changes while DND is on need Do Not Disturb access, requested only when that grant is needed.
 
+## Assistant notifications and Ask assistant
+
+Companion **0.3.4**. Bots post watch-actionable notifications with `send_notification` (`POST /api/command`, token, idempotent `requestId`, up to 3 buttons plus Reply). Alex answers from the phone or Galaxy Watch 7; bots read `get_notification_replies`. He can start a prompt himself from the **Ask assistant** Quick Settings tile, home-screen shortcut, or Pixel Quick Tap; bots read `get_inbound_prompts`. Set `PHONEPI_WAKE_HOOK_URL` so the box wakes a bot immediately instead of waiting for a poll. Details: [docs/assistant-notifications.md](docs/assistant-notifications.md).
+
 ## Notification reading
 
 Read-only. MCP and `POST /api/tool` expose `get_notifications` (filters: `package`, `since`, `limit`) and `list_notification_apps`. They never dismiss, reply to, or act on a notification. By default no app's bodies are shared until they are picked in PhonePi (Share all is off). If Android withholds a field, the payload says so instead of omitting it.

@@ -137,7 +137,9 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="phonepi" />
+                <data
+                    android:scheme="phonepi"
+                    android:host="setup" />
             </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
@@ -154,7 +156,55 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="text/plain" />
             </intent-filter>
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
         </activity>
+
+        <activity
+            android:name=".assistant.AskAssistantActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:label="@string/ask_assistant_short"
+            android:theme="@style/Theme.PhonePiCompanion">
+            <intent-filter>
+                <action android:name="dev.phonepi.companion.action.ASK_ASSISTANT" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="phonepi"
+                    android:host="ask" />
+            </intent-filter>
+        </activity>
+
+        <!-- Extra launcher entry so Pixel Quick Tap → Open app can pick Ask assistant. -->
+        <activity-alias
+            android:name=".AskAssistantLauncher"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@drawable/ic_stat_link"
+            android:label="@string/ask_assistant_short"
+            android:targetActivity=".assistant.AskAssistantActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <service
+            android:name=".assistant.AskAssistantTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_stat_link"
+            android:label="@string/ask_assistant_tile"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
 
 
 

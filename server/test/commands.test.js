@@ -92,6 +92,7 @@ test("command allowlist is the phone commands", () => {
       "phone_remove_location",
       "phone_set_volume",
       "request_send_text",
+      "send_notification",
       "set_alarm",
       "set_timer",
     ]

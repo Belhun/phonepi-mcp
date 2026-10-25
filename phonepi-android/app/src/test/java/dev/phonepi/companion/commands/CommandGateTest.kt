@@ -23,6 +23,7 @@ class CommandGateTest {
                 "phone_set_volume",
                 "get_send_status",
                 "request_send_text",
+                "send_notification",
                 "set_alarm",
                 "set_timer",
             ),
@@ -49,6 +50,8 @@ class CommandGateTest {
         assertFalse(PhoneCommands.isAllowlisted("list_alarms"))
         assertEquals(10, PhoneCommands.byName.getValue("set_alarm").maxPerMinute)
         assertEquals(PhoneCommandSpec.Kind.ACTION, PhoneCommands.byName.getValue("set_timer").kind)
+        assertEquals(PhoneCommandSpec.Kind.ACTION, PhoneCommands.byName.getValue("send_notification").kind)
+        assertEquals(20, PhoneCommands.byName.getValue("send_notification").maxPerMinute)
         assertFalse(PhoneCommands.isAllowlisted("get_recent_photos"))
         var now = 10_000L
         val limiter = CommandRateLimiter(windowMs = 60_000L, now = { now })

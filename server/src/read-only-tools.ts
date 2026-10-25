@@ -16,6 +16,8 @@ export const READ_ONLY_HTTP_TOOLS = new Set<string>([
   "list_alarms",
   "get_location_history",
   "search_places",
+  "get_notification_replies",
+  "get_inbound_prompts",
 ]);
 
 /** Sliding-window limits (per minute) for sensitive read tools. */
@@ -27,6 +29,8 @@ export const READ_ONLY_TOOL_RATE_LIMITS: Record<string, number> = {
   list_alarms: 60,
   get_location_history: 30,
   search_places: 30,
+  get_notification_replies: 60,
+  get_inbound_prompts: 60,
 };
 
 export function isReadOnlyHttpTool(name: string): boolean {
