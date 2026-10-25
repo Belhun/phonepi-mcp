@@ -7,6 +7,7 @@ import test from "node:test";
 import {
   ASSISTANT_MAX_ENTRIES,
   AssistantStore,
+  pickRowsToDrop,
   validateSendNotificationArgs,
 } from "../dist/assistant-events.js";
 import { CommandRateLimiter } from "../dist/command-rate-limit.js";
@@ -388,4 +389,128 @@ test("assistant rate-limit rejection is retryable", () => {
   assert.equal(limited.rejected[0].error, "rate limited");
   assert.equal(limited.rejected[0].retryable, true);
   assert.equal(limited.rejected[0].id, "prompt-rl-over");
+  assert.equal(typeof limited.rejected[0].retryAfterSec, "number");
 });
+
+test("duplicate prompt ids skip the ingest limiter", () => {
+  let t = NOW;
+  const limiter = new CommandRateLimiter(60_000, () => t);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "phonepi-assistant-dup-"));
+  const store = new AssistantStore(dir, 30, () => t, limiter);
+  for (let i = 0; i < 30; i += 1) {
+    const result = store.ingestPrompt({
+      id: `prompt-dup${String(i).padStart(5, "0")}`,
+      text: `n${i}`,
+      source: "app",
+      ts: t,
+    });
+    assert.equal(result.rejected.length, 0);
+  }
+  const resend = store.ingestPrompt({
+    id: "prompt-dup00000",
+    text: "n0",
+    source: "app",
+    ts: t,
+  });
+  assert.equal(resend.duplicate, true);
+  assert.equal(resend.rejected.length, 0);
+  const extra = store.ingestPrompt({
+    id: "prompt-dup-extra",
+    text: "extra",
+    source: "app",
+    ts: t,
+  });
+  assert.equal(extra.rejected[0].retryable, true);
+});
+
+test("40 queued prompts converge: resends of stored ids do not consume budget", () => {
+  let t = NOW;
+  const limiter = new CommandRateLimiter(60_000, () => t);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "phonepi-assistant-40-"));
+  const store = new AssistantStore(dir, 30, () => t, limiter);
+  const sends = [];
+  for (let i = 0; i < 40; i += 1) {
+    const id = `prompt-q${String(i).padStart(5, "0")}`;
+    const result = store.ingestPrompt({
+      id,
+      text: `p${i}`,
+      source: "app",
+      ts: t,
+    });
+    sends.push(result);
+  }
+  const accepted = sends.filter((row) => row.accepted.length && !row.duplicate).length;
+  const limited = sends.filter((row) => row.rejected[0]?.retryable).length;
+  assert.equal(accepted, 30);
+  assert.equal(limited, 10);
+  let resendSends = 0;
+  for (let i = 0; i < 30; i += 1) {
+    const result = store.ingestPrompt({
+      id: `prompt-q${String(i).padStart(5, "0")}`,
+      text: `p${i}`,
+      source: "app",
+      ts: t,
+    });
+    resendSends += 1;
+    assert.equal(result.duplicate, true);
+    assert.equal(result.rejected.length, 0);
+  }
+  t += 60_000;
+  let recovered = 0;
+  for (let i = 30; i < 40; i += 1) {
+    const result = store.ingestPrompt({
+      id: `prompt-q${String(i).padStart(5, "0")}`,
+      text: `p${i}`,
+      source: "app",
+      ts: t,
+    });
+    recovered += 1;
+    assert.equal(result.accepted[0], `prompt-q${String(i).padStart(5, "0")}`);
+  }
+  assert.equal(resendSends, 30);
+  assert.equal(recovered, 10);
+  assert.equal(store.queryPrompts({ limit: 200 }).length, 40);
+});
+
+test("cap drop prefers rows a bot already read", () => {
+  const rows = [
+    { id: "a", ts: 1 },
+    { id: "b", ts: 2 },
+    { id: "c", ts: 3 },
+  ];
+  const dropped = pickRowsToDrop(rows, 1, new Set(["c"]));
+  assert.deepEqual(
+    dropped.map((row) => row.id),
+    ["c"]
+  );
+});
+
+test("assistant rewrite writes new files then swaps", () => {
+  let t = NOW;
+  const limiter = new CommandRateLimiter(1, () => t);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "phonepi-assistant-swap-"));
+  const store = new AssistantStore(dir, 30, () => NOW, limiter);
+  for (let i = 0; i < ASSISTANT_MAX_ENTRIES; i += 1) {
+    t += 2;
+    store.ingestPrompt({
+      id: `prompt-s${String(i).padStart(7, "0")}`,
+      text: `s${i}`,
+      source: "app",
+      ts: NOW - (ASSISTANT_MAX_ENTRIES - i) * 1000,
+    });
+  }
+  t += 2;
+  store.ingestPrompt({
+    id: "prompt-snewest1",
+    text: "newest",
+    source: "app",
+    ts: NOW,
+  });
+  const promptDir = path.join(dir, "prompts");
+  assert.equal(fs.existsSync(`${promptDir}.next`), false);
+  assert.equal(fs.existsSync(`${promptDir}.bak`), false);
+  assert.equal(fs.existsSync(promptDir), true);
+  const files = fs.readdirSync(promptDir).filter((name) => name.endsWith(".jsonl"));
+  assert.ok(files.length >= 1);
+});
+

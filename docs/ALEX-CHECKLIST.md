@@ -11,7 +11,7 @@ apksigner verify --print-certs phonepi-android/app/build/outputs/apk/release/app
 apksigner verify --print-certs phonepi-android/phonepi-wear/build/outputs/apk/release/phonepi-wear-release.apk
 ```
 
-The SHA-256 lines must match each other (same release key). SHA-1 of the current release cert is `49:B1:AB:F2:98:F5:D4:9A:B3:8B:A2:30:6F:E9:E3:2E:E4:89:48:9D` if you want a second check. The SHA-256 is not checked into this repo; print it from the APK. Debug APKs are for this box's tests, not the Pixel or watch.
+Print SHA-256 (and SHA-1) from those two commands and compare phone vs watch. The SHA-256 lines must match (same release key). The SHA-256 is not checked into this repo. SHA-1 of the current release cert is `49:B1:AB:F2:98:F5:D4:9A:B3:8B:A2:30:6F:E9:E3:2E:E4:89:48:9D` if you want a second check. Debug APKs are for this box's tests, not the Pixel or watch.
 
 ## Phone companion
 
@@ -63,7 +63,28 @@ Edit `/home/box/.phonepi/env` (mode 600). Restart the PhonePi server after savin
 Set these names (values stay in that file):
 
 - `PHONEPI_WS_TOKEN` — phone socket and `/api/command` (already there).
-- `PHONEPI_READ_TOKEN` — sensitive reads (`get_presence`, `get_screen_time`, `get_health_summary`, `get_notification_replies`, `get_inbound_prompts`, `get_location_history`, `search_places`). Separate from the WS token. Default bot is place labels only (`coords: false`). Optional `PHONEPI_READ_BOTS` JSON or `~/.phonepi/read-bots.json` (mode 0600) for per-bot scoped tokens (`coords: true` only for bots allowed raw coordinates). Optional `PHONEPI_REQUIRE_READ_TOKEN_ALL=1` also gates notification log, notifications, call log, contacts, and photos list. Optional `PHONEPI_MCP_USE_ENV_READ_TOKEN=1` lets a single-bot MCP process reuse the env token.
+- `PHONEPI_READ_TOKEN` — sensitive reads (`get_presence`, `get_screen_time`, `get_health_summary`, `get_notification_replies`, `get_inbound_prompts`, `get_location_history`, `search_places`, `get_location`, `phone_list_locations`). Separate from the WS token. Default bot is place labels only (`coords: false`). Optional `PHONEPI_READ_BOTS` JSON or `~/.phonepi/read-bots.json` (mode 0600) for per-bot scoped tokens (`coords: true` only for bots allowed raw coordinates). Optional `PHONEPI_REQUIRE_READ_TOKEN_ALL=1` also gates notification log, notifications, call log, contacts, and photos list. Optional `PHONEPI_MCP_USE_ENV_READ_TOKEN=1` lets a single-bot MCP process reuse the env token.
+
+Every process running as the same box user can read `~/.phonepi/env` and `read-bots.json`. Real isolation needs separate OS users or containers. MCP is the full-trust channel; per-bot coordinate limits are enforced on MCP for `get_location` / `phone_list_locations` / history, but any MCP client that can spawn the server still shares that user. HTTP `/api/tool` is the place to give each bot its own token.
+
+To turn on `PHONEPI_REQUIRE_READ_TOKEN_ALL=1` later without breaking the 10-minute notification poller, give it a scoped file bot (mode 0600):
+
+```bash
+install -m 0600 /dev/null ~/.phonepi/read-bots.json
+cat > ~/.phonepi/read-bots.json <<'JSON'
+[
+  {
+    "id": "notif-poller",
+    "token": "replace-with-a-long-random-token",
+    "tools": ["get_notification_log"],
+    "coords": false
+  }
+]
+JSON
+chmod 0600 ~/.phonepi/read-bots.json
+```
+
+Keep `PHONEPI_REQUIRE_READ_TOKEN_ALL` unset (off) until that poller sends `X-PhonePi-Read-Token`. Notification text is wrapped as untrusted even while the flag is off.
 - `PHONEPI_WAKE_HOOK_URL` — `https` URL (http only for loopback `127.0.0.0/8` or tailnet `100.64.0.0/10` / `*.ts.net`). Unset disables the hook.
 - `PHONEPI_WAKE_HOOK_SECRET` — optional. Sent as `X-PhonePi-Wake-Secret`.
 - Optional: `PHONEPI_HTTP_HOSTS` if loopback HTTP must accept extra `Host` values. Default is `127.0.0.1`, `localhost`, `[::1]`. Tailscale Serve still fronts WebSocket 11041, not `/api/tool`.

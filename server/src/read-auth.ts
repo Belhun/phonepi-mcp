@@ -28,6 +28,8 @@ export const SENSITIVE_READ_TOOLS = new Set<string>([
   "get_inbound_prompts",
   "get_location_history",
   "search_places",
+  "get_location",
+  "phone_list_locations",
 ]);
 
 /** Extra reads that stay token-free unless PHONEPI_REQUIRE_READ_TOKEN_ALL=1. */

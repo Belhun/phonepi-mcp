@@ -48,6 +48,7 @@ export function runNotificationLogRead(options: {
   wrapUntrusted?: boolean;
   callerId?: string;
 }): NotificationLogReadOutcome {
+  void options.wrapUntrusted;
   const parsed = parseArgs(options.args);
   if (!parsed.ok) return { status: 400, body: { text: parsed.error, isError: true } };
   const limitKey = `${options.callerId ?? "anon"}:${NOTIFICATION_LOG_TOOL}`;
@@ -62,9 +63,7 @@ export function runNotificationLogRead(options: {
     };
   }
   const result = options.log.query(parsed.query);
-  const entries = options.wrapUntrusted
-    ? result.entries.map(wrapNotificationEntry)
-    : result.entries;
+  const entries = result.entries.map(wrapNotificationEntry);
   return {
     status: 200,
     body: {

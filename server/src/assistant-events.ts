@@ -11,9 +11,11 @@ import {
   atomicAppendLine,
   atomicWriteFile,
   ensureBoxDir,
+  recoverSwapDir,
   removeFile,
   resolveBoxDir,
   safeReadFile,
+  swapRewriteDir,
 } from "./atomic-file.js";
 import { CommandRateLimiter } from "./command-rate-limit.js";
 import { INGEST_PER_MINUTE, ingestRateLimiter } from "./ingest-limit.js";
@@ -71,6 +73,7 @@ export interface IngestRejection {
   id: string;
   error: string;
   retryable?: boolean;
+  retryAfterSec?: number;
 }
 
 export interface IngestResult {
@@ -147,7 +150,9 @@ export class AssistantStore {
       if (messageId && row.messageId !== messageId) return false;
       return true;
     });
-    return newestLast(all, limit);
+    const rows = newestLast(all, limit);
+    this.markRead("replies", rows);
+    return rows;
   }
 
   queryPrompts(filter: {
@@ -161,7 +166,9 @@ export class AssistantStore {
     const all = this.readAll<InboundPrompt>("prompts").filter((row) => {
       return row.ts > since && row.ts <= until;
     });
-    return newestLast(all, limit);
+    const rows = newestLast(all, limit);
+    this.markRead("prompts", rows);
+    return rows;
   }
 
   private ingest<T extends { id: string; ts: number }>(
@@ -182,6 +189,12 @@ export class AssistantStore {
           typeof (raw as { id?: unknown }).id === "string"
             ? (raw as { id: string }).id
             : "");
+    if (parsed.ok) {
+      const existing = this.findById<T>(kind, parsed.value.id);
+      if (existing) {
+        return { accepted: [parsed.value.id], rejected: [], duplicate: true };
+      }
+    }
     const budget = this.limiter.allow(
       `ingest:assistant:${kind}`,
       INGEST_PER_MINUTE.assistant
@@ -189,7 +202,14 @@ export class AssistantStore {
     if (!budget.ok) {
       return {
         accepted: [],
-        rejected: [{ id: parsedId, error: "rate limited", retryable: true }],
+        rejected: [
+          {
+            id: parsedId,
+            error: "rate limited",
+            retryable: true,
+            retryAfterSec: budget.retryAfterSec,
+          },
+        ],
         duplicate: false,
       };
     }
@@ -207,10 +227,6 @@ export class AssistantStore {
         duplicate: false,
       };
     }
-    const existing = this.findById<T>(kind, parsed.value.id);
-    if (existing) {
-      return { accepted: [parsed.value.id], rejected: [], duplicate: true };
-    }
     const droppedOldest = this.dropOldestIfNeeded<T>(kind);
     this.append(kind, parsed.value);
     return {
@@ -227,7 +243,10 @@ export class AssistantStore {
     const all = this.readAll<T>(kind);
     if (all.length < ASSISTANT_MAX_ENTRIES) return 0;
     const drop = all.length - ASSISTANT_MAX_ENTRIES + 1;
-    const keep = all.slice(drop);
+    const toDrop = pickRowsToDrop(all, drop, this.readIds(kind));
+    const dropIds = new Set(toDrop.map((row) => row.id));
+    const keep = all.filter((row) => !dropIds.has(row.id));
+    this.forgetReadIds(kind, dropIds);
     this.rewriteKind(kind, keep);
     console.error(
       `assistant ${kind} dropped_oldest=${drop} cap=${ASSISTANT_MAX_ENTRIES}`
@@ -239,12 +258,63 @@ export class AssistantStore {
     kind: "replies" | "prompts",
     rows: T[]
   ): void {
-    const dir = this.kindDir(kind);
-    if (fs.existsSync(dir)) {
-      for (const file of this.listFiles(kind)) removeFile(file);
+    const files = new Map<string, string[]>();
+    for (const row of rows) {
+      const name = monthName(row.ts);
+      const list = files.get(name) ?? [];
+      list.push(JSON.stringify(row));
+      files.set(name, list);
     }
-    this.ensureDir(kind);
-    for (const row of rows) this.append(kind, row);
+    swapRewriteDir(
+      this.kindDir(kind),
+      [...files.entries()].map(([name, lines]) => [name, `${lines.join("\n")}\n`])
+    );
+  }
+
+  private markRead(kind: "replies" | "prompts", rows: { id: string }[]): void {
+    if (rows.length === 0) return;
+    const ids = this.readIds(kind);
+    for (const row of rows) ids.add(row.id);
+    this.writeReadIds(kind, ids);
+  }
+
+  private forgetReadIds(kind: "replies" | "prompts", dropped: Set<string>): void {
+    const ids = this.readIds(kind);
+    for (const id of dropped) ids.delete(id);
+    this.writeReadIds(kind, ids);
+  }
+
+  private readIds(kind: "replies" | "prompts"): Set<string> {
+    const raw = safeReadFile(this.readIdsFile());
+    if (!raw.trim()) return new Set();
+    try {
+      const parsed = JSON.parse(raw) as { prompts?: unknown; replies?: unknown };
+      const list = parsed[kind];
+      if (!Array.isArray(list)) return new Set();
+      return new Set(list.filter((id): id is string => typeof id === "string"));
+    } catch {
+      return new Set();
+    }
+  }
+
+  private writeReadIds(kind: "replies" | "prompts", ids: Set<string>): void {
+    let prompts: string[] = [];
+    let replies: string[] = [];
+    if (kind === "prompts") {
+      prompts = [...ids];
+      replies = [...this.readIds("replies")];
+    } else {
+      replies = [...ids];
+      prompts = [...this.readIds("prompts")];
+    }
+    atomicWriteFile(
+      this.readIdsFile(),
+      JSON.stringify({ prompts, replies })
+    );
+  }
+
+  private readIdsFile(): string {
+    return path.join(this.dir, "read-ids.json");
   }
 
   private findById<T extends { id: string }>(
@@ -313,6 +383,7 @@ export class AssistantStore {
 
   private ensureDir(kind: "replies" | "prompts"): void {
     ensureBoxDir(this.dir);
+    recoverSwapDir(this.kindDir(kind));
     ensureBoxDir(this.kindDir(kind));
   }
 
@@ -518,6 +589,18 @@ function parseActions(
     }
   }
   return { ok: true, actions };
+}
+
+export function pickRowsToDrop<T extends { id: string; ts: number }>(
+  all: T[],
+  drop: number,
+  readIds: Set<string>
+): T[] {
+  if (drop <= 0) return [];
+  const byTs = (a: T, b: T) => a.ts - b.ts || a.id.localeCompare(b.id);
+  const read = all.filter((row) => readIds.has(row.id)).sort(byTs);
+  const unread = all.filter((row) => !readIds.has(row.id)).sort(byTs);
+  return [...read, ...unread].slice(0, drop);
 }
 
 function newestLast<T>(all: T[], limit: number): T[] {

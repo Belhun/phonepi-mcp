@@ -50,7 +50,8 @@ adb install -r phonepi-wear/build/outputs/apk/release/phonepi-wear-release.apk
 ```
 
 5. Watch: add the PhonePi tile (tiles carousel → Add → PhonePi). Optional: add the **Next alarm** complication on a watch face.
-6. Phone: grant **Do Not Disturb access** if Quiet for 1h should run (same grant the volume tools already use).
+
+Quiet 1h is in-app PhonePi quiet (confirm tap). It does not change system Do Not Disturb.
 
 If `adb connect` dies after a Wi-Fi change, the watch assigned a new debug port. Open Wireless debugging again and reconnect. Do not bake the port into a script.
 

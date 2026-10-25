@@ -52,6 +52,7 @@ sealed interface WsMessage {
         val id: String,
         val ok: Boolean,
         val retryable: Boolean = false,
+        val retryAfterSec: Int = 60,
     ) : WsMessage
 
     /** Any other or unparseable frame. Ignored by the message loop. */
@@ -85,6 +86,10 @@ sealed interface WsMessage {
                     id = obj["id"]?.jsonPrimitive?.contentOrNull.orEmpty(),
                     ok = obj["ok"]?.jsonPrimitive?.contentOrNull != "false",
                     retryable = obj["retryable"]?.jsonPrimitive?.contentOrNull == "true",
+                    retryAfterSec = obj["retryAfterSec"]?.jsonPrimitive?.contentOrNull
+                        ?.toIntOrNull()
+                        ?.coerceAtLeast(1)
+                        ?: 60,
                 )
                 else -> Unknown(obj["type"]?.jsonPrimitive?.contentOrNull ?: "none")
             }

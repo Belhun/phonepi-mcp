@@ -10,6 +10,7 @@ import androidx.core.app.RemoteInput
 import dev.phonepi.companion.R
 import dev.phonepi.companion.assistant.AssistantProtocol
 import dev.phonepi.companion.privacy.PhonePiQuiet
+import dev.phonepi.companion.privacy.QuietHoldPolicy
 import dev.phonepi.companion.receiver.MessageActionReceiver
 import dev.phonepi.companion.ui.MessageReplyActivity
 import dev.phonepi.companion.util.NotificationHelper
@@ -21,7 +22,8 @@ object MessageNotificationHelper {
     const val HELD = "held"
     private const val HELD_PREFS = "phonepi_held_cards"
     private const val HELD_KEY = "cards"
-    private const val HELD_CAP = 20
+    private const val HELD_OVERFLOW = "overflow"
+    private const val HELD_CAP = QuietHoldPolicy.CAP
     private const val SUMMARY_ID = 4410
     private val lock = Any()
 
@@ -70,12 +72,14 @@ object MessageNotificationHelper {
 
     fun releaseHeld(context: Context) {
         val app = context.applicationContext
-        val cards = synchronized(lock) {
+        val (cards, overflow) = synchronized(lock) {
             val held = readHeld(app)
+            val extra = overflowCount(app)
             writeHeld(app, emptyList())
-            held
+            writeOverflow(app, 0)
+            held to extra
         }
-        if (cards.isEmpty()) return
+        if (cards.isEmpty() && overflow == 0) return
         for (card in cards) {
             show(
                 app,
@@ -92,10 +96,17 @@ object MessageNotificationHelper {
         val summary = NotificationCompat.Builder(app, NotificationHelper.CHANNEL_MESSAGES)
             .setSmallIcon(R.drawable.ic_stat_link)
             .setContentTitle("PhonePi quiet ended")
-            .setContentText("${cards.size} cards were held")
+            .setContentText(QuietHoldPolicy.summaryText(cards.size, overflow))
             .setStyle(
                 NotificationCompat.BigTextStyle().bigText(
-                    cards.take(5).joinToString("\n") { it.title }.ifBlank { "${cards.size} cards" },
+                    buildString {
+                        append(cards.take(5).joinToString("\n") { it.title })
+                        if (overflow > 0) {
+                            if (isNotEmpty()) append('\n')
+                            append("$overflow more held")
+                        }
+                        if (isEmpty()) append(QuietHoldPolicy.summaryText(cards.size, overflow))
+                    },
                 ),
             )
             .setAutoCancel(true)
@@ -108,6 +119,8 @@ object MessageNotificationHelper {
         val app = context.applicationContext
         synchronized(lock) {
             val next = readHeld(app).filter { it.messageId != card.messageId } + card
+            val dropped = QuietHoldPolicy.droppedCount(next.size, HELD_CAP)
+            if (dropped > 0) writeOverflow(app, overflowCount(app) + dropped)
             writeHeld(app, next.takeLast(HELD_CAP))
         }
     }
@@ -264,6 +277,16 @@ object MessageNotificationHelper {
                 )
             }
         }
+    }
+
+    private fun overflowCount(context: Context): Int =
+        context.getSharedPreferences(HELD_PREFS, Context.MODE_PRIVATE).getInt(HELD_OVERFLOW, 0)
+
+    private fun writeOverflow(context: Context, count: Int) {
+        context.getSharedPreferences(HELD_PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putInt(HELD_OVERFLOW, count.coerceAtLeast(0))
+            .apply()
     }
 
     private fun writeHeld(context: Context, cards: List<HeldCard>) {

@@ -3,44 +3,29 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
   CallToolRequestSchema,
-  ErrorCode,
   ListToolsRequestSchema,
-  McpError,
 } from "@modelcontextprotocol/sdk/types.js";
 import { WebSocket, WebSocketServer } from "ws";
 import {
   GM_TOOL_SCHEMAS,
   ensureGmessagesSidecar,
   gmessagesClient,
-  isGmTool,
   stopGmessagesSidecar,
 } from "./gmessages/index.js";
 import { commandRateLimiter } from "./command-rate-limit.js";
 import { openLocationLog } from "./location-log.js";
-import { isLocationReadTool, LOCATION_TOOL_SCHEMAS, runLocationRead } from "./location-tools.js";
+import { LOCATION_TOOL_SCHEMAS } from "./location-tools.js";
 import { openPresenceConfig } from "./presence-config.js";
 import { openPresenceLog } from "./presence-log.js";
-import {
-  PRESENCE_TOOL_SCHEMAS,
-  isPresenceReadTool,
-  runPresenceRead,
-} from "./presence-tools.js";
+import { PRESENCE_TOOL_SCHEMAS } from "./presence-tools.js";
 import { openUsageLog } from "./usage-log.js";
-import { isUsageReadTool, USAGE_TOOL_SCHEMAS, runUsageRead } from "./usage-tools.js";
+import { USAGE_TOOL_SCHEMAS } from "./usage-tools.js";
 import { openHealthLog } from "./health-log.js";
-import { HEALTH_TOOL_SCHEMAS, isHealthReadTool, runHealthRead } from "./health-tools.js";
+import { HEALTH_TOOL_SCHEMAS } from "./health-tools.js";
 import { openNotificationLog } from "./notification-log.js";
-import {
-  NOTIFICATION_LOG_TOOL_SCHEMAS,
-  isNotificationLogTool,
-  runNotificationLogRead,
-} from "./notification-log-tools.js";
+import { NOTIFICATION_LOG_TOOL_SCHEMAS } from "./notification-log-tools.js";
 import { openAssistantStore } from "./assistant-events.js";
-import {
-  ASSISTANT_TOOL_SCHEMAS,
-  isAssistantReadTool,
-  runAssistantRead,
-} from "./assistant-tools.js";
+import { ASSISTANT_TOOL_SCHEMAS } from "./assistant-tools.js";
 import { WakeHook } from "./wake-hook.js";
 import {
   NotificationPoller,
@@ -78,15 +63,12 @@ import { requestPhoneTool } from "./phone-request.js";
 import { PhoneSession, bindPhoneConnection } from "./phone-session.js";
 import { createPhoneWebSocketServer } from "./phone-ws.js";
 import { createPhoneVerifyClient } from "./ws-token.js";
+import { loadReadAuth } from "./read-auth.js";
 import {
-  authorizeSensitiveRead,
-  isSensitiveReadTool,
-  loadReadAuth,
-  logSensitiveRead,
-  matchReadBot,
-  requireReadTokenAll,
-  takeTokenArg,
-} from "./read-auth.js";
+  GET_LOCATION_SCHEMA,
+  handleMcpToolCall,
+  mcpSchemasWithTokenArg,
+} from "./mcp-call.js";
 import { allowIngest } from "./ingest-limit.js";
 
 function redactWsDebug(message: Record<string, unknown>): Record<string, unknown> {
@@ -202,8 +184,8 @@ class PhonePiMCPServer {
       wsPort: this.serverPort,
       bridge: {
         isPhoneConnected: () => this.isPhoneOpen(),
-        callPhoneTool: (name, args, callerId) =>
-          this.callPhoneTool(name, args, callerId ?? "public"),
+        callPhoneTool: (name, args, callerId, options) =>
+          this.callPhoneTool(name, args, callerId ?? "public", options),
         healthDetails: () => this.session.healthDetails(),
         noteActivity: (entry) => this.notePhoneActivity(entry),
       },
@@ -345,6 +327,8 @@ class PhonePiMCPServer {
           id,
           ok,
           retryable: result.rejected.some((row) => row.retryable === true),
+          retryAfterSec: result.rejected.find((row) => row.retryAfterSec != null)
+            ?.retryAfterSec,
         })
       );
     } catch (err) {
@@ -508,39 +492,11 @@ class PhonePiMCPServer {
     }
   }
 
-  private authorizeMcpRead(
-    tool: string,
-    provided: string | null
-  ): { callerId: string; coords: boolean } {
-    if (!isSensitiveReadTool(tool)) {
-      const bot = matchReadBot(this.readAuth, provided);
-      return {
-        callerId: bot?.id ?? "mcp",
-        coords: bot?.coords === true,
-      };
-    }
-    const auth = authorizeSensitiveRead({
-      state: this.readAuth,
-      tool,
-      provided,
-      envProvided: process.env.PHONEPI_READ_TOKEN ?? null,
-      source: "mcp",
-    });
-    if (!auth.ok) {
-      throw new McpError(ErrorCode.InvalidRequest, auth.text);
-    }
-    logSensitiveRead({
-      callerId: auth.callerId,
-      tool,
-      source: "mcp",
-    });
-    return auth;
-  }
-
   private callPhoneTool(
     name: string,
     args: Record<string, unknown>,
-    callerId = "shared"
+    callerId = "shared",
+    options?: { skipRateLimit?: boolean }
   ): Promise<unknown> {
     const validated = validatePhoneCommandArgs(name, args);
     if (!validated.ok) {
@@ -566,7 +522,7 @@ class PhonePiMCPServer {
         );
       }
     }
-    if (isPhoneCommand(name)) {
+    if (!options?.skipRateLimit && isPhoneCommand(name)) {
       const spec = getPhoneCommand(name);
       if (spec) {
         const budget = commandRateLimiter.allow(
@@ -579,7 +535,7 @@ class PhonePiMCPServer {
           );
         }
       }
-    } else {
+    } else if (!options?.skipRateLimit) {
       const maxPerMinute = readOnlyToolRateLimit(name);
       if (maxPerMinute != null) {
         const budget = commandRateLimiter.allow(
@@ -1127,7 +1083,7 @@ class PhonePiMCPServer {
   private setupMcpHandlers() {
     // List available tools
     this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
-      tools: [
+      tools: mcpSchemasWithTokenArg([
         {
           name: "get_battery_level",
           description: "Get the current battery level of the phone",
@@ -1137,6 +1093,7 @@ class PhonePiMCPServer {
             required: [],
           },
         },
+        GET_LOCATION_SCHEMA,
         // {
         //   name: 'take_photo',
         //   description: 'Take a photo using the phone camera',
@@ -1848,369 +1805,35 @@ class PhonePiMCPServer {
         ...ASSISTANT_TOOL_SCHEMAS,
         ...PHONE_COMMAND_SCHEMAS,
         ...GM_TOOL_SCHEMAS,
-      ],
+      ]),
     }));
 
-    // Handle tool calls
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
-      const stripped = takeTokenArg(
-        (request.params.arguments || {}) as Record<string, unknown>
+      return handleMcpToolCall(
+        {
+          params: {
+            name: request.params.name,
+            arguments: (request.params.arguments || {}) as Record<string, unknown>,
+          },
+        },
+        {
+          readAuth: this.readAuth,
+          limiter: commandRateLimiter,
+          locationLog: this.locationLog,
+          presenceLog: this.presenceLog,
+          presenceConfig: this.presenceConfig,
+          usageLog: this.usageLog,
+          healthLog: this.healthLog,
+          notificationLog: this.notificationLog,
+          assistantStore: this.assistantStore,
+          isPhoneOpen: () => this.isPhoneOpen(),
+          callPhoneTool: (name, args, callerId, options) =>
+            this.callPhoneTool(name, args, callerId ?? "mcp", options),
+          notePhoneActivity: (entry) => this.notePhoneActivity(entry),
+          notificationCaptureStatus: () => this.notificationCaptureStatus(),
+          callGmTool: (name, args) => gmessagesClient.callTool(name, args),
+        }
       );
-      const mcpAuth = this.authorizeMcpRead(request.params.name, stripped.token);
-      if (isLocationReadTool(request.params.name)) {
-        const args = stripped.rest;
-        const outcome = runLocationRead({
-          log: this.locationLog,
-          limiter: commandRateLimiter,
-          tool: request.params.name,
-          args,
-          activityLogged: false,
-          includeCoords: mcpAuth.coords,
-          callerId: mcpAuth.callerId,
-        });
-        if (outcome.status === 400) {
-          throw new McpError(ErrorCode.InvalidParams, String(outcome.body.text));
-        }
-        if (outcome.status === 429) {
-          throw new McpError(ErrorCode.InvalidRequest, String(outcome.body.text));
-        }
-        let text = String(outcome.body.text);
-        if (
-          this.notePhoneActivity({
-            title: request.params.name,
-            detail: "read box location history",
-          })
-        ) {
-          try {
-            const payload = JSON.parse(text);
-            payload.activityLogged = true;
-            text = JSON.stringify(payload, null, 2);
-          } catch {
-            // Keep the original success text.
-          }
-        }
-        return { content: [{ type: "text", text }] };
-      }
-
-      if (isPresenceReadTool(request.params.name)) {
-        const outcome = runPresenceRead({
-          log: this.presenceLog,
-          config: this.presenceConfig,
-          limiter: commandRateLimiter,
-          tool: request.params.name,
-          activityLogged: false,
-          includeCoords: mcpAuth.coords,
-          callerId: mcpAuth.callerId,
-        });
-        if (outcome.status === 400) {
-          throw new McpError(ErrorCode.InvalidParams, String(outcome.body.text));
-        }
-        if (outcome.status === 429) {
-          throw new McpError(ErrorCode.InvalidRequest, String(outcome.body.text));
-        }
-        let text = String(outcome.body.text);
-        if (
-          this.notePhoneActivity({
-            title: request.params.name,
-            detail: "read box presence",
-          })
-        ) {
-          try {
-            const payload = JSON.parse(text);
-            payload.activityLogged = true;
-            text = JSON.stringify(payload, null, 2);
-          } catch {
-            // Keep the original success text.
-          }
-        }
-        return { content: [{ type: "text", text }] };
-      }
-
-      if (isUsageReadTool(request.params.name)) {
-        const args = stripped.rest;
-        const outcome = runUsageRead({
-          log: this.usageLog,
-          limiter: commandRateLimiter,
-          args,
-          phoneConnected: this.isPhoneOpen(),
-          activityLogged: false,
-          callerId: mcpAuth.callerId,
-        });
-        if (outcome.status === 400) {
-          throw new McpError(ErrorCode.InvalidParams, String(outcome.body.text));
-        }
-        if (outcome.status === 429) {
-          throw new McpError(ErrorCode.InvalidRequest, String(outcome.body.text));
-        }
-        let text = String(outcome.body.text);
-        if (
-          this.notePhoneActivity({
-            title: request.params.name,
-            detail: "read box screen time",
-          })
-        ) {
-          try {
-            const payload = JSON.parse(text);
-            payload.activityLogged = true;
-            text = JSON.stringify(payload, null, 2);
-          } catch {
-            // Keep the original success text.
-          }
-        }
-        return { content: [{ type: "text", text }] };
-      }
-
-      if (isHealthReadTool(request.params.name)) {
-        const outcome = runHealthRead({
-          log: this.healthLog,
-          limiter: commandRateLimiter,
-          phoneConnected: this.isPhoneOpen(),
-          activityLogged: false,
-          callerId: mcpAuth.callerId,
-        });
-        if (outcome.status === 429) {
-          throw new McpError(ErrorCode.InvalidRequest, String(outcome.body.text));
-        }
-        let text = String(outcome.body.text);
-        if (
-          this.notePhoneActivity({
-            title: request.params.name,
-            detail: "read box health summary",
-          })
-        ) {
-          try {
-            const payload = JSON.parse(text);
-            payload.activityLogged = true;
-            text = JSON.stringify(payload, null, 2);
-          } catch {
-            // Keep the original success text.
-          }
-        }
-        return { content: [{ type: "text", text }] };
-      }
-
-      if (isNotificationLogTool(request.params.name)) {
-        const outcome = runNotificationLogRead({
-          log: this.notificationLog,
-          limiter: commandRateLimiter,
-          args: stripped.rest,
-          capture: () => this.notificationCaptureStatus(),
-          wrapUntrusted: requireReadTokenAll(),
-          callerId: mcpAuth.callerId,
-        });
-        if (outcome.status === 400) {
-          throw new McpError(ErrorCode.InvalidParams, outcome.body.text);
-        }
-        if (outcome.status === 429) {
-          throw new McpError(ErrorCode.InvalidRequest, outcome.body.text);
-        }
-        return { content: [{ type: "text", text: outcome.body.text }] };
-      }
-
-      if (isAssistantReadTool(request.params.name)) {
-        const outcome = runAssistantRead({
-          store: this.assistantStore,
-          limiter: commandRateLimiter,
-          tool: request.params.name,
-          args: stripped.rest,
-          activityLogged: false,
-          callerId: mcpAuth.callerId,
-        });
-        if (outcome.status === 400) {
-          throw new McpError(ErrorCode.InvalidParams, outcome.body.text);
-        }
-        if (outcome.status === 429) {
-          throw new McpError(ErrorCode.InvalidRequest, outcome.body.text);
-        }
-        let text = outcome.body.text;
-        if (
-          this.notePhoneActivity({
-            title: request.params.name,
-            detail: "read box assistant events",
-          })
-        ) {
-          try {
-            const payload = JSON.parse(text);
-            payload.activityLogged = true;
-            text = JSON.stringify(payload, null, 2);
-          } catch {
-            // Keep the original success text.
-          }
-        }
-        return { content: [{ type: "text", text }] };
-      }
-
-      if (request.params.name === "clear_assistant_events") {
-        const validated = validatePhoneCommandArgs(
-          request.params.name,
-          stripped.rest
-        );
-        if (!validated.ok) {
-          throw new McpError(ErrorCode.InvalidParams, validated.error);
-        }
-        const spec = getPhoneCommand(request.params.name);
-        if (spec) {
-          const budget = commandRateLimiter.allow(
-            `${mcpAuth.callerId}:${spec.name}`,
-            spec.maxPerMinute
-          );
-          if (!budget.ok) {
-            throw new McpError(
-              ErrorCode.InvalidRequest,
-              `Rate limited: ${spec.name}. Try again in ${budget.retryAfterSec}s`
-            );
-          }
-        }
-        this.assistantStore.clear();
-        let phoneCleared = false;
-        if (this.isPhoneOpen()) {
-          try {
-            await this.callPhoneTool(
-              request.params.name,
-              validated.args,
-              mcpAuth.callerId
-            );
-            phoneCleared = true;
-          } catch {
-            phoneCleared = false;
-          }
-        }
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(
-                { status: "success", cleared: true, phoneCleared },
-                null,
-                2
-              ),
-            },
-          ],
-        };
-      }
-
-      if (isGmTool(request.params.name)) {
-        try {
-          const result = await gmessagesClient.callTool(
-            request.params.name,
-            stripped.rest
-          );
-          if (result.isError) {
-            throw new McpError(ErrorCode.InternalError, result.text);
-          }
-          return {
-            content: [{ type: "text", text: result.text }],
-          };
-        } catch (error: unknown) {
-          throw new McpError(
-            ErrorCode.InternalError,
-            error instanceof Error ? error.message : "Google Messages tool failed"
-          );
-        }
-      }
-
-      const phone = this.session.currentSocket();
-      if (!phone) {
-        throw new McpError(
-          ErrorCode.InvalidParams,
-          "Phone not connected - please ensure the phone app is running and connected"
-        );
-      }
-
-      if (phone.readyState !== WebSocket.OPEN) {
-        throw new McpError(
-          ErrorCode.InvalidParams,
-          "Phone connection is not open"
-        );
-      }
-
-      try {
-        const response = await           this.callPhoneTool(
-          request.params.name,
-          stripped.rest,
-          mcpAuth.callerId
-        );
-
-        // Check if this is a photo response with image data
-        if (
-          request.params.name === "take_photo" &&
-          typeof response === "string"
-        ) {
-          try {
-            const parsedResponse = JSON.parse(response);
-            if (
-              parsedResponse.imageData &&
-              parsedResponse.imageData.startsWith("data:image/")
-            ) {
-              // Extract the base64 data and content type from the data URL
-              const matches = parsedResponse.imageData.match(
-                /^data:([^;]+);base64,(.+)$/
-              );
-              if (matches && matches.length === 3) {
-                const contentType = matches[1]; // e.g., "image/jpeg"
-                const base64Data = matches[2];
-
-                // Return both the image and the text response with a portion of the image data for analysis
-                // Include the first 10000 characters of the base64 data, which should be enough for basic analysis
-                // without making the response too large
-                const analysisData =
-                  base64Data.length > 10000
-                    ? base64Data.substring(0, 10000) + "..."
-                    : base64Data;
-
-                return {
-                  content: [
-                    {
-                      type: "image",
-                      mimeType: contentType,
-                      data: base64Data,
-                    },
-                    {
-                      type: "text",
-                      text: JSON.stringify(
-                        {
-                          ...parsedResponse,
-                          // Include a portion of the image data for analysis
-                          imageData: `[${contentType} image data]`,
-                          imageDataForAnalysis: `data:${contentType};base64,${analysisData}`,
-                        },
-                        null,
-                        2
-                      ),
-                    },
-                  ],
-                };
-              }
-            }
-          } catch (e) {
-            console.error("Error parsing photo response:", e);
-            // Fall back to default handling if parsing fails
-          }
-        }
-
-        // Default handling for non-image responses
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(response, null, 2),
-            },
-          ],
-        };
-      } catch (error: unknown) {
-        if (error instanceof RateLimitError) {
-          throw new McpError(ErrorCode.InvalidRequest, error.message);
-        }
-        if (error instanceof CommandValidationError) {
-          throw new McpError(ErrorCode.InvalidParams, error.message);
-        }
-        throw new McpError(
-          ErrorCode.InternalError,
-          `Failed to execute ${request.params.name}: ${
-            error instanceof Error ? error.message : "Unknown error"
-          }`
-        );
-      }
     });
   }
 

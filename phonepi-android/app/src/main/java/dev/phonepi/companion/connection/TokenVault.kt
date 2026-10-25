@@ -52,22 +52,42 @@ object TokenVault {
             val old = legacy.getString("last_ws_token", null).orEmpty()
             if (old.isNotBlank() && lastToken(app).isBlank()) {
                 setLastToken(app, old)
+                if (!TokenVaultMigration.acceptReadback(old, lastToken(app))) {
+                    warn("Keystore write could not be verified; reconnect to pair again. Existing pairing was kept.")
+                    return
+                }
             }
-            legacy.edit().remove("last_ws_token").apply()
             val servers = ServerList.decode(
                 app.getSharedPreferences("phonepi_servers", Context.MODE_PRIVATE)
                     .getString("servers_json", null),
             ).orEmpty()
             var changed = false
+            var verifyFailed = false
             val stripped = servers.map { entry ->
                 if (entry.token.isNotBlank()) {
                     setServerToken(app, entry.id, entry.token)
-                    changed = true
-                    entry.copy(token = "")
+                    if (!TokenVaultMigration.acceptReadback(entry.token, serverToken(app, entry.id))) {
+                        warn("Keystore write could not be verified for a saved server; reconnect to pair again.")
+                        verifyFailed = true
+                        entry
+                    } else {
+                        changed = true
+                        entry.copy(token = "")
+                    }
                 } else {
                     entry
                 }
             }
+            if (verifyFailed) {
+                if (changed) {
+                    app.getSharedPreferences("phonepi_servers", Context.MODE_PRIVATE)
+                        .edit()
+                        .putString("servers_json", ServerList.encode(stripped))
+                        .apply()
+                }
+                return
+            }
+            legacy.edit().remove("last_ws_token").apply()
             if (changed) {
                 app.getSharedPreferences("phonepi_servers", Context.MODE_PRIVATE)
                     .edit()

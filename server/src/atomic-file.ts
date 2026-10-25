@@ -125,6 +125,61 @@ export function removeFile(file: string): void {
   fs.rmSync(file, { force: true });
 }
 
+/**
+ * Write a complete replacement directory to [dir].next, then swap.
+ * A crash midway leaves the previous [dir] (or [dir].bak) intact.
+ * Call [recoverSwapDir] on open.
+ */
+export function swapRewriteDir(
+  dir: string,
+  files: Iterable<[string, string]>
+): void {
+  recoverSwapDir(dir);
+  const next = `${dir}.next`;
+  const bak = `${dir}.bak`;
+  if (fs.existsSync(next)) {
+    fs.rmSync(next, { recursive: true, force: true });
+  }
+  ensureBoxDir(path.dirname(dir));
+  ensureBoxDir(next);
+  for (const [name, contents] of files) {
+    if (!name || name.includes("/") || name.includes("\\") || name.includes("..")) {
+      throw new Error("invalid swap file name");
+    }
+    atomicWriteFile(path.join(next, name), contents);
+  }
+  if (fs.existsSync(bak)) {
+    fs.rmSync(bak, { recursive: true, force: true });
+  }
+  if (fs.existsSync(dir)) {
+    fs.renameSync(dir, bak);
+  }
+  fs.renameSync(next, dir);
+  fs.chmodSync(dir, BOX_DIR_MODE);
+  if (fs.existsSync(bak)) {
+    fs.rmSync(bak, { recursive: true, force: true });
+  }
+}
+
+/** Repair a directory after a crash during [swapRewriteDir]. */
+export function recoverSwapDir(dir: string): void {
+  const next = `${dir}.next`;
+  const bak = `${dir}.bak`;
+  if (!fs.existsSync(dir)) {
+    if (fs.existsSync(next)) {
+      fs.renameSync(next, dir);
+    } else if (fs.existsSync(bak)) {
+      fs.renameSync(bak, dir);
+    }
+  }
+  if (fs.existsSync(next)) {
+    fs.rmSync(next, { recursive: true, force: true });
+  }
+  if (fs.existsSync(bak)) {
+    fs.rmSync(bak, { recursive: true, force: true });
+  }
+}
+
 function isInside(resolved: string, root: string): boolean {
   const rel = path.relative(path.resolve(root), resolved);
   return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));

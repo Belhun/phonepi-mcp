@@ -459,6 +459,7 @@ test("location tools need a read token; coords only when scoped", async () => {
       const body = JSON.parse(res.json.text);
       assert.equal(body.entries[0].placeName, "Cafe");
       assert.equal(body.entries[0].latitude, null);
+      assert.equal(body.entries[0].address, null);
       assert.equal(body.coordsScoped, false);
     }
   );

@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import http from "node:http";
+import os from "node:os";
+import path from "path";
 import test from "node:test";
+import { AssistantStore } from "../dist/assistant-events.js";
 import { CommandRateLimiter } from "../dist/command-rate-limit.js";
 import {
   PHONE_COMMAND_NAMES,
@@ -281,6 +285,72 @@ test("POST /api/command maps RateLimitError to 429", async () => {
       assert.match(res.json.text, /Rate limited/);
     }
   );
+});
+
+test("clear_assistant_events is rate-limited before the box is cleared", async () => {
+  const t = Date.UTC(2026, 9, 25, 12, 0, 0);
+  const limiter = new CommandRateLimiter(60_000, () => t);
+  const store = new AssistantStore(
+    fs.mkdtempSync(path.join(os.tmpdir(), "phonepi-clear-")),
+    30,
+    () => t
+  );
+  store.ingestPrompt({
+    id: "prompt-keep0001",
+    text: "keep",
+    source: "app",
+    ts: t,
+  });
+  let phoneCalls = 0;
+  const started = await startLoopbackHttp({
+    port: 0,
+    wsPort: 11041,
+    commandToken: "test-token",
+    locationReadLimiter: limiter,
+    assistantStore: store,
+    bridge: {
+      isPhoneConnected: () => true,
+      callPhoneTool: async (_name, _args, _caller, options) => {
+        phoneCalls += 1;
+        assert.equal(options?.skipRateLimit, true);
+        return { status: "success" };
+      },
+    },
+  });
+  assert.ok(started);
+  try {
+    const first = await postCommand(
+      started.port,
+      { command: "clear_assistant_events", arguments: { confirm: "delete" } },
+      { Authorization: "Bearer test-token" }
+    );
+    assert.equal(first.status, 200);
+    assert.equal(phoneCalls, 1);
+    for (let i = 0; i < 3; i += 1) {
+      const extra = await postCommand(
+        started.port,
+        { command: "clear_assistant_events", arguments: { confirm: "delete" } },
+        { Authorization: "Bearer test-token" }
+      );
+      assert.equal(extra.status, 200);
+    }
+    store.ingestPrompt({
+      id: "prompt-keep0002",
+      text: "after",
+      source: "app",
+      ts: t,
+    });
+    const blocked = await postCommand(
+      started.port,
+      { command: "clear_assistant_events", arguments: { confirm: "delete" } },
+      { Authorization: "Bearer test-token" }
+    );
+    assert.equal(blocked.status, 429);
+    assert.equal(phoneCalls, 4);
+    assert.equal(store.queryPrompts({ limit: 10 }).length, 1);
+  } finally {
+    await new Promise((resolve) => started.server.close(resolve));
+  }
 });
 
 test("POST /api/command returns 503 when the phone is disconnected", async () => {

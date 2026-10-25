@@ -208,6 +208,8 @@ test("HTTP /api/tool serves get_notification_log while the phone is offline", as
     const body = JSON.parse(res.json.text);
     assert.equal(body.count, 1);
     assert.equal(typeof body.nextSince, "number");
+    assert.equal(body.entries[0].text.untrusted, true);
+    assert.match(body.entries[0].text.text, /PHONEPI_UNTRUSTED_DATA/);
   } finally {
     await new Promise((r) => handle.server.close(() => r()));
   }

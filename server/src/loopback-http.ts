@@ -43,7 +43,6 @@ import {
   logSensitiveRead,
   matchReadBot,
   readTokenFromHttpRequest,
-  requireReadTokenAll,
   type ReadAuthState,
 } from "./read-auth.js";
 import {
@@ -60,7 +59,8 @@ export interface PhoneHttpBridge {
   callPhoneTool(
     name: string,
     args: Record<string, unknown>,
-    callerId?: string
+    callerId?: string,
+    options?: { skipRateLimit?: boolean }
   ): Promise<unknown>;
   /** Optional. Health copies only the known fields; it never spreads extras. */
   healthDetails?: () => PhoneHealthDetails;
@@ -364,7 +364,7 @@ async function handleTool(
       limiter: options.locationReadLimiter ?? commandRateLimiter,
       args,
       capture: options.notificationCaptureStatus,
-      wrapUntrusted: requireReadTokenAll(options.env),
+      wrapUntrusted: true,
       callerId: sensitive.callerId,
     });
     sendJson(res, outcome.status, outcome.body);
@@ -600,6 +600,21 @@ async function handleCommand(
       sendJson(res, 400, { text: validated.error, isError: true });
       return;
     }
+    const spec = getPhoneCommand(commandName);
+    if (spec) {
+      const limiter = options.locationReadLimiter ?? commandRateLimiter;
+      const budget = limiter.allow(
+        `${callerId}:${spec.name}`,
+        spec.maxPerMinute
+      );
+      if (!budget.ok) {
+        sendJson(res, 429, {
+          text: `Rate limited: ${spec.name}. Try again in ${budget.retryAfterSec}s`,
+          isError: true,
+        });
+        return;
+      }
+    }
     (options.assistantStore ?? openAssistantStore()).clear();
     let phoneCleared = false;
     if (options.bridge.isPhoneConnected()) {
@@ -607,7 +622,8 @@ async function handleCommand(
         await options.bridge.callPhoneTool(
           commandName,
           validated.args,
-          callerId
+          callerId,
+          { skipRateLimit: true }
         );
         phoneCleared = true;
       } catch {
