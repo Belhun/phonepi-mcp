@@ -23,6 +23,10 @@ export const HISTORY_MAX_ENTRIES = 200;
 export const SEARCH_MAX_PLACES = 50;
 export const VISITS_PER_PLACE = 30;
 export const SYNC_BATCH_LIMIT = 40;
+export const GENERIC_PLACE_LABEL = "Saved place";
+
+const STREET_SUFFIX =
+  /\b(street|st|avenue|ave|boulevard|blvd|road|rd|drive|dr|lane|ln|court|ct|way|highway|hwy|parkway|pkwy|circle|cir|terrace|ter|place|pl|trail|trl)\b/i;
 
 const ID_RE = /^[A-Za-z0-9_-]{8,80}$/;
 const FILE_RE = /^(\d{4})-(\d{2})\.jsonl$/;
@@ -156,8 +160,14 @@ export class LocationLog {
     return events.slice(0, options.max);
   }
 
-  search(query: string, maxPlaces: number): PlaceGroup[] {
+  search(
+    query: string,
+    maxPlaces: number,
+    options: { matchAddress?: boolean; genericAddressLabels?: boolean } = {}
+  ): PlaceGroup[] {
     this.prune();
+    const matchAddress = options.matchAddress !== false;
+    const genericAddressLabels = options.genericAddressLabels === true;
     const tokens = query
       .toLowerCase()
       .split(/\s+/)
@@ -169,7 +179,12 @@ export class LocationLog {
     );
     const groups = new Map<string, PlaceGroup>();
     for (const event of visits) {
-      const hay = `${event.placeName ?? ""} ${event.address ?? ""}`.toLowerCase();
+      const label = genericAddressLabels
+        ? displayPlaceName(event.placeName, false)
+        : event.placeName;
+      const hay = matchAddress
+        ? `${label ?? ""} ${event.address ?? ""}`.toLowerCase()
+        : `${label ?? ""}`.toLowerCase();
       if (!tokens.every((token) => hay.includes(token))) continue;
       const key = placeKey(event);
       const existing = groups.get(key);
@@ -180,7 +195,7 @@ export class LocationLog {
       };
       if (!existing) {
         groups.set(key, {
-          placeName: event.placeName,
+          placeName: label,
           address: event.address,
           latitude: event.latitude,
           longitude: event.longitude,
@@ -190,7 +205,7 @@ export class LocationLog {
         continue;
       }
       existing.visitCount += 1;
-      if (event.placeName && !existing.placeName) existing.placeName = event.placeName;
+      if (label && !existing.placeName) existing.placeName = label;
       if (event.address && !existing.address) existing.address = event.address;
       existing.visits.push(visit);
     }
@@ -444,4 +459,33 @@ function placeKey(event: LocationEvent): string {
 
 function utcDate(ms: number): string {
   return new Date(ms).toISOString().slice(0, 10);
+}
+
+/**
+ * Street-looking labels (house number, or a digit plus a street suffix).
+ * Timeline often copies the address into placeName.
+ */
+export function looksLikeStreetAddress(
+  name: string | null | undefined
+): boolean {
+  if (name == null) return false;
+  const text = name.trim();
+  if (!text) return false;
+  if (/^\d+[A-Za-z]?\s+\S/.test(text)) return true;
+  if (/\d/.test(text) && STREET_SUFFIX.test(text)) return true;
+  if (/\d{1,6}\s+.+,/.test(text)) return true;
+  return false;
+}
+
+export function displayPlaceName(
+  placeName: string | null | undefined,
+  includeCoords: boolean
+): string | null {
+  if (placeName == null) return null;
+  const trimmed = placeName.trim();
+  if (!trimmed) return null;
+  if (!includeCoords && looksLikeStreetAddress(trimmed)) {
+    return GENERIC_PLACE_LABEL;
+  }
+  return trimmed;
 }

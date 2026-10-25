@@ -10,7 +10,12 @@ import { LocationLog } from "../dist/location-log.js";
 import { isReadOnlyHttpTool } from "../dist/read-only-tools.js";
 import { startLoopbackHttp } from "../dist/loopback-http.js";
 import { TEST_READ_AUTH, readHeaders } from "./read-auth-fixture.js";
-import { parseLocationEvent } from "../dist/location-log.js";
+import {
+  parseLocationEvent,
+  GENERIC_PLACE_LABEL,
+  looksLikeStreetAddress,
+} from "../dist/location-log.js";
+import { runLocationRead } from "../dist/location-tools.js";
 import { parseIngestTs } from "../dist/ingest-time.js";
 
 const NOW = Date.UTC(2026, 9, 18, 12, 0, 0);
@@ -171,6 +176,68 @@ test("query and search read the collapsed log", () => {
   assert.equal(places[0].visits[0].dateUtc, "2026-10-13");
   assert.equal(log.search("home", 10)[0].placeName, "Home");
   assert.equal(log.search("no-such-place", 10).length, 0);
+});
+
+test("coords:false search matches the place label only", () => {
+  const { log } = tempLog();
+  log.ingest([event()]);
+  assert.equal(log.search("pizza vista", 10).length, 1);
+  assert.equal(
+    log.search("pizza vista", 10, { matchAddress: false }).length,
+    0
+  );
+  assert.equal(
+    log.search("pizza", 10, { matchAddress: false })[0].placeName,
+    "Pizza Place"
+  );
+  assert.equal(log.search("main", 10, { matchAddress: false }).length, 0);
+});
+
+test("coords:false replaces street-looking Timeline labels with Saved place", () => {
+  assert.equal(looksLikeStreetAddress("Home"), false);
+  assert.equal(looksLikeStreetAddress("Pizza Place"), false);
+  assert.equal(looksLikeStreetAddress("100 Main St, Vista, CA 92084"), true);
+  const { log } = tempLog();
+  log.ingest([
+    event({
+      id: "visit-street01",
+      placeName: "100 Main St, Vista, CA 92084",
+      address: "100 Main St, Vista, CA 92084",
+      source: "timeline",
+    }),
+  ]);
+  const hidden = log.search("main", 10, {
+    matchAddress: false,
+    genericAddressLabels: true,
+  });
+  assert.equal(hidden.length, 0);
+  const labeled = log.search("saved place", 10, {
+    matchAddress: false,
+    genericAddressLabels: true,
+  });
+  assert.equal(labeled[0].placeName, GENERIC_PLACE_LABEL);
+  const limiter = new CommandRateLimiter();
+  const outcome = runLocationRead({
+    log,
+    limiter,
+    tool: "search_places",
+    args: { query: "main" },
+    activityLogged: false,
+    includeCoords: false,
+  });
+  assert.equal(outcome.status, 200);
+  assert.equal(JSON.parse(outcome.body.text).count, 0);
+  const history = runLocationRead({
+    log,
+    limiter: new CommandRateLimiter(),
+    tool: "get_location_history",
+    args: { max: 5 },
+    activityLogged: false,
+    includeCoords: false,
+  });
+  const entries = JSON.parse(history.body.text).entries;
+  assert.equal(entries[0].placeName, GENERIC_PLACE_LABEL);
+  assert.equal(entries[0].address, null);
 });
 
 test("clear removes the jsonl files", () => {

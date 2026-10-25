@@ -10,6 +10,7 @@ import {
   pickRowsToDrop,
   validateSendNotificationArgs,
 } from "../dist/assistant-events.js";
+import { recoverSwapDir } from "../dist/atomic-file.js";
 import { CommandRateLimiter } from "../dist/command-rate-limit.js";
 import { isPhoneCommand, validatePhoneCommandArgs } from "../dist/commands.js";
 import { startLoopbackHttp } from "../dist/loopback-http.js";
@@ -512,5 +513,66 @@ test("assistant rewrite writes new files then swaps", () => {
   assert.equal(fs.existsSync(promptDir), true);
   const files = fs.readdirSync(promptDir).filter((name) => name.endsWith(".jsonl"));
   assert.ok(files.length >= 1);
+});
+
+test("clear deletes read tracking and leftover swap folders", () => {
+  const { dir, store } = tempStore();
+  store.ingestPrompt({
+    id: "prompt-clear01",
+    text: "wipe me",
+    source: "app",
+    ts: NOW,
+  });
+  store.queryPrompts({ limit: 10 });
+  const promptDir = path.join(dir, "prompts");
+  const readFile = path.join(dir, "read-ids.json");
+  assert.equal(fs.existsSync(readFile), true);
+  fs.mkdirSync(`${promptDir}.next`);
+  fs.mkdirSync(`${promptDir}.bak`);
+  store.clear();
+  assert.equal(fs.existsSync(readFile), false);
+  assert.equal(fs.existsSync(promptDir), false);
+  assert.equal(fs.existsSync(`${promptDir}.next`), false);
+  assert.equal(fs.existsSync(`${promptDir}.bak`), false);
+  assert.equal(store.queryPrompts({ limit: 10 }).length, 0);
+});
+
+test("folder swap crash during prune recovers the next directory", () => {
+  const { dir, store } = tempStore();
+  store.ingestPrompt({
+    id: "prompt-old0001",
+    text: "old",
+    source: "app",
+    ts: NOW - 1000,
+  });
+  const promptDir = path.join(dir, "prompts");
+  const next = `${promptDir}.next`;
+  const bak = `${promptDir}.bak`;
+  fs.renameSync(promptDir, bak);
+  fs.mkdirSync(next, { recursive: true });
+  fs.writeFileSync(
+    path.join(next, "2026-10.jsonl"),
+    `${JSON.stringify({
+      id: "prompt-new0001",
+      text: "recovered",
+      source: "app",
+      ts: NOW,
+    })}\n`
+  );
+  recoverSwapDir(promptDir);
+  assert.equal(fs.existsSync(promptDir), true);
+  assert.equal(fs.existsSync(next), false);
+  assert.equal(fs.existsSync(bak), false);
+  store.ingestPrompt({
+    id: "prompt-after01",
+    text: "after recover",
+    source: "app",
+    ts: NOW,
+  });
+  const rows = store.queryPrompts({ limit: 10 });
+  assert.equal(rows.some((row) => row.id === "prompt-new0001"), true);
+  assert.equal(rows.some((row) => row.id === "prompt-after01"), true);
+  assert.equal(fs.existsSync(next), false);
+  assert.equal(fs.existsSync(bak), false);
 });
 

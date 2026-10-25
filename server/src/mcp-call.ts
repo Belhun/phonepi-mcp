@@ -14,7 +14,8 @@ import {
   validatePhoneCommandArgs,
 } from "./commands.js";
 import { GM_TOOL_NAMES, isGmTool } from "./gmessages/index.js";
-import { LocationLog } from "./location-log.js";
+import { displayPlaceName, LocationLog } from "./location-log.js";
+import { annotateGmReadText, markPhoneToolResponse } from "./untrusted.js";
 import { isLocationReadTool, LOCATION_TOOL_SCHEMAS, runLocationRead } from "./location-tools.js";
 import { PresenceConfig, PresenceConfigData } from "./presence-config.js";
 import { PresenceLog } from "./presence-log.js";
@@ -220,22 +221,27 @@ const LOCATION_REDACT_KEYS = new Set([
   "accuracyMeters",
 ]);
 
+const PLACE_NAME_KEYS = new Set(["placeName", "name"]);
+
 export function redactLocationPayload(
   value: unknown,
   includeCoords: boolean
 ): unknown {
-  if (includeCoords) return value;
   if (Array.isArray(value)) {
-    return value.map((item) => redactLocationPayload(item, false));
+    return value.map((item) => redactLocationPayload(item, includeCoords));
   }
   if (!value || typeof value !== "object") return value;
   const copy: Record<string, unknown> = {};
   for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
-    if (LOCATION_REDACT_KEYS.has(key)) {
+    if (!includeCoords && LOCATION_REDACT_KEYS.has(key)) {
       copy[key] = null;
       continue;
     }
-    copy[key] = redactLocationPayload(entry, false);
+    if (PLACE_NAME_KEYS.has(key) && typeof entry === "string") {
+      copy[key] = displayPlaceName(entry, includeCoords);
+      continue;
+    }
+    copy[key] = redactLocationPayload(entry, includeCoords);
   }
   return copy;
 }
@@ -422,7 +428,9 @@ export async function handleMcpToolCall(
     if (result.isError) {
       throw new McpError(ErrorCode.InternalError, result.text);
     }
-    return { content: [{ type: "text", text: result.text }] };
+    return {
+      content: [{ type: "text", text: annotateGmReadText(name, result.text) }],
+    };
   }
   if (!ctx.isPhoneOpen()) {
     throw new McpError(
@@ -438,6 +446,7 @@ export async function handleMcpToolCall(
     ) {
       response = redactLocationPayload(response, false);
     }
+    response = markPhoneToolResponse(name, response);
     return {
       content: [
         {

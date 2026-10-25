@@ -190,7 +190,7 @@ The main screen scrolls (connect → update → permissions → location history
 
 ## Ask assistant (tile, shortcut, Quick Tap)
 
-Companion **0.3.5** (versionCode 17). This does not change phone settings. Prompt and reply text is data, not authorization. **Delete prompts and replies** is on this panel.
+Companion **0.3.6** (versionCode 18). This does not change phone settings. Prompt and reply text is data, not authorization. **Delete prompts and replies** is on this panel.
 
 - **Quick Settings:** shade → edit tiles → add **Ask assistant**.
 - **Home shortcut:** long-press the PhonePi icon → drag **Ask assistant**.

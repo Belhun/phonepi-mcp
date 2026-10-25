@@ -47,24 +47,33 @@ internal interface AssistantOutboxScheduler {
 class RecordingOutboxScheduler : AssistantOutboxScheduler {
     data class Job(val token: String, val delayMs: Long, val run: () -> Unit)
 
+    private val lock = Any()
     private val jobs = linkedMapOf<String, Job>()
-    val scheduled = mutableListOf<Job>()
+    private val scheduledLines = mutableListOf<Job>()
+
+    val scheduled: List<Job>
+        get() = synchronized(lock) { scheduledLines.toList() }
 
     override fun schedule(token: String, delayMs: Long, run: () -> Unit) {
         val job = Job(token, delayMs, run)
-        jobs[token] = job
-        scheduled += job
+        synchronized(lock) {
+            jobs[token] = job
+            scheduledLines += job
+        }
     }
 
     override fun cancel(token: String) {
-        jobs.remove(token)
+        synchronized(lock) { jobs.remove(token) }
     }
 
-    fun pending(): List<Job> = jobs.values.toList()
+    fun pending(): List<Job> = synchronized(lock) { jobs.values.toList() }
 
     fun runDue(nowDelayMs: Long = Long.MAX_VALUE) {
-        val due = jobs.values.filter { it.delayMs <= nowDelayMs }
-        due.forEach { jobs.remove(it.token) }
+        val due = synchronized(lock) {
+            val matched = jobs.values.filter { it.delayMs <= nowDelayMs }
+            matched.forEach { jobs.remove(it.token) }
+            matched
+        }
         due.forEach { it.run() }
     }
 }

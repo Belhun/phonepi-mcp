@@ -19,6 +19,7 @@ import {
 } from "../dist/read-auth.js";
 import { LocationLog } from "../dist/location-log.js";
 import { wrapUntrusted, UNTRUSTED_END } from "../dist/untrusted.js";
+import { isWeakReadToken } from "../dist/read-auth.js";
 import { guardLoopbackRequest } from "../dist/http-guard.js";
 import { readWakeHookConfig, WAKE_HOOK_URL_ENV } from "../dist/wake-hook.js";
 import { validatePhoneCommandArgs } from "../dist/commands.js";
@@ -333,27 +334,29 @@ test("default-deny when no read token is configured", () => {
   assert.equal(auth.status, 401);
 });
 
+const STRONG_ENV_TOKEN = "env-read-token-32-chars-minimum-x";
+
 test("MCP path denies missing token and does not fall back to the env token", () => {
-  const state = loadReadAuth({ PHONEPI_READ_TOKEN: "env-read-token" });
-  const stripped = takeTokenArg({ token: "env-read-token", query: "pizza" });
-  assert.equal(stripped.token, "env-read-token");
+  const state = loadReadAuth({ PHONEPI_READ_TOKEN: STRONG_ENV_TOKEN });
+  const stripped = takeTokenArg({ token: STRONG_ENV_TOKEN, query: "pizza" });
+  assert.equal(stripped.token, STRONG_ENV_TOKEN);
   assert.equal(Object.hasOwn(stripped.rest, "token"), false);
   const denied = authorizeSensitiveRead({
     state,
     tool: "get_presence",
     provided: null,
-    envProvided: "env-read-token",
+    envProvided: STRONG_ENV_TOKEN,
     source: "mcp",
-    env: { PHONEPI_READ_TOKEN: "env-read-token" },
+    env: { PHONEPI_READ_TOKEN: STRONG_ENV_TOKEN },
   });
   assert.equal(denied.ok, false);
   assert.equal(denied.status, 401);
   const allowed = authorizeSensitiveRead({
     state,
     tool: "get_presence",
-    provided: "env-read-token",
+    provided: STRONG_ENV_TOKEN,
     source: "mcp",
-    env: { PHONEPI_READ_TOKEN: "env-read-token" },
+    env: { PHONEPI_READ_TOKEN: STRONG_ENV_TOKEN },
   });
   assert.equal(allowed.ok, true);
   assert.equal(allowed.coords, false);
@@ -388,13 +391,13 @@ test("scoped MCP token sees coords only when coords is true", () => {
 
 test("missing or invalid tools list is deny-all", async () => {
   const bots = parseBotsJson(
-    JSON.stringify([{ id: "open", token: "open-token" }])
+    JSON.stringify([{ id: "open", token: "open-token-32-chars-minimum-xxxx" }])
   );
   assert.deepEqual(bots[0].tools, []);
   const auth = authorizeSensitiveRead({
     state: { bots },
     tool: "get_presence",
-    provided: "open-token",
+    provided: "open-token-32-chars-minimum-xxxx",
     source: "http",
   });
   assert.equal(auth.ok, false);
@@ -409,7 +412,7 @@ test("missing or invalid tools list is deny-all", async () => {
         port,
         "/api/tool",
         { tool: "get_presence", arguments: {} },
-        { "X-PhonePi-Read-Token": "open-token" }
+        { "X-PhonePi-Read-Token": "open-token-32-chars-minimum-xxxx" }
       );
       assert.equal(res.status, 403);
     }
@@ -461,6 +464,22 @@ test("location tools need a read token; coords only when scoped", async () => {
       assert.equal(body.entries[0].latitude, null);
       assert.equal(body.entries[0].address, null);
       assert.equal(body.coordsScoped, false);
+      const byAddress = await post(
+        port,
+        "/api/tool",
+        { tool: "search_places", arguments: { query: "main" } },
+        { "X-PhonePi-Read-Token": "loc-label" }
+      );
+      assert.equal(byAddress.status, 200);
+      assert.equal(JSON.parse(byAddress.json.text).count, 0);
+      const byLabel = await post(
+        port,
+        "/api/tool",
+        { tool: "search_places", arguments: { query: "cafe" } },
+        { "X-PhonePi-Read-Token": "loc-label" }
+      );
+      assert.equal(JSON.parse(byLabel.json.text).count, 1);
+      assert.equal(JSON.parse(byLabel.json.text).places[0].address, null);
     }
   );
 });
@@ -633,15 +652,33 @@ test("default env bot is coords false; read-bots.json refuses world-readable mod
   const file = path.join(home, ".phonepi", "read-bots.json");
   fs.writeFileSync(
     file,
-    JSON.stringify([{ id: "leaky", token: "  leaky-token  ", tools: ["get_presence"], coords: true }])
+    JSON.stringify([{ id: "leaky", token: "  leaky-token-must-be-32-chars-min  ", tools: ["get_presence"], coords: true }])
   );
   fs.chmodSync(file, 0o644);
   const refused = loadReadAuth({ HOME: home });
   assert.equal(refused.bots.length, 0);
   fs.chmodSync(file, 0o600);
   const loaded = loadReadAuth({ HOME: home });
-  assert.equal(loaded.bots[0].token, "leaky-token");
+  assert.equal(loaded.bots[0].token, "leaky-token-must-be-32-chars-min");
   const envHome = tempDir("phonepi-sec-env-");
-  const envBot = loadReadAuth({ PHONEPI_READ_TOKEN: "env-only", HOME: envHome });
+  const envBot = loadReadAuth({ PHONEPI_READ_TOKEN: STRONG_ENV_TOKEN, HOME: envHome });
   assert.equal(envBot.bots[0].coords, false);
+});
+
+test("read-auth refuses short and placeholder tokens", () => {
+  assert.equal(isWeakReadToken("short"), true);
+  assert.equal(isWeakReadToken("replace-with-a-placeholder-token-xx"), true);
+  assert.equal(isWeakReadToken("please-choose-a-long-random-value"), true);
+  assert.equal(isWeakReadToken("this-is-changeme-and-long-enough"), true);
+  assert.equal(isWeakReadToken("a".repeat(32)), false);
+  const skipped = parseBotsJson(
+    JSON.stringify([
+      { id: "tiny", token: "too-short", tools: ["get_presence"] },
+      { id: "ok", token: "a".repeat(32), tools: ["get_presence"] },
+    ])
+  );
+  assert.equal(skipped.length, 1);
+  assert.equal(skipped[0].id, "ok");
+  const env = loadReadAuth({ PHONEPI_READ_TOKEN: "changeme" });
+  assert.equal(env.bots.length, 0);
 });

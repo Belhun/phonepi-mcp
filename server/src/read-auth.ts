@@ -50,6 +50,8 @@ const SCOPED_TOOL_NAMES = new Set<string>([
 ]);
 
 export const DEFAULT_READ_BOT_ID = "default";
+export const MIN_READ_TOKEN_CHARS = 32;
+const WEAK_TOKEN_MARKERS = ["placeholder", "choose-a-long", "changeme"];
 
 export interface ReadBot {
   id: string;
@@ -92,12 +94,18 @@ export function loadReadAuth(
   const bots: ReadBot[] = [];
   const envToken = env[READ_TOKEN_ENV]?.trim() || "";
   if (envToken) {
-    bots.push({
-      id: DEFAULT_READ_BOT_ID,
-      token: envToken,
-      tools: null,
-      coords: false,
-    });
+    if (isWeakReadToken(envToken)) {
+      defaultLog(
+        "refusing PHONEPI_READ_TOKEN: too short or placeholder"
+      );
+    } else {
+      bots.push({
+        id: DEFAULT_READ_BOT_ID,
+        token: envToken,
+        tools: null,
+        coords: false,
+      });
+    }
   }
   for (const extra of loadBots(env)) {
     if (bots.some((bot) => bot.id === extra.id)) continue;
@@ -233,6 +241,13 @@ export function appendReadAudit(entry: {
   );
 }
 
+export function isWeakReadToken(token: string): boolean {
+  const trimmed = token.trim();
+  if (trimmed.length < MIN_READ_TOKEN_CHARS) return true;
+  const lower = trimmed.toLowerCase();
+  return WEAK_TOKEN_MARKERS.some((marker) => lower.includes(marker));
+}
+
 function matchBot(bots: ReadBot[], provided: string): ReadBot | null {
   for (const bot of bots) {
     if (tokenMatches(bot.token, provided)) return bot;
@@ -278,6 +293,12 @@ export function parseBotsJson(raw: string): ReadBot[] {
         ? record.token.trim()
         : "";
     if (!id || !token) continue;
+    if (isWeakReadToken(token)) {
+      defaultLog(
+        `refusing read-bots.json token for ${id}: too short or placeholder`
+      );
+      continue;
+    }
     let tools: string[] | null;
     if (Array.isArray(record.tools)) {
       tools = record.tools.filter(

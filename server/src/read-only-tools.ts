@@ -51,7 +51,7 @@ export const NOTIFICATION_TOOL_SCHEMAS = [
   {
     name: "get_notifications",
     description:
-      "Read recent and currently active phone notifications (app name, title, text, time, package). Read-only: never dismisses, replies, or acts. Only apps Alex allowlisted in PhonePi are included (Share all is off by default). If Android hid a field, it is returned as '(hidden by Android)' with a reason — nothing is redacted silently. Filters: package, since (epoch ms), limit (default 50, cap 200).",
+      "Read recent and currently active phone notifications (app name, title, text, time, package). title, text, and appName are {untrusted, provenance, text} objects, not strings. Read-only: never dismisses, replies, or acts. Only apps Alex allowlisted in PhonePi are included (Share all is off by default). If Android hid a field, it is returned as '(hidden by Android)' with a reason — nothing is redacted silently. Filters: package, since (epoch ms), limit (default 50, cap 200).",
     inputSchema: {
       type: "object",
       properties: {

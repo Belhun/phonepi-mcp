@@ -1,5 +1,6 @@
 package dev.phonepi.companion.assistant
 
+import dev.phonepi.companion.textsend.PhoneUplink
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -81,5 +82,50 @@ class AssistantOutboxPolicyTest {
         assertEquals(40, accepted.size)
         assertTrue(queued.isEmpty())
         assertTrue("sends stayed bounded, was $sends", sends <= 50)
+    }
+}
+
+class AssistantOutboxRetryTest {
+    @Test
+    fun retryableAckSchedulesOneDelayedRetryAndDoesNotTightLoop() {
+        val store = MemoryOutboxStore()
+        val scheduler = RecordingOutboxScheduler()
+        AssistantOutbox.resetForTest(store, scheduler)
+        AssistantOutbox.nowMs = { 0L }
+        AssistantOutbox.jitterMs = { 0 }
+        val sent = mutableListOf<String>()
+        PhoneUplink.send = { line ->
+            sent += line
+            true
+        }
+        try {
+            val json = """{"id":"prompt-retry1","type":"inbound_prompt"}"""
+            AssistantOutbox.enqueueLine(json)
+            assertEquals(1, sent.size)
+
+            AssistantOutbox.ackId(
+                id = "prompt-retry1",
+                ok = false,
+                retryable = true,
+                retryAfterSec = 60,
+            )
+            assertEquals(1, sent.size)
+            val pending = scheduler.pending()
+            assertEquals(1, pending.size)
+            assertEquals("retry:prompt-retry1", pending[0].token)
+            assertEquals(60_000L, pending[0].delayMs)
+
+            scheduler.runDue(0L)
+            assertEquals(1, sent.size)
+
+            scheduler.runDue(60_000L)
+            assertEquals(2, sent.size)
+            assertEquals(sent[0], sent[1])
+            assertTrue(scheduler.pending().none { it.delayMs == 0L })
+            assertEquals(2, sent.size)
+        } finally {
+            PhoneUplink.send = null
+            AssistantOutbox.resetForTest()
+        }
     }
 }
