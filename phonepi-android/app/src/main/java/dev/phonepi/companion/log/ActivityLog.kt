@@ -184,6 +184,9 @@ object ActivityLog {
         "pause_location_logging" ->
             "paused=${data["paused"]?.jsonPrimitive?.contentOrNull ?: "?"}"
         "clear_location_history" -> "Deleted location history"
+        "pause_presence_logging" ->
+            "paused=${data["paused"]?.jsonPrimitive?.contentOrNull ?: "?"}"
+        "clear_presence_history" -> "Deleted presence snapshot"
         "phone_set_volume" -> {
             val changed = data["changed"]?.jsonPrimitive?.contentOrNull ?: ""
             val skipped = data["skipped"]?.jsonPrimitive?.contentOrNull ?: ""
@@ -213,6 +216,10 @@ object ActivityLog {
 
     fun logLocation(detail: String, status: String = "info") {
         write(category = "location", title = "location history", detail = detail, status = status)
+    }
+
+    fun logPresence(detail: String, status: String = "info") {
+        write(category = "presence", title = "presence", detail = detail, status = status)
     }
 
     fun logRemoteAction(title: String, detail: String, status: String) {

@@ -138,6 +138,18 @@ No extra Maps API key.
 
 Pause logging and Delete all history are on that same screen. To backfill Google Timeline, export it yourself (Settings, Location, Location services, Timeline, Export Timeline data) and share the JSON into PhonePi, or tap **Import Timeline export**. PhonePi cannot press that Settings button for you.
 
+## Presence
+
+**Presence** on the connect screen starts **on**. It is the live "where is Alex" snapshot for `get_presence`, not the visit/drive log. Grant:
+
+1. Precise location, then **Allow all the time**.
+2. **Physical activity** so driving/moving is recognized.
+3. Mark saved places as presence (toggle on the Presence panel, or `phone_add_location` with `presence: true`). Up to 100 geofences.
+
+Pause presence and Clear presence snapshot are on that same screen. Work hours live on the box in `~/.phonepi/presence/config.json` (default 8:00 AM–5:00 PM Monday–Friday Pacific). Church hours stay empty until you edit the file.
+
+Urgent PhonePi messages use **PhonePi urgent messages**. This app does not change Do Not Disturb. To hear them while DND is on, allow that channel in system Settings yourself. See [docs/presence.md](../docs/presence.md).
+
 ### How to test
 
 With the phone linked and Maps installed:

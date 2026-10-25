@@ -11,10 +11,12 @@ class CommandGateTest {
         assertEquals(
             setOf(
                 "clear_location_history",
+                "clear_presence_history",
                 "dismiss_alarm",
                 "dismiss_timer",
                 "get_photo",
                 "pause_location_logging",
+                "pause_presence_logging",
                 "phone_add_location",
                 "phone_list_locations",
                 "phone_navigate",

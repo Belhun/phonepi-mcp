@@ -350,6 +350,10 @@
             android:exported="false" />
 
         <receiver
+            android:name=".presence.PresenceReceiver"
+            android:exported="false" />
+
+        <receiver
 
             android:name=".receiver.BootReceiver"
 

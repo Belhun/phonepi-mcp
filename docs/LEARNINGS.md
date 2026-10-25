@@ -158,6 +158,16 @@ Logs: Recent activity on the phone, and `~/.phonepi/sent-texts.jsonl` on the box
 
 Bots send only when Alex names the person and the message in that moment. Not on their own. Not as a reply. Not as an acknowledgement.
 
+### Presence (`get_presence`)
+
+Box copy of a live snapshot, not the visit/drive log. Phone geofences (up to 100) for saved places marked `presence`, re-applied on boot and app update, plus a 3-minute inexact check for lag. Master switch starts **on**. Pause/clear match location history (`pause_presence_logging`, `clear_presence_history`). Reads (no token, 30/min, work when the phone is offline): `get_presence`. Result includes place, minutes there, driving/moving, DND, lat/lng/accuracy (Alex approved raw coordinates for his allowlisted bots), `capturedAtMs` / `ageMs`, `expected_place` / `matches_expected`.
+
+Work hours live in `~/.phonepi/presence/config.json`, written on first start if missing. Default: 08:00–17:00 Monday–Friday, `America/Los_Angeles`. Church hours empty. Place-name mappings empty until Alex sets them. Matcher reads the file; hours are not hard-coded. `PHONEPI_PRESENCE_DIR` / `PHONEPI_PRESENCE_CONFIG` override the path. Snapshot file is `current.json` (dir 700, file 600). Secret fields are rejected. Server log is "presence snapshot stored", never coordinates or the token.
+
+Urgent channel: `phonepi_urgent_messages` / **PhonePi urgent messages**, HIGH. PhonePi does not change DND. Alex can allow that channel through DND himself.
+
+versionCode stays **15** so sibling feature branches (usage, notif-actions, health, wear) can merge without a version fight.
+
 ## Mistakes and fixes
 
 | Symptom | Cause | Fix |

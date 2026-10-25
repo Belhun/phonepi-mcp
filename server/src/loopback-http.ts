@@ -18,6 +18,13 @@ import { isLocationReadTool, runLocationRead } from "./location-tools.js";
 import { NotificationLog, openNotificationLog } from "./notification-log.js";
 import { isNotificationLogTool, runNotificationLogRead } from "./notification-log-tools.js";
 import {
+  PresenceConfig,
+  PresenceConfigData,
+  openPresenceConfig,
+} from "./presence-config.js";
+import { PresenceLog, openPresenceLog } from "./presence-log.js";
+import { isPresenceReadTool, runPresenceRead } from "./presence-tools.js";
+import {
   authorizeCommandToken,
   tokenFromHttpRequest,
   wsTokenFromEnv,
@@ -60,6 +67,10 @@ export interface StartLoopbackHttpOptions {
   /** Box copy of captured notifications. Reads do not need the phone. */
   notificationLog?: NotificationLog;
   notificationCaptureStatus?: () => Record<string, unknown>;
+  /** Box copy of the latest presence snapshot. Reads do not need the phone. */
+  presenceLog?: PresenceLog;
+  presenceConfig?: PresenceConfig | PresenceConfigData;
+  presenceNow?: () => number;
 }
 
 type ToolBody = {
@@ -293,6 +304,34 @@ async function handleTool(
       args,
       capture: options.notificationCaptureStatus,
     });
+    sendJson(res, outcome.status, outcome.body);
+    return;
+  }
+  if (isPresenceReadTool(body.tool)) {
+    const outcome = runPresenceRead({
+      log: options.presenceLog ?? openPresenceLog(),
+      config: options.presenceConfig ?? openPresenceConfig(),
+      limiter: options.locationReadLimiter ?? commandRateLimiter,
+      tool: body.tool,
+      nowMs: options.presenceNow?.(),
+      activityLogged: false,
+    });
+    if (outcome.status === 200) {
+      const logged =
+        bridge.noteActivity?.({
+          title: body.tool,
+          detail: "read box presence",
+        }) ?? false;
+      if (logged) {
+        try {
+          const payload = JSON.parse(String(outcome.body.text));
+          payload.activityLogged = true;
+          outcome.body.text = JSON.stringify(payload, null, 2);
+        } catch {
+          // The text is already a success payload. Leave activityLogged false.
+        }
+      }
+    }
     sendJson(res, outcome.status, outcome.body);
     return;
   }

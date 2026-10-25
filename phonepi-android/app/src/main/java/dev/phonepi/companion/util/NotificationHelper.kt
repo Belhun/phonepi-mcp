@@ -10,6 +10,7 @@ import dev.phonepi.companion.R
 object NotificationHelper {
     const val CHANNEL_DEFAULT = "phonepi_default"
     const val CHANNEL_HIGH = "phonepi_high"
+    const val CHANNEL_URGENT = "phonepi_urgent_messages"
     const val CHANNEL_TIMER = "phonepi_timer"
     const val CHANNEL_MESSAGES = "phonepi_messages"
     const val CHANNEL_FIND_PHONE = "phonepi_find_phone"
@@ -22,6 +23,14 @@ object NotificationHelper {
         val channels = listOf(
             NotificationChannel(CHANNEL_DEFAULT, "PhonePi", NotificationManager.IMPORTANCE_DEFAULT),
             NotificationChannel(CHANNEL_HIGH, "PhonePi urgent", NotificationManager.IMPORTANCE_HIGH),
+            NotificationChannel(
+                CHANNEL_URGENT,
+                "PhonePi urgent messages",
+                NotificationManager.IMPORTANCE_HIGH,
+            ).apply {
+                description =
+                    "High-priority PhonePi messages. Allow this channel through Do Not Disturb yourself; PhonePi does not change DND."
+            },
             NotificationChannel(CHANNEL_TIMER, "PhonePi timers", NotificationManager.IMPORTANCE_HIGH),
             NotificationChannel(CHANNEL_MESSAGES, "PhonePi messages", NotificationManager.IMPORTANCE_HIGH),
             NotificationChannel(CHANNEL_FIND_PHONE, "PhonePi find phone", NotificationManager.IMPORTANCE_HIGH),

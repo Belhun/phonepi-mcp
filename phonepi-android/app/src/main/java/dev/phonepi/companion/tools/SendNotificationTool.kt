@@ -16,7 +16,7 @@ class SendNotificationTool(private val context: Context) : ToolHandler {
         NotificationHelper.post(
             context = context,
             id = id,
-            channelId = if (high) NotificationHelper.CHANNEL_HIGH else NotificationHelper.CHANNEL_DEFAULT,
+            channelId = if (high) NotificationHelper.CHANNEL_URGENT else NotificationHelper.CHANNEL_DEFAULT,
             title = title,
             body = body,
             priorityHigh = high,

@@ -12,6 +12,7 @@ import {
 } from "./alarm-commands.js";
 import type { ValidatedCommandArgs } from "./alarm-commands.js";
 import { validateLocationAdminArgs } from "./location-tools.js";
+import { validatePresenceAdminArgs } from "./presence-tools.js";
 import { validateSendTextArgs } from "./send-text.js";
 
 export {
@@ -27,6 +28,8 @@ export function validatePhoneCommandArgs(
 ): ValidatedCommandArgs {
   const location = validateLocationAdminArgs(name, args);
   if (location) return location;
+  const presence = validatePresenceAdminArgs(name, args);
+  if (presence) return presence;
   if (name === "request_send_text" || name === "get_send_status") {
     return validateSendTextArgs(name, args);
   }
@@ -92,6 +95,11 @@ export const PHONE_COMMANDS: readonly PhoneCommand[] = [
         mapsUrl: {
           type: "string",
           description: "Optional Google Maps place, search, or directions URL",
+        },
+        presence: {
+          type: "boolean",
+          description:
+            "If true, this saved place is a presence geofence (arrive/leave, up to 100). Default false.",
         },
       },
       required: ["name"],
@@ -345,6 +353,42 @@ export const PHONE_COMMANDS: readonly PhoneCommand[] = [
     maxPerMinute: 4,
     description:
       'Delete location history on the phone and on the box. arguments.confirm must be the string "delete". Token required. The phone logs this in Recent activity.',
+    inputSchema: {
+      type: "object",
+      properties: {
+        confirm: {
+          type: "string",
+          description: 'Must be "delete"',
+        },
+      },
+      required: ["confirm"],
+    },
+  },
+  {
+    name: "pause_presence_logging",
+    kind: "write",
+    phoneTool: "pause_presence_logging",
+    maxPerMinute: 10,
+    description:
+      "Pause or resume PhonePi presence capture (geofences, periodic check, activity). paused true stops new arrive/leave updates. The last snapshot on the box stays. Token required. Presence itself stays on unless Alex turns the in-app switch off.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        paused: {
+          type: "boolean",
+          description: "true pauses capture, false resumes it",
+        },
+      },
+      required: ["paused"],
+    },
+  },
+  {
+    name: "clear_presence_history",
+    kind: "write",
+    phoneTool: "clear_presence_history",
+    maxPerMinute: 4,
+    description:
+      'Delete the on-phone presence state and the box snapshot. arguments.confirm must be the string "delete". Token required. The phone logs this in Recent activity.',
     inputSchema: {
       type: "object",
       properties: {

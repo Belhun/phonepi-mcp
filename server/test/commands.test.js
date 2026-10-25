@@ -80,11 +80,13 @@ test("command allowlist is the phone commands", () => {
     [...PHONE_COMMAND_NAMES].sort(),
     [
       "clear_location_history",
+      "clear_presence_history",
       "dismiss_alarm",
       "dismiss_timer",
       "get_photo",
       "get_send_status",
       "pause_location_logging",
+      "pause_presence_logging",
       "phone_add_location",
       "phone_list_locations",
       "phone_navigate",

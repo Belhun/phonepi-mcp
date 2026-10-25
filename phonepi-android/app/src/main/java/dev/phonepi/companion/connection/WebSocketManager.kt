@@ -3,6 +3,7 @@ package dev.phonepi.companion.connection
 import android.content.Context
 import android.util.Log
 import dev.phonepi.companion.history.LocationHistorySync
+import dev.phonepi.companion.presence.PresenceSync
 import dev.phonepi.companion.log.ActivityLog
 import dev.phonepi.companion.protocol.ToolRouter
 import dev.phonepi.companion.protocol.WsMessage
@@ -315,7 +316,10 @@ class WebSocketManager(
             socket = null
             generation += 1
             keepaliveJob?.cancel()
-            if (linkUp) LocationHistorySync.detach()
+            if (linkUp) {
+                LocationHistorySync.detach()
+                PresenceSync.detach()
+            }
             try {
                 old.close(1000, "switching server")
             } catch (_: Exception) {
@@ -401,6 +405,7 @@ class WebSocketManager(
         if (socket !== webSocket) return
         socket = null
         LocationHistorySync.detach()
+        PresenceSync.detach()
         keepaliveJob?.cancel()
         attemptTimeoutJob?.cancel()
         probeJob?.cancel()
@@ -484,6 +489,15 @@ class WebSocketManager(
                     false
                 }
             }
+            PresenceSync.attach(appContext) { payload ->
+                try {
+                    webSocket.send(payload)
+                    true
+                } catch (t: Throwable) {
+                    Log.w(TAG, "presence sync send failed: ${t.message}")
+                    false
+                }
+            }
             startProbeLoop(webSocket)
             onReady()
         }
@@ -502,6 +516,7 @@ class WebSocketManager(
                 }
                 is WsMessage.ServerError -> Log.w(TAG, "server error: ${msg.error}")
                 is WsMessage.LocationAck -> LocationHistorySync.onFrame(text)
+                is WsMessage.PresenceAck -> PresenceSync.onFrame(text)
                 is WsMessage.ActivityNote ->
                     ActivityLog.logRemoteAction(msg.title, msg.detail, msg.status)
                 is WsMessage.Unknown -> Log.v(TAG, "ignored frame type=${msg.type}")

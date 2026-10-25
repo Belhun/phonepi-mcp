@@ -18,6 +18,13 @@ import {
 import { commandRateLimiter } from "./command-rate-limit.js";
 import { openLocationLog } from "./location-log.js";
 import { isLocationReadTool, LOCATION_TOOL_SCHEMAS, runLocationRead } from "./location-tools.js";
+import { openPresenceConfig } from "./presence-config.js";
+import { openPresenceLog } from "./presence-log.js";
+import {
+  PRESENCE_TOOL_SCHEMAS,
+  isPresenceReadTool,
+  runPresenceRead,
+} from "./presence-tools.js";
 import { openNotificationLog } from "./notification-log.js";
 import {
   NOTIFICATION_LOG_TOOL_SCHEMAS,
@@ -96,6 +103,8 @@ class PhonePiMCPServer {
   private _pingIntervalId: NodeJS.Timeout | null = null;
   private httpApi: Promise<LoopbackHttpHandle | null> | null = null;
   private locationLog = openLocationLog();
+  private presenceLog = openPresenceLog();
+  private presenceConfig = openPresenceConfig();
   private notificationLog = openNotificationLog();
   private notificationPoller: NotificationPoller | null = null;
 
@@ -161,6 +170,8 @@ class PhonePiMCPServer {
       },
       locationLog: this.locationLog,
       locationReadLimiter: commandRateLimiter,
+      presenceLog: this.presenceLog,
+      presenceConfig: this.presenceConfig,
       notificationLog: this.notificationLog,
       notificationCaptureStatus: () => this.notificationCaptureStatus(),
     });
@@ -189,6 +200,42 @@ class PhonePiMCPServer {
     } catch (err) {
       console.error("[WebSocket] Failed to record location activity on the phone");
       return false;
+    }
+  }
+
+  private handlePresenceFrame(
+    ws: WebSocket,
+    message: { type?: string; snapshot?: unknown }
+  ): void {
+    if (!this.session.isCurrent(ws)) {
+      console.error("[WebSocket] Ignored presence frame from a stale socket");
+      return;
+    }
+    if (message.type === "presence_cleared") {
+      this.presenceLog.clear();
+      try {
+        ws.send(JSON.stringify({ type: "presence_cleared_ack" }));
+      } catch (err) {
+        console.error("[WebSocket] Failed to ack presence clear");
+      }
+      return;
+    }
+    const result = this.presenceLog.ingest(message.snapshot);
+    if (result.ok) {
+      console.error("[WebSocket] presence snapshot stored");
+    } else {
+      console.error("[WebSocket] presence snapshot rejected");
+    }
+    try {
+      ws.send(
+        JSON.stringify({
+          type: "presence_sync_ack",
+          ok: result.ok,
+          error: result.ok ? undefined : result.error,
+        })
+      );
+    } catch (err) {
+      console.error("[WebSocket] Failed to ack presence sync");
     }
   }
 
@@ -475,6 +522,13 @@ class PhonePiMCPServer {
         (message.type === "location_sync" || message.type === "location_cleared")
       ) {
         this.handleLocationFrame(ws, message);
+        return;
+      }
+      if (
+        message &&
+        (message.type === "presence_sync" || message.type === "presence_cleared")
+      ) {
+        this.handlePresenceFrame(ws, message);
         return;
       }
       if(DEBUG_WEBSOCKET) {
@@ -1521,6 +1575,7 @@ class PhonePiMCPServer {
         ...VOLUME_TOOL_SCHEMAS,
         ...ALARM_TOOL_SCHEMAS,
         ...LOCATION_TOOL_SCHEMAS,
+        ...PRESENCE_TOOL_SCHEMAS,
         ...NOTIFICATION_LOG_TOOL_SCHEMAS,
         ...PHONE_COMMAND_SCHEMAS,
         ...GM_TOOL_SCHEMAS,
@@ -1549,6 +1604,38 @@ class PhonePiMCPServer {
           this.notePhoneActivity({
             title: request.params.name,
             detail: "read box location history",
+          })
+        ) {
+          try {
+            const payload = JSON.parse(text);
+            payload.activityLogged = true;
+            text = JSON.stringify(payload, null, 2);
+          } catch {
+            // Keep the original success text.
+          }
+        }
+        return { content: [{ type: "text", text }] };
+      }
+
+      if (isPresenceReadTool(request.params.name)) {
+        const outcome = runPresenceRead({
+          log: this.presenceLog,
+          config: this.presenceConfig,
+          limiter: commandRateLimiter,
+          tool: request.params.name,
+          activityLogged: false,
+        });
+        if (outcome.status === 400) {
+          throw new McpError(ErrorCode.InvalidParams, String(outcome.body.text));
+        }
+        if (outcome.status === 429) {
+          throw new McpError(ErrorCode.InvalidRequest, String(outcome.body.text));
+        }
+        let text = String(outcome.body.text);
+        if (
+          this.notePhoneActivity({
+            title: request.params.name,
+            detail: "read box presence",
           })
         ) {
           try {

@@ -70,6 +70,20 @@ Address of the pizza place in Vista:
 
 Token commands: `pause_location_logging` (`paused` true or false, 10/min) and `clear_location_history` (`confirm` must be `"delete"`, 4/min). The phone has the same pause and delete actions. The box stores `~/.phonepi/location/YYYY-MM.jsonl` for 12 months unless `PHONEPI_LOCATION_RETENTION_MONTHS` says otherwise.
 
+## Presence
+
+Companion presence snapshot for bots that need to know where Alex is before messaging him. **Presence** on the phone starts on. Grant location **Allow all the time**, then mark saved places as presence. Details: [docs/presence.md](docs/presence.md).
+
+No-token read (`POST /api/tool`, 30/min), from the box copy, including when the phone is offline:
+
+- `get_presence` — place label, minutes there, driving/moving, Do Not Disturb, lat/lng/accuracy, `capturedAtMs` freshness, plus `expected_place` / `matches_expected` from `~/.phonepi/presence/config.json`
+
+Default work hours in that config (editable, not hard-coded): 08:00–17:00 Monday–Friday, `America/Los_Angeles`. Church hours stay empty. Place names stay empty until Alex maps home/work/church to saved places.
+
+Token commands: `pause_presence_logging` (`paused` true or false, 10/min) and `clear_presence_history` (`confirm` must be `"delete"`, 4/min).
+
+Urgent PhonePi messages use the **PhonePi urgent messages** channel. PhonePi does not change Do Not Disturb. Alex can allow that channel through DND himself.
+
 Android will not let PhonePi edit or delete arbitrary Clock alarms. A dismiss result says whether Clock accepted the intent. It does not prove the alarm is gone. If that Clock app has no dismiss handler, the phone returns `status:"error"`. HTTP 200 still has to be parsed for `status` and `started`.
 
 ## Texts
