@@ -17,6 +17,7 @@ manifest-ed25519.pem
 *.ed25519
 !debug.keystore
 app/build/
+phonepi-wear/build/
 
 # Local test run output
 testing/last-run.log

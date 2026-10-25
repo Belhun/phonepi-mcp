@@ -24,3 +24,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "PhonePiCompanion"
 include(":app")
+include(":phonepi-wear")

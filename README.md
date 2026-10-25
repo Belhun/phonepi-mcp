@@ -39,6 +39,10 @@ See [server/README.md](server/README.md) for the loopback `POST /api/command` AP
 
 Standing log of shipped features, mistakes, and iPhone portability: [docs/LEARNINGS.md](docs/LEARNINGS.md). Update that file with every future PhonePi change on this branch. Never commit secrets.
 
+## Wear OS
+
+Watch APK: Gradle module `phonepi-android/phonepi-wear` (`applicationId` `dev.phonepi.companion`, same release key as the companion). The watch never holds the PhonePi token. Build and Linux Wi-Fi sideload: [phonepi-android/phonepi-wear/README.md](phonepi-android/phonepi-wear/README.md).
+
 ## In-app update
 
 The MCP server serves the latest APK at `GET /phonepi/update/manifest` and `GET /phonepi/update/apk` (same host as the phone WebSocket, `PHONEPI_WS_TOKEN` required). Drop a release APK in `PHONEPI_UPDATE_DIR` (default `~/.phonepi/updates`) and sign `manifest.json` with `scripts/sign-update-manifest.sh`. `phone_push_update` verifies the Ed25519 signature, APK sha256, and pinned release cert, then shows the system installer; Alex still taps Install. Debug → release is a one-time uninstall; see [docs/release-signing.md](docs/release-signing.md).

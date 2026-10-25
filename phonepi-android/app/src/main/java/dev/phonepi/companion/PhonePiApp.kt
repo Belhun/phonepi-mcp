@@ -9,6 +9,7 @@ import dev.phonepi.companion.usage.UsageEngine
 import dev.phonepi.companion.notify.NotificationShare
 import dev.phonepi.companion.textsend.SendTextController
 import dev.phonepi.companion.volume.MidnightVolume
+import dev.phonepi.companion.wear.WearBridge
 
 @Suppress("unused") // Referenced from AndroidManifest.xml
 class PhonePiApp : Application() {
@@ -23,5 +24,6 @@ class PhonePiApp : Application() {
         UsageEngine.start(this)
         SendTextController.rearm(this)
         HealthSyncScheduler.apply(this)
+        WearBridge.ensure(this)
     }
 }
