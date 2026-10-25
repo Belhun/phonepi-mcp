@@ -128,10 +128,8 @@ object PresenceEngine {
     }
 
     private fun push(context: Context, source: String, nowMs: Long = System.currentTimeMillis()) {
-        val dnd = when {
-            dev.phonepi.companion.privacy.PhonePiQuiet.isActive(context) -> "quiet"
-            else -> runCatching { VolumeController.snapshot(context).dnd }.getOrDefault("unknown")
-        }
+        val piQuiet = dev.phonepi.companion.privacy.PhonePiQuiet.isActive(context)
+        val dnd = runCatching { VolumeController.snapshot(context).dnd }.getOrDefault("unknown")
         val snapshot = PresenceLogic.snapshot(
             memory = PresencePrefs.memory(context),
             nowMs = nowMs,
@@ -139,6 +137,7 @@ object PresenceEngine {
             paused = PresencePrefs.paused(context),
             dnd = dnd,
             source = source,
+            piQuiet = piQuiet,
         )
         PresenceSync.push(context, snapshot)
         WearStatePublisher.publish(context)

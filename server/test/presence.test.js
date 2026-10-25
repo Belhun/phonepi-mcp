@@ -228,6 +228,7 @@ test("get_presence is a read-only box copy and does not call the phone", async (
     assert.equal(body.driving, false);
     assert.equal(body.moving, false);
     assert.equal(body.dnd, "off");
+    assert.equal(body.pi_quiet, false);
     assert.equal(body.latitude, 33.5);
     assert.equal(body.longitude, -117.15);
     assert.equal(body.accuracyMeters, 18);

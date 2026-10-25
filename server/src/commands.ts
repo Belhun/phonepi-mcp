@@ -350,13 +350,13 @@ export const PHONE_COMMANDS: readonly PhoneCommand[] = [
     phoneTool: "pause_location_logging",
     maxPerMinute: 10,
     description:
-      "Pause or resume PhonePi's on-device location history. paused true stops new visits and drives. History already stored stays. Token required. The phone logs this in Recent activity.",
+      "Pause PhonePi's on-device location history. paused must be true. Resume is phone-only. History already stored stays. Token required. The phone logs this in Recent activity.",
     inputSchema: {
       type: "object",
       properties: {
         paused: {
           type: "boolean",
-          description: "true pauses logging, false resumes it",
+          description: "true pauses logging. Resume is phone-only.",
         },
       },
       required: ["paused"],

@@ -547,7 +547,7 @@ class WebSocketManager(
                 is WsMessage.ActivityNote ->
                     ActivityLog.logRemoteAction(msg.title, msg.detail, msg.status)
                 is WsMessage.AssistantAck ->
-                    AssistantOutbox.ack(appContext, msg.id, msg.ok)
+                    AssistantOutbox.ack(appContext, msg.id, msg.ok, msg.retryable)
                 is WsMessage.Unknown -> Log.v(TAG, "ignored frame type=${msg.type}")
             }
         }

@@ -61,6 +61,7 @@ data class PresenceSnapshot(
     val moving: Boolean,
     val activity: String,
     val dnd: String,
+    val piQuiet: Boolean = false,
     val latitude: Double?,
     val longitude: Double?,
     val accuracyMeters: Double?,
@@ -170,6 +171,7 @@ object PresenceLogic {
         paused: Boolean,
         dnd: String,
         source: String,
+        piQuiet: Boolean = false,
     ): PresenceSnapshot = PresenceSnapshot(
         capturedAtMs = nowMs,
         enabled = enabled,
@@ -181,6 +183,7 @@ object PresenceLogic {
         moving = memory.moving,
         activity = memory.activity,
         dnd = dnd,
+        piQuiet = piQuiet,
         latitude = if (enabled && !paused) memory.latitude else null,
         longitude = if (enabled && !paused) memory.longitude else null,
         accuracyMeters = if (enabled && !paused) memory.accuracyMeters else null,

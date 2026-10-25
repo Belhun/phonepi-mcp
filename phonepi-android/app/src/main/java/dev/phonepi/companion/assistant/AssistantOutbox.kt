@@ -5,9 +5,20 @@ import dev.phonepi.companion.textsend.PhoneUplink
 import org.json.JSONArray
 import org.json.JSONObject
 
+data class AssistantAckResult(
+    val id: String,
+    val ok: Boolean,
+    val retryable: Boolean,
+)
+
+object AssistantAckPolicy {
+    fun shouldDrop(ok: Boolean, retryable: Boolean): Boolean = ok || !retryable
+}
+
 /**
  * Prompt/reply frames stay queued until the box sends assistant_ack {id, ok}.
  * Retries reuse the same id so the server can dedupe. Never includes the token.
+ * A retryable ok:false (rate limit / transient) keeps the row queued.
  */
 object AssistantOutbox {
     private const val PREFS = "phonepi_assistant_outbox"
@@ -28,8 +39,12 @@ object AssistantOutbox {
         flush(app)
     }
 
-    fun ack(context: Context, id: String, ok: Boolean) {
+    fun ack(context: Context, id: String, ok: Boolean, retryable: Boolean = false) {
         if (id.isBlank()) return
+        if (!AssistantAckPolicy.shouldDrop(ok, retryable)) {
+            flush(context.applicationContext)
+            return
+        }
         val app = context.applicationContext
         synchronized(lock) {
             val kept = read(app).filter { idOf(it) != id }
@@ -54,12 +69,16 @@ object AssistantOutbox {
         }
     }
 
-    fun parseAck(text: String): Pair<String, Boolean>? {
+    fun parseAck(text: String): AssistantAckResult? {
         val obj = runCatching { JSONObject(text) }.getOrNull() ?: return null
         if (obj.optString("type") != "assistant_ack") return null
         val id = obj.optString("id")
         if (id.isBlank()) return null
-        return id to obj.optBoolean("ok", false)
+        return AssistantAckResult(
+            id = id,
+            ok = obj.optBoolean("ok", false),
+            retryable = obj.optBoolean("retryable", false),
+        )
     }
 
     private fun idOf(line: String): String? =

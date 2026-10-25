@@ -65,7 +65,7 @@ fun ConnectScreen(modifier: Modifier = Modifier) {
     }
     val active by ActiveServer.info.collectAsState()
     var serverSnap by remember { mutableStateOf(ServerPrefs.load(context.applicationContext)) }
-    var sharingStopped by remember { mutableStateOf(SharingMaster.anyPaused(context.applicationContext)) }
+    var sharingStopped by remember { mutableStateOf(SharingMaster.allPaused(context.applicationContext)) }
     var quietOn by remember { mutableStateOf(PhonePiQuiet.isActive(context.applicationContext)) }
     fun reloadServers() {
         serverSnap = ServerPrefs.load(context.applicationContext)
@@ -318,7 +318,7 @@ fun ConnectScreen(modifier: Modifier = Modifier) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Stop all sharing", style = MaterialTheme.typography.bodyMedium)
                     Text(
-                        "Pauses location history, presence, screen time, and health at once. Resume each stream below.",
+                        "On only when location, presence, screen time, and health are all paused. One tap turns sharing back on.",
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
@@ -326,10 +326,8 @@ fun ConnectScreen(modifier: Modifier = Modifier) {
                     checked = sharingStopped,
                     onCheckedChange = { on ->
                         val app = context.applicationContext
-                        if (on) {
-                            SharingMaster.stopAll(app)
-                        }
-                        sharingStopped = SharingMaster.anyPaused(app)
+                        if (on) SharingMaster.stopAll(app) else SharingMaster.resumeAll(app)
+                        sharingStopped = SharingMaster.allPaused(app)
                     },
                 )
             }
@@ -353,7 +351,7 @@ fun ConnectScreen(modifier: Modifier = Modifier) {
                             PhonePiQuiet.quietFor(app, 60)
                             quietOn = true
                         } else {
-                            PhonePiQuiet.clear(app)
+                            PhonePiQuiet.restore(app)
                             quietOn = false
                         }
                     },

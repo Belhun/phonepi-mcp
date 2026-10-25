@@ -11,7 +11,8 @@ import dev.phonepi.companion.wear.WearQuietRestoreReceiver
 
 /**
  * In-app PhonePi quiet. Holds PhonePi's own non-urgent notifications.
- * Presence reports "quiet". Does not change system Do Not Disturb.
+ * Presence reports pi_quiet separately from system DND. Does not change
+ * system Do Not Disturb.
  */
 object PhonePiQuiet {
     private const val PREFS = "phonepi_quiet"
@@ -32,7 +33,7 @@ object PhonePiQuiet {
         val until = untilMs(context)
         if (until <= 0L) return false
         if (nowMs >= until) {
-            clear(context)
+            restore(context)
             return false
         }
         return true
@@ -42,11 +43,12 @@ object PhonePiQuiet {
         prefs(context).getLong(KEY_UNTIL, 0L)
 
     fun restore(context: Context) {
-        clear(context)
+        prefs(context).edit().clear().apply()
+        dev.phonepi.companion.messaging.MessageNotificationHelper.releaseHeld(context)
     }
 
     fun clear(context: Context) {
-        prefs(context).edit().clear().apply()
+        restore(context)
     }
 
     private fun scheduleRestore(context: Context, untilMs: Long) {

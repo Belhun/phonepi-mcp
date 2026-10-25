@@ -44,7 +44,7 @@ class SendNotificationTool(context: Context) : ToolHandler {
                 createdAt = now,
             ),
         )
-        MessageNotificationHelper.post(
+        val posted = MessageNotificationHelper.post(
             context = appContext,
             messageId = request.requestId,
             title = request.title,
@@ -54,11 +54,13 @@ class SendNotificationTool(context: Context) : ToolHandler {
             includeReply = true,
             includeDismiss = false,
         )
+        val held = posted == MessageNotificationHelper.HELD
         return success {
             put("messageId", request.requestId)
             put("notificationId", request.requestId.hashCode())
             put("duplicate", false)
-            put("state", "pending")
+            put("held", held)
+            put("state", if (held) "held" else "pending")
         }
     }
 }

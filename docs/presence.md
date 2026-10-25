@@ -15,7 +15,8 @@ Fields:
 - `place` — saved place name marked presence, or `away`. `home` / `work` / `church` if those are the saved names.
 - `minutesAtPlace` — minutes since the last arrive at that place.
 - `driving` / `moving` / `activity` — activity recognition (`still`, `walking`, `running`, `cycling`, `driving`, `unknown`).
-- `dnd` — interruption state (`off`, `priority`, `total_silence`, `alarms`, or `quiet` while in-app PhonePi quiet is on). PhonePi never flips system Do Not Disturb.
+- `dnd` — system interruption filter (`off`, `priority`, `total_silence`, `alarms`). PhonePi never flips system Do Not Disturb.
+- `pi_quiet` — `true` while in-app PhonePi quiet is on. Independent of `dnd`.
 - `latitude` / `longitude` / `accuracyMeters` — raw coordinates only when the caller is scoped for them **and** presence is on, not paused, and fresh (`PHONEPI_PRESENCE_TTL_MS`, default 15 minutes). Otherwise null. Turning Presence off sends a clear; the box drops coordinates when off, paused, or stale. A paused snapshot is not fresh.
 - `expected_place` / `matches_expected` — from the config file below. `null` when no hours cover now.
 - `enabled` / `paused` — phone switches.

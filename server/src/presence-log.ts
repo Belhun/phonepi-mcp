@@ -35,6 +35,7 @@ export interface PresenceSnapshot {
   moving: boolean;
   activity: string;
   dnd: string;
+  piQuiet: boolean;
   latitude: number | null;
   longitude: number | null;
   accuracyMeters: number | null;
@@ -263,6 +264,7 @@ export function parsePresenceSnapshot(
       moving: record.moving,
       activity: activity ?? "unknown",
       dnd: dnd ?? "unknown",
+      piQuiet: record.pi_quiet === true || record.piQuiet === true,
       latitude,
       longitude,
       accuracyMeters,

@@ -39,9 +39,42 @@ object SharingMaster {
         )
     }
 
+    fun resumeAll(context: Context) {
+        val app = context.applicationContext
+        LocationHistoryPrefs.setPaused(app, false)
+        LocationCapture.refresh(app)
+        PresencePrefs.setPaused(app, false)
+        scope.launch { PresenceEngine.refresh(app) }
+        UsagePrefs.setPaused(app, false)
+        HealthConnectPrefs.setPaused(app, false)
+        HealthSyncScheduler.apply(app)
+        ActivityLog.logConnection(
+            "Resume sharing",
+            "Resumed location history, presence, screen time, and health",
+            "info",
+        )
+    }
+
     fun anyPaused(context: Context): Boolean =
         LocationHistoryPrefs.paused(context) ||
             PresencePrefs.paused(context) ||
             UsagePrefs.paused(context) ||
             HealthConnectPrefs.paused(context)
+
+    fun allPaused(context: Context): Boolean =
+        LocationHistoryPrefs.paused(context) &&
+            PresencePrefs.paused(context) &&
+            UsagePrefs.paused(context) &&
+            HealthConnectPrefs.paused(context)
+
+    fun notificationLine(context: Context): String {
+        val parts = buildList {
+            if (!LocationHistoryPrefs.paused(context)) add("location")
+            if (!PresencePrefs.paused(context)) add("presence")
+            if (!UsagePrefs.paused(context)) add("screen time")
+            if (!HealthConnectPrefs.paused(context)) add("health")
+        }
+        return if (parts.isEmpty()) "sharing stopped"
+        else "sharing ${parts.joinToString(", ")}"
+    }
 }

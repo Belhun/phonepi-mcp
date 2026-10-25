@@ -318,7 +318,9 @@ export function parseLocationEvent(
   if (record.kind !== "visit" && record.kind !== "drive") {
     return { ok: false, id, error: "kind must be visit or drive" };
   }
-  const started = parseIngestTs(record.startMs, nowMs);
+  const started = parseIngestTs(record.startMs, nowMs, {
+    applyMinTs: record.source !== "timeline",
+  });
   if (!started.ok) {
     return { ok: false, id, error: started.error };
   }

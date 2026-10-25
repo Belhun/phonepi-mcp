@@ -127,6 +127,8 @@
         android:name=".PhonePiApp"
 
         android:allowBackup="false"
+        android:fullBackupContent="@xml/full_backup_content"
+        android:dataExtractionRules="@xml/data_extraction_rules"
 
         android:icon="@drawable/ic_stat_link"
 

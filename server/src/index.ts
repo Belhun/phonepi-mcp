@@ -83,6 +83,8 @@ import {
   isSensitiveReadTool,
   loadReadAuth,
   logSensitiveRead,
+  matchReadBot,
+  requireReadTokenAll,
   takeTokenArg,
 } from "./read-auth.js";
 import { allowIngest } from "./ingest-limit.js";
@@ -200,7 +202,8 @@ class PhonePiMCPServer {
       wsPort: this.serverPort,
       bridge: {
         isPhoneConnected: () => this.isPhoneOpen(),
-        callPhoneTool: (name, args) => this.callPhoneTool(name, args),
+        callPhoneTool: (name, args, callerId) =>
+          this.callPhoneTool(name, args, callerId ?? "public"),
         healthDetails: () => this.session.healthDetails(),
         noteActivity: (entry) => this.notePhoneActivity(entry),
       },
@@ -341,6 +344,7 @@ class PhonePiMCPServer {
           type: "assistant_ack",
           id,
           ok,
+          retryable: result.rejected.some((row) => row.retryable === true),
         })
       );
     } catch (err) {
@@ -509,7 +513,11 @@ class PhonePiMCPServer {
     provided: string | null
   ): { callerId: string; coords: boolean } {
     if (!isSensitiveReadTool(tool)) {
-      return { callerId: "mcp", coords: false };
+      const bot = matchReadBot(this.readAuth, provided);
+      return {
+        callerId: bot?.id ?? "mcp",
+        coords: bot?.coords === true,
+      };
     }
     const auth = authorizeSensitiveRead({
       state: this.readAuth,
@@ -1857,6 +1865,8 @@ class PhonePiMCPServer {
           tool: request.params.name,
           args,
           activityLogged: false,
+          includeCoords: mcpAuth.coords,
+          callerId: mcpAuth.callerId,
         });
         if (outcome.status === 400) {
           throw new McpError(ErrorCode.InvalidParams, String(outcome.body.text));
@@ -1985,6 +1995,8 @@ class PhonePiMCPServer {
           limiter: commandRateLimiter,
           args: stripped.rest,
           capture: () => this.notificationCaptureStatus(),
+          wrapUntrusted: requireReadTokenAll(),
+          callerId: mcpAuth.callerId,
         });
         if (outcome.status === 400) {
           throw new McpError(ErrorCode.InvalidParams, outcome.body.text);
@@ -2050,11 +2062,28 @@ class PhonePiMCPServer {
           }
         }
         this.assistantStore.clear();
+        let phoneCleared = false;
+        if (this.isPhoneOpen()) {
+          try {
+            await this.callPhoneTool(
+              request.params.name,
+              validated.args,
+              mcpAuth.callerId
+            );
+            phoneCleared = true;
+          } catch {
+            phoneCleared = false;
+          }
+        }
         return {
           content: [
             {
               type: "text",
-              text: JSON.stringify({ status: "success", cleared: true }, null, 2),
+              text: JSON.stringify(
+                { status: "success", cleared: true, phoneCleared },
+                null,
+                2
+              ),
             },
           ],
         };
@@ -2064,7 +2093,7 @@ class PhonePiMCPServer {
         try {
           const result = await gmessagesClient.callTool(
             request.params.name,
-            (request.params.arguments || {}) as Record<string, unknown>
+            stripped.rest
           );
           if (result.isError) {
             throw new McpError(ErrorCode.InternalError, result.text);

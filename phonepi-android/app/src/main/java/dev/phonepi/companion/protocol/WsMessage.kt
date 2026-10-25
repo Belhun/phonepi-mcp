@@ -51,6 +51,7 @@ sealed interface WsMessage {
     data class AssistantAck(
         val id: String,
         val ok: Boolean,
+        val retryable: Boolean = false,
     ) : WsMessage
 
     /** Any other or unparseable frame. Ignored by the message loop. */
@@ -83,6 +84,7 @@ sealed interface WsMessage {
                 "assistant_ack" -> AssistantAck(
                     id = obj["id"]?.jsonPrimitive?.contentOrNull.orEmpty(),
                     ok = obj["ok"]?.jsonPrimitive?.contentOrNull != "false",
+                    retryable = obj["retryable"]?.jsonPrimitive?.contentOrNull == "true",
                 )
                 else -> Unknown(obj["type"]?.jsonPrimitive?.contentOrNull ?: "none")
             }

@@ -13,8 +13,18 @@ import dev.phonepi.companion.privacy.PhonePiQuiet
 import dev.phonepi.companion.receiver.MessageActionReceiver
 import dev.phonepi.companion.ui.MessageReplyActivity
 import dev.phonepi.companion.util.NotificationHelper
+import org.json.JSONArray
+import org.json.JSONObject
 
 object MessageNotificationHelper {
+    const val POSTED = "posted"
+    const val HELD = "held"
+    private const val HELD_PREFS = "phonepi_held_cards"
+    private const val HELD_KEY = "cards"
+    private const val HELD_CAP = 20
+    private const val SUMMARY_ID = 4410
+    private val lock = Any()
+
     fun post(
         context: Context,
         messageId: String,
@@ -24,8 +34,94 @@ object MessageNotificationHelper {
         priorityHigh: Boolean,
         includeReply: Boolean = false,
         includeDismiss: Boolean = true,
+    ): String {
+        if (!priorityHigh && PhonePiQuiet.isActive(context)) {
+            hold(
+                context,
+                HeldCard(
+                    messageId = messageId,
+                    title = title,
+                    body = body,
+                    responseOptions = responseOptions,
+                    priorityHigh = false,
+                    includeReply = includeReply,
+                    includeDismiss = includeDismiss,
+                ),
+            )
+            return HELD
+        }
+        show(
+            context,
+            messageId,
+            title,
+            body,
+            responseOptions,
+            priorityHigh,
+            includeReply,
+            includeDismiss,
+        )
+        return POSTED
+    }
+
+    fun cancel(context: Context, messageId: String) {
+        context.getSystemService(android.app.NotificationManager::class.java)
+            .cancel(messageId.hashCode())
+    }
+
+    fun releaseHeld(context: Context) {
+        val app = context.applicationContext
+        val cards = synchronized(lock) {
+            val held = readHeld(app)
+            writeHeld(app, emptyList())
+            held
+        }
+        if (cards.isEmpty()) return
+        for (card in cards) {
+            show(
+                app,
+                card.messageId,
+                card.title,
+                card.body,
+                card.responseOptions,
+                card.priorityHigh,
+                card.includeReply,
+                card.includeDismiss,
+            )
+        }
+        NotificationHelper.ensureChannels(app)
+        val summary = NotificationCompat.Builder(app, NotificationHelper.CHANNEL_MESSAGES)
+            .setSmallIcon(R.drawable.ic_stat_link)
+            .setContentTitle("PhonePi quiet ended")
+            .setContentText("${cards.size} cards were held")
+            .setStyle(
+                NotificationCompat.BigTextStyle().bigText(
+                    cards.take(5).joinToString("\n") { it.title }.ifBlank { "${cards.size} cards" },
+                ),
+            )
+            .setAutoCancel(true)
+            .build()
+        app.getSystemService(android.app.NotificationManager::class.java)
+            .notify(SUMMARY_ID, summary)
+    }
+
+    private fun hold(context: Context, card: HeldCard) {
+        val app = context.applicationContext
+        synchronized(lock) {
+            val next = readHeld(app).filter { it.messageId != card.messageId } + card
+            writeHeld(app, next.takeLast(HELD_CAP))
+        }
+    }
+
+    private fun show(
+        context: Context,
+        messageId: String,
+        title: String,
+        body: String,
+        responseOptions: List<String>,
+        priorityHigh: Boolean,
+        includeReply: Boolean,
+        includeDismiss: Boolean,
     ) {
-        if (!priorityHigh && PhonePiQuiet.isActive(context)) return
         NotificationHelper.ensureChannels(context)
         val channel = if (priorityHigh) {
             NotificationHelper.CHANNEL_URGENT
@@ -98,11 +194,6 @@ object MessageNotificationHelper {
             .notify(messageId.hashCode(), builder.build())
     }
 
-    fun cancel(context: Context, messageId: String) {
-        context.getSystemService(android.app.NotificationManager::class.java)
-            .cancel(messageId.hashCode())
-    }
-
     private fun replyAction(context: Context, messageId: String): NotificationCompat.Action {
         val remoteInput = RemoteInput.Builder(AssistantProtocol.KEY_TEXT_REPLY)
             .setLabel("Reply")
@@ -131,5 +222,68 @@ object MessageNotificationHelper {
                     .setHintDisplayActionInline(true),
             )
             .build()
+    }
+
+    private data class HeldCard(
+        val messageId: String,
+        val title: String,
+        val body: String,
+        val responseOptions: List<String>,
+        val priorityHigh: Boolean,
+        val includeReply: Boolean,
+        val includeDismiss: Boolean,
+    )
+
+    private fun readHeld(context: Context): List<HeldCard> {
+        val raw = context.getSharedPreferences(HELD_PREFS, Context.MODE_PRIVATE)
+            .getString(HELD_KEY, null) ?: return emptyList()
+        val array = runCatching { JSONArray(raw) }.getOrNull() ?: return emptyList()
+        return buildList {
+            for (index in 0 until array.length()) {
+                val obj = array.optJSONObject(index) ?: continue
+                val id = obj.optString("messageId")
+                if (id.isBlank()) continue
+                val options = obj.optJSONArray("responseOptions")
+                add(
+                    HeldCard(
+                        messageId = id,
+                        title = obj.optString("title"),
+                        body = obj.optString("body"),
+                        responseOptions = buildList {
+                            if (options != null) {
+                                for (i in 0 until options.length()) {
+                                    val label = options.optString(i)
+                                    if (label.isNotBlank()) add(label)
+                                }
+                            }
+                        },
+                        priorityHigh = obj.optBoolean("priorityHigh", false),
+                        includeReply = obj.optBoolean("includeReply", false),
+                        includeDismiss = obj.optBoolean("includeDismiss", true),
+                    ),
+                )
+            }
+        }
+    }
+
+    private fun writeHeld(context: Context, cards: List<HeldCard>) {
+        val array = JSONArray()
+        for (card in cards) {
+            val obj = JSONObject()
+                .put("messageId", card.messageId)
+                .put("title", card.title)
+                .put("body", card.body)
+                .put("priorityHigh", card.priorityHigh)
+                .put("includeReply", card.includeReply)
+                .put("includeDismiss", card.includeDismiss)
+            val options = JSONArray()
+            card.responseOptions.forEach { options.put(it) }
+            obj.put("responseOptions", options)
+            array.put(obj)
+        }
+        context.getSharedPreferences(HELD_PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString(HELD_KEY, array.toString())
+            .apply()
     }
 }

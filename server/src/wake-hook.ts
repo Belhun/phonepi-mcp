@@ -249,12 +249,22 @@ function isTailnetIp(ip: string): boolean {
   return inCidr(ip, "100.64.0.0", 10);
 }
 
+function isPrivateLanIp(ip: string): boolean {
+  if (inCidr(ip, "10.0.0.0", 8)) return true;
+  if (inCidr(ip, "172.16.0.0", 12)) return true;
+  if (inCidr(ip, "192.168.0.0", 16)) return true;
+  const lower = ip.toLowerCase();
+  if (lower.startsWith("fc") || lower.startsWith("fd")) return true;
+  return false;
+}
+
 function isBlockedIp(ip: string): boolean {
   if (inCidr(ip, "169.254.0.0", 16)) return true;
   if (inCidr(ip, "0.0.0.0", 8)) return true;
   if (ip === "10.10.0.3") return true;
   if (ip.toLowerCase() === "fd00:ec2::254") return true;
   if (ip.toLowerCase().startsWith("fe80:")) return true;
+  if (isPrivateLanIp(ip) && !isTailnetIp(ip) && !isLoopbackIp(ip)) return true;
   return false;
 }
 

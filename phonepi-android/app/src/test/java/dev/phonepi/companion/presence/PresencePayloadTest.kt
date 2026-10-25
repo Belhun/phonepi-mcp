@@ -19,6 +19,7 @@ class PresencePayloadTest {
             moving = false,
             activity = "still",
             dnd = "off",
+            piQuiet = true,
             latitude = 33.38,
             longitude = -117.25,
             accuracyMeters = 15.0,
@@ -30,6 +31,8 @@ class PresencePayloadTest {
         val text = presenceSyncMessage(snapshot)
         assertTrue(text.contains("\"type\":\"presence_sync\""))
         assertTrue(text.contains("\"place\":\"Home\""))
+        assertTrue(text.contains("\"pi_quiet\":true"))
+        assertTrue(text.contains("\"dnd\":\"off\""))
         assertFalse(text.contains("token"))
         assertFalse(text.contains("wstoken"))
         assertEquals("""{"type":"presence_cleared"}""", presenceClearedMessage())

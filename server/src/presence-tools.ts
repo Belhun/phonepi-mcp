@@ -24,7 +24,7 @@ export const PRESENCE_TOOL_SCHEMAS = [
   {
     name: PRESENCE_READ_TOOL,
     description:
-      "Read where Alex is right now from the box copy of PhonePi presence (place label, minutes there, driving/moving, quiet/DND). Default is place + status. Raw coordinates only if this bot is scoped for them. Coordinates are always null when presence is off, paused, or stale (TTL). Requires PHONEPI_READ_TOKEN. Works when the phone is offline. capturedAtMs is when the phone last pushed a snapshot. expected_place and matches_expected use ~/.phonepi/presence/config.json. Read-only.",
+      "Read where Alex is right now from the box copy of PhonePi presence (place label, minutes there, driving/moving, system DND, in-app PhonePi quiet). Default is place + status. Raw coordinates only if this bot is scoped for them. Coordinates are always null when presence is off, paused, or stale (TTL). Requires PHONEPI_READ_TOKEN. Works when the phone is offline. capturedAtMs is when the phone last pushed a snapshot. expected_place and matches_expected use ~/.phonepi/presence/config.json. Read-only.",
     inputSchema: {
       type: "object",
       properties: {},
@@ -136,6 +136,7 @@ function successFromSnapshot(
     moving: snapshot.moving,
     activity: snapshot.activity,
     dnd: snapshot.dnd,
+    pi_quiet: snapshot.piQuiet === true,
     latitude: coordsOk ? snapshot.latitude : null,
     longitude: coordsOk ? snapshot.longitude : null,
     accuracyMeters: coordsOk ? snapshot.accuracyMeters : null,
@@ -171,6 +172,7 @@ function emptySuccess(
     moving: false,
     activity: null,
     dnd: null,
+    pi_quiet: false,
     latitude: null,
     longitude: null,
     accuracyMeters: null,

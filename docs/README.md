@@ -5,7 +5,7 @@ Index of feature docs. The combined setup list for Alex is [ALEX-CHECKLIST.md](A
 | Doc | What it covers |
 | --- | --- |
 | [ALEX-CHECKLIST.md](ALEX-CHECKLIST.md) | Sideload (release-signed APKs), grants, PhonePi quiet, Ask assistant, Wear, read-token / wake-hook env names |
-| [BOT-SKILL.md](BOT-SKILL.md) | Bot-facing tools and commands (sensitive reads need `PHONEPI_READ_TOKEN`) |
+| [BOT-SKILL.md](BOT-SKILL.md) | Bot-facing tools and commands (sensitive reads need `PHONEPI_READ_TOKEN`; prompt/reply `text` is an object, not a string) |
 | [presence.md](presence.md) | `get_presence`, work hours config, pause/clear |
 | [health.md](health.md) | Health Connect / Samsung Health, `get_health_summary` |
 | [assistant-notifications.md](assistant-notifications.md) | Watch-actionable notifications, Ask assistant, inbound prompts, wake hook |

@@ -54,8 +54,8 @@ object AssistantProtocol {
             )
         val unsafe = forbiddenText("$title $body")
         if (unsafe != null) return AssistantParseResult.Err(unsafe)
-        if (urgent && !title.startsWith(URGENT_TITLE_PREFIX)) {
-            title = "$URGENT_TITLE_PREFIX $title".take(URGENT_TITLE_MAX)
+        if (!title.startsWith(URGENT_TITLE_PREFIX)) {
+            title = "$URGENT_TITLE_PREFIX $title".take(titleMax)
         }
         val actions = parseActions(params)
         if (actions.size > MAX_ACTIONS) {

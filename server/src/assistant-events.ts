@@ -67,10 +67,17 @@ export type ParsedPrompt =
   | { ok: true; prompt: InboundPrompt }
   | { ok: false; id: string; error: string };
 
+export interface IngestRejection {
+  id: string;
+  error: string;
+  retryable?: boolean;
+}
+
 export interface IngestResult {
   accepted: string[];
-  rejected: { id: string; error: string }[];
+  rejected: IngestRejection[];
   duplicate: boolean;
+  droppedOldest?: number;
 }
 
 type ParseResult<T> =
@@ -164,6 +171,17 @@ export class AssistantStore {
   ): IngestResult {
     this.ensureDir(kind);
     this.prune(kind);
+    const parsed = parse(raw);
+    const parsedId =
+      parsed.ok
+        ? parsed.value.id
+        : parsed.id ||
+          (raw &&
+          typeof raw === "object" &&
+          !Array.isArray(raw) &&
+          typeof (raw as { id?: unknown }).id === "string"
+            ? (raw as { id: string }).id
+            : "");
     const budget = this.limiter.allow(
       `ingest:assistant:${kind}`,
       INGEST_PER_MINUTE.assistant
@@ -171,11 +189,10 @@ export class AssistantStore {
     if (!budget.ok) {
       return {
         accepted: [],
-        rejected: [{ id: "", error: "rate limited" }],
+        rejected: [{ id: parsedId, error: "rate limited", retryable: true }],
         duplicate: false,
       };
     }
-    const parsed = parse(raw);
     if (!parsed.ok) {
       return {
         accepted: [],
@@ -194,15 +211,40 @@ export class AssistantStore {
     if (existing) {
       return { accepted: [parsed.value.id], rejected: [], duplicate: true };
     }
-    if (this.readAll<T>(kind).length >= ASSISTANT_MAX_ENTRIES) {
-      return {
-        accepted: [],
-        rejected: [{ id: parsed.value.id, error: "row cap reached" }],
-        duplicate: false,
-      };
-    }
+    const droppedOldest = this.dropOldestIfNeeded<T>(kind);
     this.append(kind, parsed.value);
-    return { accepted: [parsed.value.id], rejected: [], duplicate: false };
+    return {
+      accepted: [parsed.value.id],
+      rejected: [],
+      duplicate: false,
+      droppedOldest,
+    };
+  }
+
+  private dropOldestIfNeeded<T extends { id: string; ts: number }>(
+    kind: "replies" | "prompts"
+  ): number {
+    const all = this.readAll<T>(kind);
+    if (all.length < ASSISTANT_MAX_ENTRIES) return 0;
+    const drop = all.length - ASSISTANT_MAX_ENTRIES + 1;
+    const keep = all.slice(drop);
+    this.rewriteKind(kind, keep);
+    console.error(
+      `assistant ${kind} dropped_oldest=${drop} cap=${ASSISTANT_MAX_ENTRIES}`
+    );
+    return drop;
+  }
+
+  private rewriteKind<T extends { ts: number }>(
+    kind: "replies" | "prompts",
+    rows: T[]
+  ): void {
+    const dir = this.kindDir(kind);
+    if (fs.existsSync(dir)) {
+      for (const file of this.listFiles(kind)) removeFile(file);
+    }
+    this.ensureDir(kind);
+    for (const row of rows) this.append(kind, row);
   }
 
   private findById<T extends { id: string }>(
@@ -391,8 +433,8 @@ export function validateSendNotificationArgs(
   if (unsafe) {
     return { ok: false, error: unsafe };
   }
-  if (urgent && !title.startsWith(URGENT_TITLE_PREFIX)) {
-    title = `${URGENT_TITLE_PREFIX} ${title}`.slice(0, URGENT_TITLE_MAX);
+  if (!title.startsWith(URGENT_TITLE_PREFIX)) {
+    title = `${URGENT_TITLE_PREFIX} ${title}`.slice(0, titleMax);
   }
   let requestId: string | undefined;
   if (args.requestId != null && args.requestId !== "") {

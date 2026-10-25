@@ -26,6 +26,7 @@ class AssistantProtocolTest {
         )
         val ok = parsed as AssistantParseResult.Ok
         assertEquals("notif-aaaa", ok.request.requestId)
+        assertTrue(ok.request.title.startsWith(AssistantProtocol.URGENT_TITLE_PREFIX))
         assertEquals(listOf("OK", "Snooze 1h", "No"), ok.request.actions)
         assertTrue(ok.request.priorityHigh)
     }
@@ -74,6 +75,7 @@ class AssistantProtocolTest {
             },
         ) as AssistantParseResult.Ok
         assertFalse(parsed.request.priorityHigh)
+        assertTrue(parsed.request.title.startsWith(AssistantProtocol.URGENT_TITLE_PREFIX))
     }
 
     @Test

@@ -9,6 +9,9 @@ import { validatePhoneCommandArgs } from "../dist/commands.js";
 import { LocationLog } from "../dist/location-log.js";
 import { isReadOnlyHttpTool } from "../dist/read-only-tools.js";
 import { startLoopbackHttp } from "../dist/loopback-http.js";
+import { TEST_READ_AUTH, readHeaders } from "./read-auth-fixture.js";
+import { parseLocationEvent } from "../dist/location-log.js";
+import { parseIngestTs } from "../dist/ingest-time.js";
 
 const NOW = Date.UTC(2026, 9, 18, 12, 0, 0);
 
@@ -143,7 +146,7 @@ test("query and search read the collapsed log", () => {
     event({
       id: "visit-home0001",
       placeName: "Home",
-      address: "338 E Fallbrook St, Fallbrook, CA",
+      address: "100 Example St, Anytown, CA",
       startMs: Date.UTC(2026, 9, 12, 2, 0, 0),
       endMs: Date.UTC(2026, 9, 12, 14, 0, 0),
       latitude: 33.38,
@@ -166,7 +169,7 @@ test("query and search read the collapsed log", () => {
   assert.equal(places.length, 1);
   assert.equal(places[0].address, "100 Main St, Vista, CA 92084");
   assert.equal(places[0].visits[0].dateUtc, "2026-10-13");
-  assert.equal(log.search("fallbrook", 10)[0].placeName, "Home");
+  assert.equal(log.search("home", 10)[0].placeName, "Home");
   assert.equal(log.search("no-such-place", 10).length, 0);
 });
 
@@ -188,6 +191,7 @@ test("location reads are allowlisted, served offline, and rate limited", async (
     port: 0,
     wsPort: 11041,
     commandToken: "test-token",
+    readAuth: TEST_READ_AUTH,
     locationLog: log,
     locationReadLimiter: limiter,
     bridge: {
@@ -205,14 +209,25 @@ test("location reads are allowlisted, served offline, and rate limited", async (
     assert.equal(isReadOnlyHttpTool("pause_location_logging"), false);
     assert.equal(isReadOnlyHttpTool("clear_location_history"), false);
 
-    const history = await post(started.port, "/api/tool", {
+    const denied = await post(started.port, "/api/tool", {
       tool: "get_location_history",
-      arguments: {
-        from: "2026-10-13T12:00:00-07:00",
-        to: "2026-10-13T18:00:00-07:00",
-        max: 20,
-      },
+      arguments: { max: 20 },
     });
+    assert.equal(denied.status, 401);
+
+    const history = await post(
+      started.port,
+      "/api/tool",
+      {
+        tool: "get_location_history",
+        arguments: {
+          from: "2026-10-13T12:00:00-07:00",
+          to: "2026-10-13T18:00:00-07:00",
+          max: 20,
+        },
+      },
+      readHeaders()
+    );
     assert.equal(history.status, 200);
     const historyBody = JSON.parse(history.json.text);
     assert.equal(historyBody.count, 1);
@@ -220,26 +235,41 @@ test("location reads are allowlisted, served offline, and rate limited", async (
     assert.equal(historyBody.activityLogged, false);
     assert.equal(phoneCalls, 0);
 
-    const search = await post(started.port, "/api/tool", {
-      tool: "search_places",
-      arguments: { query: "pizza vista" },
-    });
+    const search = await post(
+      started.port,
+      "/api/tool",
+      {
+        tool: "search_places",
+        arguments: { query: "pizza vista" },
+      },
+      readHeaders()
+    );
     assert.equal(search.status, 200);
     const searchBody = JSON.parse(search.json.text);
     assert.equal(searchBody.places[0].address.includes("Vista"), true);
     assert.equal(phoneCalls, 0);
 
-    const bad = await post(started.port, "/api/tool", {
-      tool: "get_location_history",
-      arguments: { max: 500 },
-    });
+    const bad = await post(
+      started.port,
+      "/api/tool",
+      {
+        tool: "get_location_history",
+        arguments: { max: 500 },
+      },
+      readHeaders()
+    );
     assert.equal(bad.status, 400);
     assert.match(bad.json.text, /max/);
 
-    const shortQuery = await post(started.port, "/api/tool", {
-      tool: "search_places",
-      arguments: { query: "p" },
-    });
+    const shortQuery = await post(
+      started.port,
+      "/api/tool",
+      {
+        tool: "search_places",
+        arguments: { query: "p" },
+      },
+      readHeaders()
+    );
     assert.equal(shortQuery.status, 400);
 
     const paused = await post(started.port, "/api/tool", {
@@ -255,15 +285,25 @@ test("location reads are allowlisted, served offline, and rate limited", async (
     assert.equal(phoneCalls, 0);
 
     for (let i = 0; i < 40; i += 1) {
-      await post(started.port, "/api/tool", {
+      await post(
+        started.port,
+        "/api/tool",
+        {
+          tool: "search_places",
+          arguments: { query: "pizza" },
+        },
+        readHeaders()
+      );
+    }
+    const limited = await post(
+      started.port,
+      "/api/tool",
+      {
         tool: "search_places",
         arguments: { query: "pizza" },
-      });
-    }
-    const limited = await post(started.port, "/api/tool", {
-      tool: "search_places",
-      arguments: { query: "pizza" },
-    });
+      },
+      readHeaders()
+    );
     assert.equal(limited.status, 429);
     assert.equal(phoneCalls, 0);
   } finally {
@@ -276,6 +316,10 @@ test("pause and clear are token commands and invalid args never call the phone",
   assert.match(
     validatePhoneCommandArgs("pause_location_logging", {}).error,
     /paused/
+  );
+  assert.match(
+    validatePhoneCommandArgs("pause_location_logging", { paused: false }).error,
+    /phone/
   );
   assert.equal(
     validatePhoneCommandArgs("clear_location_history", { confirm: "delete" }).ok,
@@ -347,7 +391,8 @@ test("pause and clear are token commands and invalid args never call the phone",
         { command: "pause_location_logging", arguments: { paused: false } },
         { "X-PhonePi-Token": "test-token" }
       );
-      assert.equal(down.status, 503);
+      assert.equal(down.status, 400);
+      assert.match(down.json.text, /phone/);
     } finally {
       await new Promise((resolve) => offline.server.close(resolve));
     }
@@ -355,4 +400,24 @@ test("pause and clear are token commands and invalid args never call the phone",
   } finally {
     await new Promise((resolve) => started.server.close(resolve));
   }
+});
+
+test("timeline imports skip the 2020 floor; live ingest keeps it", () => {
+  const now = Date.UTC(2026, 9, 18, 12, 0, 0);
+  const old = Date.UTC(2018, 5, 1);
+  const live = parseLocationEvent(
+    event({ id: "visit-oldlive1", startMs: old, source: "phonepi" }),
+    now
+  );
+  assert.equal(live.ok, false);
+  assert.match(live.error, /2020/);
+  const bulk = parseLocationEvent(
+    event({ id: "visit-oldtime1", startMs: old, source: "timeline" }),
+    now
+  );
+  assert.equal(bulk.ok, true);
+  assert.equal(bulk.event.startMs, old);
+  const skew = parseIngestTs(now + 20 * 60_000, now);
+  assert.equal(skew.ok, false);
+  assert.match(skew.error, /clock skew/);
 });

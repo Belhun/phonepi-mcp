@@ -41,6 +41,7 @@ private fun snapshotJson(snapshot: PresenceSnapshot): JsonObject = buildJsonObje
     put("moving", snapshot.moving)
     put("activity", snapshot.activity)
     put("dnd", snapshot.dnd)
+    put("pi_quiet", snapshot.piQuiet)
     put("latitude", snapshot.latitude?.let(::JsonPrimitive) ?: JsonNull)
     put("longitude", snapshot.longitude?.let(::JsonPrimitive) ?: JsonNull)
     put("accuracyMeters", snapshot.accuracyMeters?.let(::JsonPrimitive) ?: JsonNull)

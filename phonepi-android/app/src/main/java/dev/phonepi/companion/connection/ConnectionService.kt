@@ -183,7 +183,7 @@ class ConnectionService : Service() {
         registerNetworkCallback()
         scope.launch {
             ConnectionController.state.collect { state ->
-                updateForeground(state.statusLabel())
+                updateForeground(foregroundLine(state.statusLabel()))
             }
         }
         scope.launch {
@@ -203,7 +203,9 @@ class ConnectionService : Service() {
             return START_NOT_STICKY
         }
         if (intent?.action == ACTION_NUDGE) {
-            startForegroundNotification(ConnectionController.state.value.statusLabel())
+            startForegroundNotification(
+                foregroundLine(ConnectionController.state.value.statusLabel()),
+            )
             manager.nudge("app foreground")
             manager.publishPermissions(force = true)
             return START_STICKY
@@ -234,7 +236,12 @@ class ConnectionService : Service() {
 
     override fun onBind(intent: Intent?) = null
 
-    private fun startForegroundNotification(text: String = "Phone link active") {
+    private fun foregroundLine(status: String): String {
+        val sharing = dev.phonepi.companion.privacy.SharingMaster.notificationLine(this)
+        return "$status · $sharing"
+    }
+
+    private fun startForegroundNotification(text: String = foregroundLine("Phone link active")) {
         updateForeground(text)
     }
 

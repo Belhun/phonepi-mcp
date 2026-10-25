@@ -5,9 +5,11 @@ import os from "node:os";
 import path from "path";
 import test from "node:test";
 import {
+  ASSISTANT_MAX_ENTRIES,
   AssistantStore,
   validateSendNotificationArgs,
 } from "../dist/assistant-events.js";
+import { CommandRateLimiter } from "../dist/command-rate-limit.js";
 import { isPhoneCommand, validatePhoneCommandArgs } from "../dist/commands.js";
 import { startLoopbackHttp } from "../dist/loopback-http.js";
 import { TEST_READ_AUTH, readHeaders } from "./read-auth-fixture.js";
@@ -102,6 +104,7 @@ test("send_notification validation: actions cap 3, requestId, high default", () 
   });
   assert.equal(ok.ok, true);
   assert.equal(ok.args.priority, "high");
+  assert.match(ok.args.title, /^From assistant:/);
   assert.deepEqual(ok.args.actions, ["OK", "Snooze 1h", "No"]);
 
   const tooMany = validatePhoneCommandArgs("send_notification", {
@@ -219,7 +222,8 @@ test("HTTP /api/tool serves replies and prompts while the phone is offline", asy
     const replyBody = JSON.parse(replies.json.text);
     assert.equal(replyBody.status, "success");
     assert.equal(replyBody.count, 1);
-    assert.equal(replyBody.replies[0].action, "reply");
+    assert.equal(replyBody.replies[0].action.untrusted, true);
+    assert.match(replyBody.replies[0].action.text, /reply/);
     assert.equal(replyBody.replies[0].untrusted, true);
     assert.match(replyBody.replies[0].replyText.text, /On my way/);
 
@@ -277,6 +281,7 @@ test("POST /api/command send_notification validates then calls the phone", async
     assert.equal(calls.length, 1);
     assert.equal(calls[0].name, "send_notification");
     assert.equal(calls[0].args.requestId, "notif-dddd");
+    assert.match(calls[0].args.title, /^From assistant:/);
     assert.deepEqual(calls[0].args.actions, ["OK", "Snooze 1h"]);
     assert.equal(calls[0].args.priority, "high");
   } finally {
@@ -322,4 +327,65 @@ test("GET /api/health includes hookFailed and never the wake URL or secret", asy
   } finally {
     await new Promise((resolve) => started.server.close(resolve));
   }
+});
+
+test("assistant cap drops oldest rows instead of rejecting new ones", () => {
+  let t = NOW;
+  const limiter = new CommandRateLimiter(1, () => t);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "phonepi-assistant-cap-"));
+  const store = new AssistantStore(dir, 30, () => NOW, limiter);
+  for (let i = 0; i < ASSISTANT_MAX_ENTRIES; i += 1) {
+    t += 2;
+    const id = `prompt-${String(i).padStart(8, "0")}`;
+    const result = store.ingestPrompt({
+      id,
+      text: `prompt ${i}`,
+      source: "app",
+      ts: NOW - (ASSISTANT_MAX_ENTRIES - i) * 1000,
+    });
+    assert.equal(result.accepted[0], id, id);
+  }
+  t += 2;
+  const overflow = store.ingestPrompt({
+    id: "prompt-newest01",
+    text: "newest",
+    source: "app",
+    ts: NOW,
+  });
+  assert.equal(overflow.accepted[0], "prompt-newest01");
+  assert.equal(overflow.rejected.length, 0);
+  assert.equal(overflow.droppedOldest, 1);
+  const rows = store.queryPrompts({ limit: ASSISTANT_MAX_ENTRIES });
+  assert.equal(rows.length, ASSISTANT_MAX_ENTRIES);
+  assert.equal(rows[rows.length - 1].id, "prompt-newest01");
+  assert.equal(
+    rows.some((row) => row.id === "prompt-00000000"),
+    false
+  );
+});
+
+test("assistant rate-limit rejection is retryable", () => {
+  let t = NOW;
+  const limiter = new CommandRateLimiter(60_000, () => t);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "phonepi-assistant-rl-"));
+  const store = new AssistantStore(dir, 30, () => t, limiter);
+  for (let i = 0; i < 30; i += 1) {
+    const result = store.ingestPrompt({
+      id: `prompt-rl${String(i).padStart(6, "0")}`,
+      text: `n${i}`,
+      source: "app",
+      ts: t,
+    });
+    assert.equal(result.rejected.length, 0);
+  }
+  const limited = store.ingestPrompt({
+    id: "prompt-rl-over",
+    text: "later",
+    source: "app",
+    ts: t,
+  });
+  assert.equal(limited.accepted.length, 0);
+  assert.equal(limited.rejected[0].error, "rate limited");
+  assert.equal(limited.rejected[0].retryable, true);
+  assert.equal(limited.rejected[0].id, "prompt-rl-over");
 });

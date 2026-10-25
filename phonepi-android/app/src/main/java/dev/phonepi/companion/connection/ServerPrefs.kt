@@ -69,8 +69,9 @@ object ServerPrefs {
         }.apply()
     }
 
-    /** "Forget saved host": wipe servers and do not reseed. */
+    /** "Forget saved host": wipe servers and stored tokens. Do not reseed. */
     fun forget(context: Context) {
+        TokenVault.clearAll(context)
         prefs(context).edit()
             .clear()
             .putBoolean(KEY_MIGRATED, true)

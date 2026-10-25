@@ -25,7 +25,8 @@ import kotlinx.coroutines.launch
 class ConfirmActionActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val kind = intent.getStringExtra(EXTRA_KIND).orEmpty()
+        // Only EXTRA_KIND is read. Skip/auto/confirmed extras are ignored.
+        val kind = ConfirmActionGuard.kindOf(intent.getStringExtra(EXTRA_KIND))
         setContent {
             MaterialTheme {
                 val context = LocalContext.current
@@ -40,7 +41,8 @@ class ConfirmActionActivity : ComponentActivity() {
                     )
                 }
                 var busy by remember { mutableStateOf(false) }
-                var done by remember { mutableStateOf(kind != KIND_QUIET && kind != KIND_IM_OK) }
+                // Confirm tap is mandatory. Never auto-send from extras.
+                var done by remember { mutableStateOf(!ConfirmActionGuard.isKnownKind(kind)) }
                 Column(
                     modifier = Modifier
                         .fillMaxSize()

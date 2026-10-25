@@ -43,6 +43,11 @@ object TokenVault {
         if (secure.getBoolean(MIGRATED, false)) return
         synchronized(this) {
             if (secure.getBoolean(MIGRATED, false)) return
+            val keystoreReady = secretKey() != null
+            if (!keystoreReady && androidKeystorePresent()) {
+                warn("Keystore unavailable; reconnect to save the token. Existing pairing was kept.")
+                return
+            }
             val legacy = app.getSharedPreferences("phonepi_connection", Context.MODE_PRIVATE)
             val old = legacy.getString("last_ws_token", null).orEmpty()
             if (old.isNotBlank() && lastToken(app).isBlank()) {
@@ -73,21 +78,33 @@ object TokenVault {
         }
     }
 
+    fun clearAll(context: Context) {
+        prefs(context.applicationContext).edit().clear().apply()
+    }
+
     fun get(context: Context, key: String): String {
         val app = context.applicationContext
-        val packed = prefs(app).getString(cipherKey(key), null) ?: return fallbackGet(app, key)
-        val secret = secretKey() ?: return fallbackGet(app, key)
-        return runCatching {
-            val blob = Base64.decode(packed, Base64.NO_WRAP)
-            if (blob.size < 13) return fallbackGet(app, key)
-            val iv = blob.copyOfRange(0, 12)
-            val cipherBytes = blob.copyOfRange(12, blob.size)
-            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-            cipher.init(Cipher.DECRYPT_MODE, secret, GCMParameterSpec(GCM_TAG_BITS, iv))
-            String(cipher.doFinal(cipherBytes), Charsets.UTF_8)
-        }.getOrElse {
-            fallbackGet(app, key)
+        val packed = prefs(app).getString(cipherKey(key), null)
+        val secret = secretKey()
+        if (packed != null && secret != null) {
+            return runCatching {
+                val blob = Base64.decode(packed, Base64.NO_WRAP)
+                if (blob.size < 13) return ""
+                val iv = blob.copyOfRange(0, 12)
+                val cipherBytes = blob.copyOfRange(12, blob.size)
+                val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+                cipher.init(Cipher.DECRYPT_MODE, secret, GCMParameterSpec(GCM_TAG_BITS, iv))
+                String(cipher.doFinal(cipherBytes), Charsets.UTF_8)
+            }.getOrElse {
+                warn("Keystore read failed; reconnect to pair again.")
+                ""
+            }
         }
+        if (secret == null && androidKeystorePresent()) {
+            warn("Keystore unavailable; reconnect to save the token.")
+            return ""
+        }
+        return fallbackGet(app, key)
     }
 
     fun put(context: Context, key: String, value: String) {
@@ -95,6 +112,10 @@ object TokenVault {
         val trimmed = value.trim()
         val secret = secretKey()
         if (secret == null) {
+            if (androidKeystorePresent()) {
+                warn("Keystore unavailable; reconnect to save the token. Token was not stored in plaintext.")
+                return
+            }
             fallbackPut(app, key, trimmed)
             return
         }
@@ -109,9 +130,23 @@ object TokenVault {
                 .remove(plainKey(key))
                 .apply()
         }.onFailure {
-            Log.w(TAG, "keystore write failed, using private prefs")
-            fallbackPut(app, key, trimmed)
+            warn("Keystore write failed; reconnect to save the token. Token was not stored in plaintext.")
         }
+    }
+
+    private fun androidKeystorePresent(): Boolean =
+        runCatching {
+            KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+            true
+        }.getOrDefault(false)
+
+    private fun warn(detail: String) {
+        Log.w(TAG, detail)
+        dev.phonepi.companion.log.ActivityLog.logConnection(
+            "Token vault",
+            detail,
+            "warning",
+        )
     }
 
     private fun secretKey(): SecretKey? {

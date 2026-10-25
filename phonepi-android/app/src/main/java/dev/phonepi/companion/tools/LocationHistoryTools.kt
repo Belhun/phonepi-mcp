@@ -13,11 +13,12 @@ class PauseLocationLoggingTool(private val context: Context) : ToolHandler {
     override val name = "pause_location_logging"
 
     override suspend fun handle(params: JsonObject): JsonObject {
-        val paused = params["paused"]?.jsonPrimitive?.booleanOrNull
-            ?: return toolError("paused must be true or false")
-        LocationHistoryPrefs.setPaused(context, paused)
-        if (paused) LocationCapture.stop(context) else LocationCapture.refresh(context)
-        return success { put("paused", paused) }
+        if (params["paused"]?.jsonPrimitive?.booleanOrNull != true) {
+            return toolError("paused must be true; resume location on the phone")
+        }
+        LocationHistoryPrefs.setPaused(context, true)
+        LocationCapture.stop(context)
+        return success { put("paused", true) }
     }
 }
 

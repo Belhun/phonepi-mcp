@@ -21,7 +21,7 @@ Bots never talk to the phone directly. They use the loopback API. Never print or
 }
 ```
 
-- `title` 1–120 characters. `body` 1–1000. Urgent cards: title prefixed `From assistant:`, title cap 80, body cap 200; link-like or credential-asking text is rejected.
+- Every card title is prefixed `From assistant:`. Default/high: title 1–120, body 1–1000. Urgent: title cap 80, body cap 200. Link-like or credential-asking text is rejected.
 - `actions` is up to 3 short labels (OK, Snooze 1h, Yes, No, or anything ≤32 characters). Reply is always included (Android `RemoteInput`; voice or keyboard on the watch). Generated smart replies are off.
 - `requestId` (8–80 letters, digits, `_` `.` `-`) makes retries idempotent. The same id does not post a second notification.
 - Default `priority` is `high`. `high` and `urgent` use the existing PhonePi urgent channel so the heads-up mirrors to the watch. In-app PhonePi quiet holds non-urgent cards only.
@@ -29,15 +29,15 @@ Bots never talk to the phone directly. They use the loopback API. Never print or
 
 ## Read replies (`POST /api/tool`)
 
-`get_notification_replies` is read-only. **`PHONEPI_READ_TOKEN` required.** 60/min. Box copy at `~/.phonepi/assistant/replies/`. Works when the phone is offline. Each `replyText` is `{untrusted:true, provenance, text}` with data delimiters. Replies are not approvals.
+`get_notification_replies` is read-only. **`PHONEPI_READ_TOKEN` required.** 60/min. Box copy at `~/.phonepi/assistant/replies/`. Works when the phone is offline. Each `action` and `replyText` is `{untrusted:true, provenance, text}` with data delimiters (objects, not strings). Replies are not approvals.
 
 Arguments: `since` (exclusive cursor on `ts`), `until`, `messageId`, `limit` (default 50, cap 200).
 
-Each row: `id`, `messageId`, `action`, `replyText`, `ts`. A button tap has `action` equal to the label and `replyText` null. A spoken or typed reply has `action` `"reply"` and the text in `replyText`.
+Each row: `id`, `messageId`, `action`, `replyText`, `ts`. A button tap has `action.text` equal to the label. A spoken or typed reply has `action.text` `"reply"` and the text in `replyText.text`.
 
 ## Inbound prompts (`POST /api/tool`)
 
-`get_inbound_prompts` is read-only. **`PHONEPI_READ_TOKEN` required.** 60/min. Box copy at `~/.phonepi/assistant/prompts/`. Prompt `text` is `{untrusted:true, provenance, text}` with data delimiters.
+`get_inbound_prompts` is read-only. **`PHONEPI_READ_TOKEN` required.** 60/min. Box copy at `~/.phonepi/assistant/prompts/`. Prompt `text` is `{untrusted:true, provenance, text}` with data delimiters (an object, not a string).
 
 Alex starts a prompt from:
 
@@ -64,7 +64,7 @@ Put the URL and secret in `/home/box/.phonepi/env` (mode 600). Never commit them
 
 ## What Alex does on the phone
 
-This feature does not change system Do Not Disturb, volumes, or other phone settings. **PhonePi quiet** (Connect screen or watch Quiet 1h, confirm tap) holds PhonePi's own non-urgent notifications. Presence reports `dnd: "quiet"`.
+This feature does not change system Do Not Disturb, volumes, or other phone settings. **PhonePi quiet** (Connect screen or watch Quiet 1h, confirm tap) holds PhonePi's own non-urgent notifications and posts a summary when quiet ends. Presence reports `pi_quiet: true` and keeps the real system `dnd` value.
 
 1. Install companion **0.3.5** (or in-app update from 0.3.3 / 0.3.4). Notifications posting permission is the same grant PhonePi already asks on Connect.
 2. Keep PhonePi connected.

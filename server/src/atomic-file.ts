@@ -11,8 +11,12 @@ import path from "path";
 export const BOX_DIR_MODE = 0o700;
 export const BOX_FILE_MODE = 0o600;
 
+export const JSONL_ROTATE_BYTES = 1_048_576;
+export const JSONL_ROTATE_KEEP = 3;
+
 export function phonepiHome(env: NodeJS.ProcessEnv = process.env): string {
-  return path.join(os.homedir(), ".phonepi");
+  const home = env.HOME?.trim() || env.USERPROFILE?.trim() || os.homedir();
+  return path.join(home, ".phonepi");
 }
 
 export function resolveBoxDir(
@@ -69,10 +73,44 @@ export function atomicWriteFile(file: string, contents: string | Buffer): void {
 }
 
 export function atomicAppendLine(file: string, line: string): void {
-  const existing = safeReadFile(file);
-  const next = existing + (existing.endsWith("\n") || existing === "" ? "" : "\n") +
-    (line.endsWith("\n") ? line : `${line}\n`);
-  atomicWriteFile(file, next);
+  const dir = path.dirname(file);
+  ensureBoxDir(dir);
+  assertNotSymlink(file, { mustExist: false });
+  const text = line.endsWith("\n") ? line : `${line}\n`;
+  const fd = fs.openSync(file, "a", BOX_FILE_MODE);
+  try {
+    fs.writeSync(fd, text);
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+  fs.chmodSync(file, BOX_FILE_MODE);
+}
+
+export function rotateJsonlIfNeeded(
+  file: string,
+  maxBytes: number = JSONL_ROTATE_BYTES,
+  keep: number = JSONL_ROTATE_KEEP
+): void {
+  if (!fs.existsSync(file)) return;
+  assertNotSymlink(file, { mustExist: true });
+  const stat = fs.statSync(file);
+  if (stat.size < maxBytes) return;
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const rotated = `${file}.${stamp}`;
+  fs.renameSync(file, rotated);
+  fs.chmodSync(rotated, BOX_FILE_MODE);
+  const dir = path.dirname(file);
+  const base = path.basename(file);
+  const extras = fs
+    .readdirSync(dir)
+    .filter((name) => name.startsWith(`${base}.`))
+    .sort();
+  while (extras.length > keep) {
+    const oldest = extras.shift();
+    if (!oldest) break;
+    removeFile(path.join(dir, oldest));
+  }
 }
 
 export function safeReadFile(file: string): string {
