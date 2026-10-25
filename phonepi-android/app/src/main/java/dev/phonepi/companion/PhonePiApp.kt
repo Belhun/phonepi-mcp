@@ -1,6 +1,7 @@
 package dev.phonepi.companion
 
 import android.app.Application
+import dev.phonepi.companion.health.HealthSyncScheduler
 import dev.phonepi.companion.history.LocationCapture
 import dev.phonepi.companion.log.ActivityLog
 import dev.phonepi.companion.notify.NotificationShare
@@ -17,5 +18,6 @@ class PhonePiApp : Application() {
         MidnightVolume.rescheduleIfEnabled(this)
         LocationCapture.refresh(this)
         SendTextController.rearm(this)
+        HealthSyncScheduler.apply(this)
     }
 }

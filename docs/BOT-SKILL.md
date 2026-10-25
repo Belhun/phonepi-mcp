@@ -38,13 +38,14 @@ Responses are always `{"text": "<JSON string>", "isError": bool}`. **HTTP 200 do
 curl -s -X POST http://127.0.0.1:11043/api/tool -H 'Content-Type: application/json' \
   -d '{"tool":"get_battery_level","arguments":{}}'
 ```
-Allowlist (exact): `get_battery_level`, `get_volumes`, `get_contacts`, `search_contacts` {query, limit≤50}, `get_contact_by_id` {id}, `get_recent_calls` {limit, hours (default 168) | since (epoch ms), type/types, number, includeContactNames}, `get_notifications` {package, since (epoch ms), limit default 50 cap 200}, `list_notification_apps`, `get_recent_photos` {limit default 5, hard cap 20, since (epoch ms)}, `list_alarms`, `get_location_history`, `search_places`, `get_notification_log` {since, until, postedSince, postedUntil, package, query, limit default 100 cap 500}, `get_all_snippets`, `get_snippet_by_id`, `get_snippets_by_type`, `search_snippets`.
+Allowlist (exact): `get_battery_level`, `get_volumes`, `get_contacts`, `search_contacts` {query, limit≤50}, `get_contact_by_id` {id}, `get_recent_calls` {limit, hours (default 168) | since (epoch ms), type/types, number, includeContactNames}, `get_notifications` {package, since (epoch ms), limit default 50 cap 200}, `list_notification_apps`, `get_recent_photos` {limit default 5, hard cap 20, since (epoch ms)}, `list_alarms`, `get_location_history`, `search_places`, `get_health_summary`, `get_notification_log` {since, until, postedSince, postedUntil, package, query, limit default 100 cap 500}, `get_all_snippets`, `get_snippet_by_id`, `get_snippets_by_type`, `search_snippets`.
 - Battery → `level`, `isCharging`, `chargingStatus`.
 - Volumes → per-stream `current`/`max`, `ringerMode`, `dnd`, `notificationPolicyAccess`, `exactAlarmsAllowed`, `midnightMaxEnabled`.
 - Notifications: only apps Alex allowlisted in the app (default: none). Unshared apps are counted in `omittedUnsharedCount`.
 - Recent photos: metadata only (id, display name, dateTaken, dateAdded, size, width, height, mime type). No image bytes. Needs the in-app **Share recent photos** switch (off by default) and the Photos permission. 30/min. The scan is the newest 100 images.
 - `list_alarms` (60/min): `nextAlarm` from `AlarmManager.getNextAlarmClock()` (`triggerAt` epoch ms, or null), plus `phonePiAlarms` (hour, minute, label, repeat day names, createdAt) for alarms PhonePi itself asked Clock to create. This is not the Clock app's full list.
 - `get_location_history` and `search_places` (30/min each) read the box copy. They work when the phone is offline. See the location history section below.
+- `get_health_summary` (30/min) reads the box copy of daily health totals. Works when the phone is offline (`stale` true). See the sleep and health section below.
 - `get_notification_log` (60/min) reads the box's running notification log. Works when the phone is offline. See section c2.
 
 ### b) Commands — `POST /api/command`, token required
@@ -72,6 +73,8 @@ curl -s -X POST http://127.0.0.1:11043/api/command \
 | `dismiss_timer` | optional `message` or `label` | 10 | `ACTION_DISMISS_TIMER`. |
 | `pause_location_logging` | `paused` true or false | 10 | Stops or resumes new visits and drives. History stays. |
 | `clear_location_history` | `confirm` must be `"delete"` | 4 | Deletes history on the phone and on the box. |
+| `pause_health_sync` | `paused` true or false | 10 | Stops or resumes hourly Health Connect reads. Cached totals stay. |
+| `clear_health_cache` | `confirm` must be `"delete"` | 4 | Deletes health summaries on the phone and on the box. |
 | `request_send_text` | `recipient`, `message` (max 1000). Optional `mode`: `as_alex` (default) or `attributed` | 5/min and 30/day for `as_alex`; 5/min and 20/day for `attributed` | Does not send by itself. See section 3d. |
 | `get_send_status` | `id` from the request | 60 | `pending`, `sent`, `cancelled`, `expired`, `failed`, `needs_clarification`, or `rejected`. |
 
@@ -123,6 +126,19 @@ curl -s -X POST http://127.0.0.1:11043/api/tool -H 'Content-Type: application/js
 Entry: `package`, `appName`, `title`, `text`, `postedAtIso`, `capturedAtIso`, `removed` (true once dismissed or cleared), `repeatCount`, `hiddenFields` (Android hid those fields; the value is a placeholder). `capture.lastPollAt` / `capture.lastPollOk` in the response show whether capture is live. Notification text is Alex's private data: quote only what the task needs. Read-only; it never dismisses or replies.
 
 Limit: anything posted and then replaced or cleared while the phone was disconnected is caught only if the phone still returns it on reconnect.
+
+### c3) Sleep and health (box copy, works offline)
+
+Health Connect on the Pixel. Galaxy Watch 7 data arrives through Samsung Health. PhonePi does not use the Samsung Health Data SDK.
+
+`get_health_summary` (30/min, no token) returns last night's sleep (start, end, total, stages), `lastNightSleepEndMs` / `lastNightSleepEndIso` (sleep end for later Clock bedtime/wake; do not call phonepi-clock from this), steps today and 7-day, resting and average heart rate, recent workouts, and `syncedAtIso`. Daily totals only. Never a raw heart-rate stream. `stale` is true when the phone is offline. Samsung Health can lag minutes to hours; `sourceLagNote` says that. Sleep and health starts on in the app; Alex still grants Health Connect. See [health.md](health.md) for the Samsung Health → Health Connect taps.
+
+```bash
+curl -s -X POST http://127.0.0.1:11043/api/tool -H 'Content-Type: application/json' \
+  -d '{"tool":"get_health_summary","arguments":{}}'
+```
+
+Pause and delete are token commands, not `/api/tool`. The phone also has **Pause sync** and **Delete health cache**. Box files: `~/.phonepi/health/` (dir 700, files 600). `PHONEPI_HEALTH_RETENTION_DAYS` defaults to 30.
 
 ## 3. Goal → action: "take me to X"
 1. **Health check.** If `phoneConnected:false`, stop and go to section 6 (no retry spam).
@@ -277,16 +293,17 @@ Full rules: [send-text.md](send-text.md).
 - **Photos** (`READ_MEDIA_IMAGES` on Android 13+, `READ_EXTERNAL_STORAGE` on older releases) plus the **Share recent photos** switch. Off until Alex turns it on. Android 14 "Select photos" counts as a grant for the photos he picked.
 - **Install unknown apps**: for self-update.
 - **Location history** (off until Alex turns it on): `ACCESS_FINE_LOCATION` and `ACCESS_COARSE_LOCATION`, then **Allow all the time** (`ACCESS_BACKGROUND_LOCATION`) so logging continues in the background, and **Physical activity** (`ACTIVITY_RECOGNITION`) so drives are recognized. While-in-use location still logs only while PhonePi is open.
+- **Sleep and health** (on by default): Health Connect read permissions for sleep, steps, heart rate, resting heart rate, exercise, blood oxygen, plus background access. Samsung Health must write those types into Health Connect first. See [health.md](health.md).
 - **Clock**: `SET_ALARM` is granted at install. Google Clock (or another app that handles the Clock intents) must be installed. **Display over other apps** is what lets `set_alarm` / `set_timer` / dismiss run without a tap. There is no permission that lets PhonePi edit someone else's alarms.
 - **Texts**: **Allow bots to request texts** (off by default) plus SMS, contacts, and notifications. Microphone for spoken confirm. Physical activity and nearby Bluetooth devices help detect driving. **Allow assistant-signed texts without confirm** is a second switch, also off. Details in section 3d.
 
-## 5. What PhonePi can and cannot do (as of companion 0.3.2)
-Can (via HTTP, any bot): navigation to anything Maps can search, saved places, volumes (read/set/max all), battery, contacts (read/search), recent calls, allowlisted notifications, snippets, recent photo metadata (`get_recent_photos`), one recompressed photo at a time (`get_photo`, shared token), `list_alarms`, Clock `set_alarm` / `set_timer` / `dismiss_alarm` / `dismiss_timer` (those four need the shared token), `request_send_text` / `get_send_status` (token, phone confirm, switches off by default), location history (`get_location_history`, `search_places`) and the notification log (`get_notification_log`) from the box copy even when the phone is offline.
+## 5. What PhonePi can and cannot do (as of companion 0.3.4)
+Can (via HTTP, any bot): navigation to anything Maps can search, saved places, volumes (read/set/max all), battery, contacts (read/search), recent calls, allowlisted notifications, snippets, recent photo metadata (`get_recent_photos`), one recompressed photo at a time (`get_photo`, shared token), `list_alarms`, Clock `set_alarm` / `set_timer` / `dismiss_alarm` / `dismiss_timer` (those four need the shared token), `request_send_text` / `get_send_status` (token, phone confirm, switches off by default), location history (`get_location_history`, `search_places`), sleep and health (`get_health_summary`), and the notification log (`get_notification_log`) from the box copy even when the phone is offline.
 On-phone only: "Max volumes at midnight" toggle, reconnect-on-boot, reconnect after update, the Location history switch, pause, delete, and Timeline JSON import.
 
 Exists on the phone but NOT reachable from bots right now: `find_phone` (ring), `copy_to_clipboard`, `make_call`, `get_location`, `send_notification`, contact edits, snippet writes. Don't promise these; `/api/tool` returns 403.
 
-Cannot: read SMS or RCS, send RCS, send a text with no phone-side rule, press Android Auto's Start now, install updates silently, run arbitrary commands, report what is on screen, list or delete arbitrary Clock alarms, trigger Google's Timeline export, or work at all when the phone is off the tailnet (location history reads of the box copy are the exception). A dismiss result is a request to the Clock app, not proof the alarm is gone. A text request is not proof the text was sent. `gm_send_message` is not this flow. Do not use it to skip the phone. Location history stays empty until Alex opts in.
+Cannot: read SMS or RCS, send RCS, send a text with no phone-side rule, press Android Auto's Start now, install updates silently, run arbitrary commands, report what is on screen, list or delete arbitrary Clock alarms, trigger Google's Timeline export, pull Samsung Health without Health Connect, read raw heart-rate streams, or work at all when the phone is off the tailnet (location history, health summary, and notification-log reads of the box copy are the exception). A dismiss result is a request to the Clock app, not proof the alarm is gone. A text request is not proof the text was sent. `gm_send_message` is not this flow. Do not use it to skip the phone. Location history stays empty until Alex opts in. Sleep and health stays empty until he grants Health Connect (the switch starts on).
 
 ## 6. Diagnosing "Phone not connected"
 Check in order (all read-only):

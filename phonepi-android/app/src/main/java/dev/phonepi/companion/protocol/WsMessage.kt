@@ -33,6 +33,9 @@ sealed interface WsMessage {
     /** Ack for a location sync or a history wipe. The raw frame is parsed by the sync helper. */
     data class LocationAck(val raw: String) : WsMessage
 
+    /** Ack for a health summary sync or a cache wipe. */
+    data class HealthAck(val raw: String) : WsMessage
+
     /** A box-side read that should show up in Recent activity. */
     data class ActivityNote(
         val title: String,
@@ -59,6 +62,7 @@ sealed interface WsMessage {
                 )
                 "error" -> ServerError(obj["error"]?.jsonPrimitive?.contentOrNull ?: "unknown error")
                 "location_sync_ack", "location_cleared_ack" -> LocationAck(text)
+                "health_sync_ack", "health_cleared_ack" -> HealthAck(text)
                 "activity" -> ActivityNote(
                     title = obj["title"]?.jsonPrimitive?.contentOrNull?.take(80) ?: "activity",
                     detail = obj["detail"]?.jsonPrimitive?.contentOrNull?.take(240).orEmpty(),

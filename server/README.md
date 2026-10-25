@@ -167,7 +167,7 @@ Success is HTTP 200:
 | 200 | Allowlisted tool ran | `{ "text", "isError": false }` |
 | 400 | Bad JSON, missing tool name, or `arguments` is not an object | `{ "text", "isError": true }` |
 | 403 | Tool is not on the allowlist | `{ "text", "isError": true }` |
-| 429 | Over the per-tool rate limit (`get_notifications`, `list_notification_apps`, `get_volumes`, `get_recent_photos`, `list_alarms`, `get_location_history`, `search_places`, `get_notification_log`) | `{ "text", "isError": true }` |
+| 429 | Over the per-tool rate limit (`get_notifications`, `list_notification_apps`, `get_volumes`, `get_recent_photos`, `list_alarms`, `get_location_history`, `search_places`, `get_health_summary`, `get_notification_log`) | `{ "text", "isError": true }` |
 | 503 | Phone socket is not open | `{ "text", "isError": true }` |
 | 502 | The phone request failed (for example a timeout) | `{ "text", "isError": true }` |
 
@@ -189,6 +189,7 @@ Allowlist:
 - `list_alarms` (60/min). Next alarm from `AlarmManager.getNextAlarmClock()`, plus alarms PhonePi created. Not a full Clock inventory.
 - `get_location_history` (30/min). Visits and drives from `~/.phonepi/location`. Works when the phone is offline. `from` and `to` are epoch ms, ISO-8601, or `YYYY-MM-DD` (UTC day). `max` default 50, cap 200. Optional `kind`: `visit` or `drive`.
 - `search_places` (30/min). `query` (2 to 80 characters) matches every word against place name and address. `max` default 20, cap 50. Returns address and visit dates. Works when the phone is offline.
+- `get_health_summary` (30/min). Last night's sleep, steps today and 7-day, resting and average heart rate, recent workouts. Daily totals only. Works when the phone is offline (`stale` true). See **Sleep and health** below.
 - `get_notification_log` (60/min). Box-side running log of phone notifications. Works when the phone is offline. See **Notification log** below.
 
 ### Notification log (box copy)
@@ -211,7 +212,7 @@ curl -s -X POST http://127.0.0.1:11043/api/tool -H 'Content-Type: application/js
 
 Limits: the phone keeps only the latest version of each notification key in memory (cap 200) and clears it when the companion restarts, so a notification posted and replaced or cleared while the box could not poll is only captured if the phone still returns it. Each poll is one `get_notifications` call, so the phone's Recent activity shows a line per poll and the poll shares the 60/min `get_notifications` budget.
 
-Everything else is rejected with 403 and is not sent to the phone. That includes `make_call`, `find_phone`, `set_alarm`, `set_timer`, `dismiss_alarm`, `dismiss_timer`, `copy_to_clipboard`, `send_message`, `send_notification`, snippet or contact add/update/delete, `share_snippet`, and every `gm_*` Google Messages tool. Clock writes use `POST /api/command`.
+Everything else is rejected with 403 and is not sent to the phone. That includes `make_call`, `find_phone`, `set_alarm`, `set_timer`, `dismiss_alarm`, `dismiss_timer`, `copy_to_clipboard`, `send_message`, `send_notification`, snippet or contact add/update/delete, `share_snippet`, and every `gm_*` Google Messages tool. Clock writes, location admin, and health pause/clear use `POST /api/command`.
 
 ```powershell
 Invoke-RestMethod http://127.0.0.1:11043/api/health
@@ -252,6 +253,8 @@ Body:
 | `dismiss_timer` | action | 10/min |
 | `pause_location_logging` | write | 10/min |
 | `clear_location_history` | write | 4/min |
+| `pause_health_sync` | write | 10/min |
+| `clear_health_cache` | write | 4/min |
 | `request_send_text` | action | 5/min and 30/day (`as_alex`), 5/min and 20/day (`attributed`) |
 | `get_send_status` | read | 60/min |
 
@@ -266,6 +269,12 @@ Body:
 Invalid hour, minute, label, days, or seconds is HTTP 400 and is not sent to the phone. `list_alarms` stays on `POST /api/tool`.
 
 `pause_location_logging` needs `paused` true or false. `clear_location_history` needs `confirm` set to `delete`. A bad value is HTTP 400 and is not sent to the phone. `get_location_history` and `search_places` stay on `POST /api/tool` and read the box files, so they do not return 503 when the phone is offline. Files are `~/.phonepi/location/YYYY-MM.jsonl` (mode 600). `PHONEPI_LOCATION_DIR` overrides the directory. `PHONEPI_LOCATION_RETENTION_MONTHS` defaults to 12.
+
+### Sleep and health (box copy)
+
+`get_health_summary` reads `~/.phonepi/health/` (dir 700, files 600). It does not need the phone. `stale` is true when the socket is down. Daily totals only; a payload with `heartRateSamples` is rejected and not written. `PHONEPI_HEALTH_DIR` overrides the directory. `PHONEPI_HEALTH_RETENTION_DAYS` defaults to 30.
+
+`pause_health_sync` needs `paused` true or false. `clear_health_cache` needs `confirm` set to `delete`. A bad value is HTTP 400 and is not sent to the phone. Last night's sleep end is `lastNightSleepEndMs` / `lastNightSleepEndIso` for later Clock bedtime/wake. Samsung Health lag is called out in `sourceLagNote` and `syncedAtIso`. See [docs/health.md](../docs/health.md).
 
 ```powershell
 Invoke-RestMethod -Method Post -Uri http://127.0.0.1:11043/api/tool `
