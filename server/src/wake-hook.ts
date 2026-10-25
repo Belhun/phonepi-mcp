@@ -45,6 +45,7 @@ export interface WakePostRequest {
   secret: string | null;
   body: WakePayload;
   headers: Record<string, string>;
+  timeoutMs?: number;
 }
 
 export type WakePoster = (req: WakePostRequest) => Promise<{ ok: boolean }>;
@@ -140,6 +141,7 @@ export class WakeHook {
       secret: this.config.secret,
       body: payload,
       headers: wakeHeaders(this.config.secret),
+      timeoutMs: this.config.timeoutMs,
     };
     for (let attempt = 1; attempt <= this.config.maxAttempts; attempt++) {
       try {
@@ -178,12 +180,82 @@ function parseUrl(raw: string | undefined): string | null {
   if (text === "") return null;
   try {
     const parsed = new URL(text);
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+    if (parsed.username || parsed.password) return null;
     if (!parsed.hostname) return null;
+    if (!wakeHostAllowed(parsed)) return null;
     return parsed.toString();
   } catch {
     return null;
   }
+}
+
+function wakeHostAllowed(parsed: URL): boolean {
+  const hostname = parsed.hostname.toLowerCase();
+  if (hostname === "metadata.google.internal" || hostname.endsWith(".internal")) {
+    return false;
+  }
+  const ip = literalIp(hostname);
+  if (ip) {
+    if (isBlockedIp(ip)) return false;
+    if (isLoopbackIp(ip) || isTailnetIp(ip)) {
+      return parsed.protocol === "http:" || parsed.protocol === "https:";
+    }
+    return parsed.protocol === "https:";
+  }
+  if (hostname === "localhost" || hostname.endsWith(".localhost")) {
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  }
+  if (hostname.endsWith(".ts.net")) {
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  }
+  return parsed.protocol === "https:";
+}
+
+function literalIp(hostname: string): string | null {
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(hostname)) return hostname;
+  if (hostname.startsWith("[") && hostname.endsWith("]")) {
+    return hostname.slice(1, -1);
+  }
+  if (hostname.includes(":")) return hostname;
+  return null;
+}
+
+function ipv4ToInt(ip: string): number | null {
+  const parts = ip.split(".");
+  if (parts.length !== 4) return null;
+  let n = 0;
+  for (const part of parts) {
+    if (!/^\d+$/.test(part)) return null;
+    const octet = Number(part);
+    if (octet < 0 || octet > 255) return null;
+    n = (n << 8) + octet;
+  }
+  return n >>> 0;
+}
+
+function inCidr(ip: string, base: string, bits: number): boolean {
+  const a = ipv4ToInt(ip);
+  const b = ipv4ToInt(base);
+  if (a == null || b == null) return false;
+  const mask = bits === 0 ? 0 : (~0 << (32 - bits)) >>> 0;
+  return (a & mask) === (b & mask);
+}
+
+function isLoopbackIp(ip: string): boolean {
+  return inCidr(ip, "127.0.0.0", 8) || ip === "::1" || ip === "0:0:0:0:0:0:0:1";
+}
+
+function isTailnetIp(ip: string): boolean {
+  return inCidr(ip, "100.64.0.0", 10);
+}
+
+function isBlockedIp(ip: string): boolean {
+  if (inCidr(ip, "169.254.0.0", 16)) return true;
+  if (inCidr(ip, "0.0.0.0", 8)) return true;
+  if (ip === "10.10.0.3") return true;
+  if (ip.toLowerCase() === "fd00:ec2::254") return true;
+  if (ip.toLowerCase().startsWith("fe80:")) return true;
+  return false;
 }
 
 function parseTimeout(raw: string | undefined): number {
@@ -217,6 +289,8 @@ function withTimeout<T>(work: Promise<T>, timeoutMs: number): Promise<T> {
   });
 }
 
+export { wakeHostAllowed };
+
 function defaultLog(line: string): void {
   console.error(line);
 }
@@ -230,11 +304,21 @@ export function postWake(req: WakePostRequest): Promise<{ ok: boolean }> {
       resolve({ ok: false });
       return;
     }
+    if (!wakeHostAllowed(parsed) || parsed.username || parsed.password) {
+      resolve({ ok: false });
+      return;
+    }
     const lib = parsed.protocol === "https:" ? https : http;
     const body = JSON.stringify(req.body);
     const headers = {
       ...req.headers,
       "Content-Length": String(Buffer.byteLength(body)),
+    };
+    let settled = false;
+    const finish = (ok: boolean) => {
+      if (settled) return;
+      settled = true;
+      resolve({ ok });
     };
     const request = lib.request(
       {
@@ -248,10 +332,17 @@ export function postWake(req: WakePostRequest): Promise<{ ok: boolean }> {
       (res) => {
         res.resume();
         const status = res.statusCode ?? 0;
-        resolve({ ok: status >= 200 && status < 300 });
+        finish(status >= 200 && status < 300);
       }
     );
-    request.on("error", () => resolve({ ok: false }));
+    request.setTimeout(req.timeoutMs ?? DEFAULT_WAKE_TIMEOUT_MS, () => {
+      request.destroy();
+      finish(false);
+    });
+    request.on("error", () => {
+      request.destroy();
+      finish(false);
+    });
     request.end(body);
   });
 }

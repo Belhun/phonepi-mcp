@@ -1,6 +1,13 @@
 import fs from "fs";
-import os from "os";
 import path from "path";
+import {
+  atomicWriteFile,
+  ensureBoxDir,
+  removeFile,
+  resolveBoxDir,
+  safeReadFile,
+} from "./atomic-file.js";
+import { parseIngestTs } from "./ingest-time.js";
 
 /**
  * On-box copy of PhonePi daily screen time.
@@ -72,8 +79,7 @@ export function openUsageLog(
   env: NodeJS.ProcessEnv = process.env,
   now: () => number = Date.now
 ): UsageLog {
-  const dir =
-    env.PHONEPI_USAGE_DIR?.trim() || path.join(os.homedir(), ".phonepi", "usage");
+  const dir = resolveBoxDir("PHONEPI_USAGE_DIR", "usage", env);
   const raw = env.PHONEPI_USAGE_RETENTION_DAYS;
   let days = DEFAULT_USAGE_RETENTION_DAYS;
   if (raw != null && raw.trim() !== "") {
@@ -117,7 +123,7 @@ export class UsageLog {
       rejected.push({ id: "", error: `batch limit is ${SYNC_DAY_LIMIT}` });
     }
     for (const raw of limited) {
-      const parsed = parseUsageDay(raw);
+      const parsed = parseUsageDay(raw, this.now());
       if (!parsed.ok) {
         rejected.push({ id: parsed.id, error: parsed.error });
         continue;
@@ -214,8 +220,7 @@ export class UsageLog {
   }
 
   private ensureDir(): void {
-    fs.mkdirSync(this.dir, { recursive: true, mode: 0o700 });
-    fs.chmodSync(this.dir, 0o700);
+    ensureBoxDir(this.dir);
   }
 
   private listFiles(): string[] {
@@ -229,23 +234,13 @@ export class UsageLog {
   private writeDay(day: UsageDay): void {
     this.ensureDir();
     const file = path.join(this.dir, `${day.date}.json`);
-    const existed = fs.existsSync(file);
-    fs.writeFileSync(file, `${JSON.stringify(day)}\n`, {
-      encoding: "utf8",
-      mode: 0o600,
-    });
-    if (!existed) fs.chmodSync(file, 0o600);
+    atomicWriteFile(file, `${JSON.stringify(day)}\n`);
   }
 
   private writeMeta(meta: UsageMeta): void {
     this.ensureDir();
     const file = path.join(this.dir, META_FILE);
-    const existed = fs.existsSync(file);
-    fs.writeFileSync(file, `${JSON.stringify(meta)}\n`, {
-      encoding: "utf8",
-      mode: 0o600,
-    });
-    if (!existed) fs.chmodSync(file, 0o600);
+    atomicWriteFile(file, `${JSON.stringify(meta)}\n`);
   }
 
   private readDay(date: string): UsageDay | null {
@@ -264,14 +259,14 @@ export class UsageLog {
   }
 
   private parseFile(file: string): UsageDay | null {
-    const text = fs.readFileSync(file, "utf8");
+    const text = safeReadFile(file);
     let raw: unknown;
     try {
       raw = JSON.parse(text);
     } catch {
       return null;
     }
-    const parsed = parseUsageDay(raw);
+    const parsed = parseUsageDay(raw, this.now());
     return parsed.ok ? parsed.day : null;
   }
 
@@ -279,7 +274,7 @@ export class UsageLog {
     const file = path.join(this.dir, META_FILE);
     if (!fs.existsSync(file)) return null;
     try {
-      const raw = JSON.parse(fs.readFileSync(file, "utf8"));
+      const raw = JSON.parse(safeReadFile(file));
       return parseUsageMeta(raw, this.now());
     } catch {
       return null;
@@ -287,7 +282,10 @@ export class UsageLog {
   }
 }
 
-export function parseUsageDay(raw: unknown): ParsedDay {
+export function parseUsageDay(
+  raw: unknown,
+  nowMs: number = Date.now()
+): ParsedDay {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return { ok: false, id: "", error: "day must be an object" };
   }

@@ -13,11 +13,13 @@ class PausePresenceLoggingTool(private val context: Context) : ToolHandler {
     override val name = "pause_presence_logging"
 
     override suspend fun handle(params: JsonObject): JsonObject {
-        val paused = params["paused"]?.jsonPrimitive?.booleanOrNull
-            ?: return toolError("paused must be true or false")
-        PresencePrefs.setPaused(context, paused)
-        if (paused) PresenceCapture.stop(context) else PresenceEngine.refresh(context)
-        return success { put("paused", paused) }
+        if (params["paused"]?.jsonPrimitive?.booleanOrNull != true) {
+            return toolError("paused must be true; resume presence on the phone")
+        }
+        PresencePrefs.setPaused(context, true)
+        PresenceCapture.stop(context)
+        PresenceEngine.nudge(context)
+        return success { put("paused", true) }
     }
 }
 

@@ -2,11 +2,11 @@
 
 Companion **0.3.4**. PhonePi reads Health Connect on the Pixel. It does not use the Samsung Health Data SDK. Galaxy Watch 7 sleep, steps, heart rate, exercise, and blood oxygen reach Health Connect only after Samsung Health is allowed to write those types.
 
-`get_health_summary` is a box copy (`POST /api/tool`, 30/min). It works when the phone is offline (`stale` true). Daily totals only: last night's sleep (start, end, total, stages), steps today and 7-day, resting and average heart rate, recent workouts. No raw heart-rate streams. `lastNightSleepEndMs` / `lastNightSleepEndIso` are the sleep end for later Clock bedtime/wake work. Do not change the phonepi-clock app from this feature.
+`get_health_summary` is a box copy (`POST /api/tool`, 30/min, **`PHONEPI_READ_TOKEN`**). It works when the phone is offline (`stale` true). Daily totals only: last night's sleep (start, end, total, stages), steps today and 7-day, resting and average heart rate, recent workouts. Workout titles are untrusted data. No raw heart-rate streams. Reads the last 7 days only (`READ_HEALTH_DATA_HISTORY` is not requested). `lastNightSleepEndMs` / `lastNightSleepEndIso` are the sleep end for later Clock bedtime/wake work. Do not change the phonepi-clock app from this feature.
 
 Files: `~/.phonepi/health/` (directory 700, files 600). `PHONEPI_HEALTH_DIR` overrides the path. `PHONEPI_HEALTH_RETENTION_DAYS` defaults to 30 (1–365).
 
-The in-app **Sleep and health** switch is on by default. Alex still has to grant Health Connect. Pause and delete are on the phone and as token commands: `pause_health_sync` (`paused` true or false, 10/min) and `clear_health_cache` (`confirm` must be `"delete"`, 4/min).
+The in-app **Sleep and health** switch is on by default. Alex still has to grant Health Connect. Pause and delete are on the phone and as token commands: `pause_health_sync` (`paused` must be `true`, 10/min; resume is phone-only) and `clear_health_cache` (`confirm` must be `"delete"`, 4/min). **Stop all sharing** pauses this stream with the others.
 
 Samsung Health can lag minutes to hours. The payload's `syncedAtIso` is when PhonePi last read Health Connect, not when the watch recorded a beat. `sourceLagNote` says that.
 
@@ -45,7 +45,7 @@ On some Samsung Health builds the same screen is **Settings → Connected servic
    - Exercise
    - Blood oxygen
    - Access in the background (`READ_HEALTH_DATA_IN_BACKGROUND`)
-   - Past data if offered (`READ_HEALTH_DATA_HISTORY`, optional)
+   - Do **not** grant past-data history if offered; PhonePi only reads the last 7 days
 5. The row under the switch shows what is granted. **Pause sync** and **Delete health cache** are on that same panel.
 
 Hourly WorkManager reads Health Connect and pushes a summary over the existing WebSocket. A connect also triggers a read.

@@ -114,20 +114,23 @@ class AskAssistantActivity : ComponentActivity() {
 
         fun intent(context: Context, source: String): Intent =
             Intent(context, AskAssistantActivity::class.java).apply {
-                action = ACTION_ASK
-                putExtra(EXTRA_SOURCE, source)
+                when (source) {
+                    "qs_tile" -> action = ACTION_ASK
+                    "shortcut" -> {
+                        action = Intent.ACTION_VIEW
+                        data = android.net.Uri.parse("phonepi://ask")
+                    }
+                    else -> action = Intent.ACTION_DEFAULT
+                }
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             }
 
         fun resolveSource(intent: Intent?): String {
-            val extra = intent?.getStringExtra(EXTRA_SOURCE)
-            if (extra != null) return AssistantProtocol.normalizeSource(extra)
-            if (intent?.action == ACTION_ASK) return "watch_relay"
+            if (intent?.action == ACTION_ASK) return "qs_tile"
             val data = intent?.data
-            if (data != null && data.scheme == "phonepi" && data.host == "ask") {
-                return AssistantProtocol.normalizeSource(data.getQueryParameter("source") ?: "shortcut")
-            }
-            return "quick_tap"
+            if (data != null && data.scheme == "phonepi" && data.host == "ask") return "shortcut"
+            if (intent?.action == Intent.ACTION_MAIN) return "quick_tap"
+            return "app"
         }
     }
 }

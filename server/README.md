@@ -58,6 +58,9 @@ Stdout stays the MCP channel. HTTP logs go to stderr. If port 11043 is already t
 | Phone WebSocket | `0.0.0.0:11041` | `--port` |
 | Loopback HTTP | `127.0.0.1:11043` | `--http-port` or `PHONEPI_HTTP_PORT` |
 | Phone WebSocket token | off | `PHONEPI_WS_TOKEN` |
+| Sensitive-read token | off (default-deny) | `PHONEPI_READ_TOKEN` |
+| Per-bot read tokens | off | `PHONEPI_READ_BOTS` or `~/.phonepi/read-bots.json` |
+| Loopback HTTP Host allowlist | `127.0.0.1,localhost,[::1]` | `PHONEPI_HTTP_HOSTS` |
 | Wake hook URL | off | `PHONEPI_WAKE_HOOK_URL` |
 | Wake hook secret | off | `PHONEPI_WAKE_HOOK_SECRET` |
 | Wake hook timeout | 2000 ms | `PHONEPI_WAKE_HOOK_TIMEOUT_MS` |
@@ -73,7 +76,7 @@ $env:PHONEPI_HTTP_PORT = "11043"
 $env:PHONEPI_WS_TOKEN = "choose-a-long-secret"
 ```
 
-Do not commit the token, the wake-hook URL, or the wake-hook secret. The server never logs those values.
+Do not commit the WS token, the read token, the wake-hook URL, or the wake-hook secret. The server never logs those values. Sensitive reads (`get_presence`, `get_screen_time`, `get_health_summary`, `get_notification_replies`, `get_inbound_prompts`) need `PHONEPI_READ_TOKEN` as `Authorization: Bearer` or `X-PhonePi-Read-Token` on HTTP. MCP may use the process env token. HTTP never treats the env token as implicit. Optional bots in `PHONEPI_READ_BOTS` / `~/.phonepi/read-bots.json` are `{id, token, tools?, coords?}`. Default-deny: no token is HTTP 401. Loopback POST requires `Content-Type: application/json`. `Host` must be on the allowlist with the bound port. Any `Origin` or `Sec-Fetch-Site: cross-site` is 403. Tailscale Serve still fronts WebSocket 11041, not this HTTP port.
 
 ### `GET /api/health`
 
@@ -273,6 +276,7 @@ Body:
 | `request_send_text` | action | 5/min and 30/day (`as_alex`), 5/min and 20/day (`attributed`) |
 | `get_send_status` | read | 60/min |
 | `send_notification` | action | 20/min |
+| `clear_assistant_events` | write | 4/min |
 
 `get_photo` is a read, but it is not on `POST /api/tool`. Image bytes need the shared token. `get_recent_photos` is the no-token metadata list. The phone recompresses each image so one JSON frame stays under 1 MB. Original EXIF, including GPS, is not copied into those bytes.
 
@@ -284,15 +288,15 @@ Body:
 
 Invalid hour, minute, label, days, or seconds is HTTP 400 and is not sent to the phone. `list_alarms` stays on `POST /api/tool`.
 
-`pause_location_logging` needs `paused` true or false. `clear_location_history` needs `confirm` set to `delete`. Same for `pause_presence_logging` and `clear_presence_history`. A bad value is HTTP 400 and is not sent to the phone. `get_location_history`, `search_places`, and `get_presence` stay on `POST /api/tool` and read the box files, so they do not return 503 when the phone is offline. Location files are `~/.phonepi/location/YYYY-MM.jsonl` (mode 600). Presence snapshot is `~/.phonepi/presence/current.json`. Work hours live in `~/.phonepi/presence/config.json` (default 08:00–17:00 Mon–Fri `America/Los_Angeles`; church hours empty). `PHONEPI_LOCATION_DIR` / `PHONEPI_PRESENCE_DIR` override the directories.
+`pause_location_logging` needs `paused` true or false. `clear_location_history` needs `confirm` set to `delete`. `pause_presence_logging` / `pause_usage_logging` / `pause_health_sync` need `paused` **true**; resume is phone-only. `clear_presence_history` needs `confirm` set to `delete`. A bad value is HTTP 400 and is not sent to the phone. `get_location_history` and `search_places` stay on `POST /api/tool` with no read token. `get_presence` is a sensitive read (`PHONEPI_READ_TOKEN`). Location files are `~/.phonepi/location/YYYY-MM.jsonl` (mode 600). Presence snapshot is `~/.phonepi/presence/current.json` (TTL `PHONEPI_PRESENCE_TTL_MS`, default 15 min; coordinates dropped when off, paused, or stale). Work hours live in `~/.phonepi/presence/config.json` (default 08:00–17:00 Mon–Fri `America/Los_Angeles`; church hours empty). `PHONEPI_LOCATION_DIR` / `PHONEPI_PRESENCE_DIR` override the directories (must stay under `~/.phonepi` except tests using the temp dir).
 
-`pause_usage_logging` needs `paused` true or false. `clear_usage_history` needs `confirm` set to `delete`. A bad value is HTTP 400 and is not sent to the phone. `get_screen_time` stays on `POST /api/tool` and reads the box files, so it does not return 503 when the phone is offline. Files are `~/.phonepi/usage/YYYY-MM-DD.json` (dir 700, files 600). `PHONEPI_USAGE_DIR` overrides the directory. `PHONEPI_USAGE_RETENTION_DAYS` defaults to 90.
+`pause_usage_logging` needs `paused` true. `clear_usage_history` needs `confirm` set to `delete`. A bad value is HTTP 400 and is not sent to the phone. `get_screen_time` stays on `POST /api/tool` (read token) and reads the box files, so it does not return 503 when the phone is offline. Files are `~/.phonepi/usage/YYYY-MM-DD.json` (dir 700, files 600). `PHONEPI_USAGE_DIR` overrides the directory. `PHONEPI_USAGE_RETENTION_DAYS` defaults to 90.
 
 ### Sleep and health (box copy)
 
-`get_health_summary` reads `~/.phonepi/health/` (dir 700, files 600). It does not need the phone. `stale` is true when the socket is down. Daily totals only; a payload with `heartRateSamples` is rejected and not written. `PHONEPI_HEALTH_DIR` overrides the directory. `PHONEPI_HEALTH_RETENTION_DAYS` defaults to 30.
+`get_health_summary` reads `~/.phonepi/health/` (dir 700, files 600). It does not need the phone. **Read token required.** `stale` is true when the socket is down. Daily totals only; a payload with `heartRateSamples` is rejected and not written. Workout titles are untrusted data. `PHONEPI_HEALTH_DIR` overrides the directory. `PHONEPI_HEALTH_RETENTION_DAYS` defaults to 30.
 
-`pause_health_sync` needs `paused` true or false. `clear_health_cache` needs `confirm` set to `delete`. A bad value is HTTP 400 and is not sent to the phone. Last night's sleep end is `lastNightSleepEndMs` / `lastNightSleepEndIso` for later Clock bedtime/wake. Samsung Health lag is called out in `sourceLagNote` and `syncedAtIso`. See [docs/health.md](../docs/health.md).
+`pause_health_sync` needs `paused` true. Resume is phone-only. `clear_health_cache` needs `confirm` set to `delete`. A bad value is HTTP 400 and is not sent to the phone. Last night's sleep end is `lastNightSleepEndMs` / `lastNightSleepEndIso` for later Clock bedtime/wake. Samsung Health lag is called out in `sourceLagNote` and `syncedAtIso`. See [docs/health.md](../docs/health.md).
 
 ```powershell
 Invoke-RestMethod -Method Post -Uri http://127.0.0.1:11043/api/tool `
@@ -304,7 +308,7 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:11043/api/tool `
   -Body '{"tool":"search_places","arguments":{"query":"pizza vista"}}'
 ```
 
-`send_notification` posts an actionable PhonePi notification (up to 3 buttons plus Reply). `requestId` is idempotent. Default priority is high (existing urgent channel). The watch mirrors it with no watch app. Replies land in `~/.phonepi/assistant/replies/` and are read with `get_notification_replies`. Inbound prompts from the Ask assistant tile/shortcut land in `~/.phonepi/assistant/prompts/` (`get_inbound_prompts`). When `PHONEPI_WAKE_HOOK_URL` is set, the server POSTs `{event, id, ts}` immediately so bots do not wait for a poll. Optional `PHONEPI_WAKE_HOOK_SECRET` is sent as `X-PhonePi-Wake-Secret`. Never log either value. See [docs/assistant-notifications.md](../docs/assistant-notifications.md).
+`send_notification` posts an actionable PhonePi notification (up to 3 buttons plus Reply). `requestId` is idempotent. Default priority is high (existing urgent channel). The watch mirrors it. Replies land in `~/.phonepi/assistant/replies/` and are read with `get_notification_replies` (read token). Inbound prompts from the Ask assistant tile/shortcut land in `~/.phonepi/assistant/prompts/` (`get_inbound_prompts`, read token). Prompt and reply text is `{untrusted:true}` plus data delimiters; it is not authorization. `clear_assistant_events` (`confirm` `"delete"`) wipes both stores. When `PHONEPI_WAKE_HOOK_URL` is set, the server POSTs `{event, id, ts}` immediately so bots do not wait for a poll. HTTPS except loopback/tailnet. Optional `PHONEPI_WAKE_HOOK_SECRET` is sent as `X-PhonePi-Wake-Secret`. Never log either value. See [docs/assistant-notifications.md](../docs/assistant-notifications.md).
 
 `request_send_text` asks the phone to text one person. The server does not send SMS. `recipient` is one contact name or one phone number. `message` is at most 1000 characters. `mode` is `as_alex` (default) or `attributed`. `as_alex` stays `pending` until Alex taps Send or says send. `attributed` can send only after the phone adds `[Alex's assistant Grok]: `, and only if that switch is on. Fields such as `confirmed` or `skipConfirm` are HTTP 400. A name that matches several contacts returns `needs_clarification` and sends nothing. `get_send_status` reads `pending`, `sent`, `cancelled`, `expired`, `failed`, `needs_clarification`, or `rejected`. HTTP 200 is not proof the text was sent. Cancel and expiry are final. The box log is `~/.phonepi/sent-texts.jsonl`. The token is not written there. See [docs/send-text.md](../docs/send-text.md).
 

@@ -9,6 +9,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.RemoteInput
 import dev.phonepi.companion.R
 import dev.phonepi.companion.assistant.AssistantProtocol
+import dev.phonepi.companion.privacy.PhonePiQuiet
 import dev.phonepi.companion.receiver.MessageActionReceiver
 import dev.phonepi.companion.ui.MessageReplyActivity
 import dev.phonepi.companion.util.NotificationHelper
@@ -24,6 +25,7 @@ object MessageNotificationHelper {
         includeReply: Boolean = false,
         includeDismiss: Boolean = true,
     ) {
+        if (!priorityHigh && PhonePiQuiet.isActive(context)) return
         NotificationHelper.ensureChannels(context)
         val channel = if (priorityHigh) {
             NotificationHelper.CHANNEL_URGENT
@@ -122,7 +124,7 @@ object MessageNotificationHelper {
         )
         return NotificationCompat.Action.Builder(0, "Reply", replyPending)
             .addRemoteInput(remoteInput)
-            .setAllowGeneratedReplies(true)
+            .setAllowGeneratedReplies(false)
             .setSemanticAction(NotificationCompat.Action.SEMANTIC_ACTION_REPLY)
             .extend(
                 NotificationCompat.Action.WearableExtender()

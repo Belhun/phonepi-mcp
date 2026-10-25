@@ -79,6 +79,7 @@ test("command allowlist is the phone commands", () => {
   assert.deepEqual(
     [...PHONE_COMMAND_NAMES].sort(),
     [
+      "clear_assistant_events",
       "clear_health_cache",
       "clear_location_history",
       "clear_presence_history",

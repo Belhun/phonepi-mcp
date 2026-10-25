@@ -8,6 +8,7 @@ import { CommandRateLimiter } from "../dist/command-rate-limit.js";
 import { validatePhoneCommandArgs } from "../dist/commands.js";
 import { isReadOnlyHttpTool, READ_ONLY_TOOL_RATE_LIMITS } from "../dist/read-only-tools.js";
 import { startLoopbackHttp } from "../dist/loopback-http.js";
+import { TEST_READ_AUTH, readHeaders } from "./read-auth-fixture.js";
 import { UsageLog, msToMinutes } from "../dist/usage-log.js";
 
 const NOW = Date.UTC(2026, 9, 24, 20, 0, 0);
@@ -209,6 +210,7 @@ test("get_screen_time is allowlisted, served offline, and rate limited", async (
     commandToken: "test-token",
     usageLog: log,
     locationReadLimiter: limiter,
+    readAuth: TEST_READ_AUTH,
     bridge: {
       isPhoneConnected: () => false,
       callPhoneTool: async () => {
@@ -224,10 +226,15 @@ test("get_screen_time is allowlisted, served offline, and rate limited", async (
     assert.equal(isReadOnlyHttpTool("pause_usage_logging"), false);
     assert.equal(isReadOnlyHttpTool("clear_usage_history"), false);
 
-    const read = await post(started.port, "/api/tool", {
-      tool: "get_screen_time",
-      arguments: { days: 7, top: 10 },
-    });
+    const read = await post(
+      started.port,
+      "/api/tool",
+      {
+        tool: "get_screen_time",
+        arguments: { days: 7, top: 10 },
+      },
+      readHeaders()
+    );
     assert.equal(read.status, 200);
     const body = JSON.parse(read.json.text);
     assert.equal(body.status, "success");
@@ -236,21 +243,32 @@ test("get_screen_time is allowlisted, served offline, and rate limited", async (
     assert.equal(body.count, 1);
     assert.equal(body.days[0].screenOnMinutes, 60);
     assert.equal(body.days[0].unlockCount, 12);
-    assert.equal(body.days[0].apps[0].label, "YouTube");
+    assert.equal(body.days[0].apps[0].label.untrusted, true);
+    assert.match(body.days[0].apps[0].label.text, /YouTube/);
     assert.equal(body.days[0].apps[0].minutes, 30);
     assert.equal(phoneCalls, 0);
 
-    const bad = await post(started.port, "/api/tool", {
-      tool: "get_screen_time",
-      arguments: { days: 500 },
-    });
+    const bad = await post(
+      started.port,
+      "/api/tool",
+      {
+        tool: "get_screen_time",
+        arguments: { days: 500 },
+      },
+      readHeaders()
+    );
     assert.equal(bad.status, 400);
     assert.match(bad.json.text, /days/);
 
-    const badDate = await post(started.port, "/api/tool", {
-      tool: "get_screen_time",
-      arguments: { from: "2026-10-24T12:00:00-07:00" },
-    });
+    const badDate = await post(
+      started.port,
+      "/api/tool",
+      {
+        tool: "get_screen_time",
+        arguments: { from: "2026-10-24T12:00:00-07:00" },
+      },
+      readHeaders()
+    );
     assert.equal(badDate.status, 400);
 
     const paused = await post(started.port, "/api/tool", {
@@ -260,15 +278,25 @@ test("get_screen_time is allowlisted, served offline, and rate limited", async (
     assert.equal(paused.status, 403);
 
     for (let i = 0; i < 29; i += 1) {
-      await post(started.port, "/api/tool", {
+      await post(
+        started.port,
+        "/api/tool",
+        {
+          tool: "get_screen_time",
+          arguments: {},
+        },
+        readHeaders()
+      );
+    }
+    const limited = await post(
+      started.port,
+      "/api/tool",
+      {
         tool: "get_screen_time",
         arguments: {},
-      });
-    }
-    const limited = await post(started.port, "/api/tool", {
-      tool: "get_screen_time",
-      arguments: {},
-    });
+      },
+      readHeaders()
+    );
     assert.equal(limited.status, 429);
     assert.equal(phoneCalls, 0);
   } finally {

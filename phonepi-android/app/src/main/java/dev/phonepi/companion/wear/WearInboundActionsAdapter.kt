@@ -9,10 +9,12 @@ import dev.phonepi.companion.log.ActivityLog
  * Watch → phone inbound actions. [submitPrompt] uses the same
  * [AssistantEvents.emitPrompt] path as the Ask assistant tile so
  * `get_inbound_prompts` and the wake hook see watch prompts. Source is
- * always `watch_relay`. Quiet uses [WearQuietController] (DND access).
+ * always `watch_relay`. Quiet uses [WearQuietController] (in-app PhonePi
+ * quiet, not system DND).
  *
  * The watch never receives PHONEPI_WS_TOKEN, TS_AUTHKEY, the send-gateway
- * token, or the bridge key. Do not log those values here.
+ * token, or the bridge key. Do not log those values here. Prompt logs
+ * are length only.
  */
 class WearInboundActionsAdapter(
     private val emitPrompt: (text: String, source: String) -> WearActionResult,
@@ -29,9 +31,8 @@ class WearInboundActionsAdapter(
             ?: return WearActionResult(false, "empty prompt")
         val mapped = toAssistantSource(source)
         val result = emitPrompt(clipped, mapped)
-        val preview = clipped.take(LOG_PREVIEW)
         val status = if (result.ok) "success" else "error"
-        log("Watch prompt ${result.message} (${clipped.length} chars): $preview", status)
+        log("Watch prompt ${result.message} (${clipped.length} chars)", status)
         return result
     }
 
@@ -42,8 +43,6 @@ class WearInboundActionsAdapter(
     }
 
     companion object {
-        private const val LOG_PREVIEW = 120
-
         /** Watch origins all land as this allowlisted assistant source. */
         const val ASSISTANT_SOURCE = "watch_relay"
 

@@ -1,27 +1,31 @@
 # What Alex does on the phone, watch, and server
 
-Companion **0.3.5** (versionCode **17**). Wear **0.1.0** (versionCode **1**). Same `applicationId` `dev.phonepi.companion` and the same release key. PhonePi never flips Do Not Disturb. Never print `PHONEPI_WS_TOKEN`, `PHONEPI_WAKE_HOOK_URL`, or `PHONEPI_WAKE_HOOK_SECRET`.
+Companion **0.3.5** (versionCode **17**). Wear **0.1.0** (versionCode **1**). Same `applicationId` `dev.phonepi.companion` and the same release key. PhonePi never flips Do Not Disturb. Never print `PHONEPI_WS_TOKEN`, `PHONEPI_READ_TOKEN`, `PHONEPI_WAKE_HOOK_URL`, or `PHONEPI_WAKE_HOOK_SECRET`.
 
-Presence, screen time, location history, and sleep/health sharing start **on**. Bots still only read through the allowlisted loopback tools. Pause and delete stay on the phone and as token commands.
+Presence, screen time, location history, and sleep/health sharing start **on**. Bots still only read through the allowlisted loopback tools. Sensitive reads (`get_presence`, `get_screen_time`, `get_health_summary`, `get_notification_replies`, `get_inbound_prompts`) need `PHONEPI_READ_TOKEN`. Pause and delete stay on the phone and as token commands. Resume of paused presence, usage, and health is phone-only.
+
+Install **release-signed** APKs only. Before install, verify the signing certificate SHA-1 is `49:B1:AB:F2:98:F5:D4:9A:B3:8B:A2:30:6F:E9:E3:2E:E4:89:48:9D` (`apksigner verify --print-certs` or `keytool -printcert -jarfile`). Debug APKs are for this box's tests, not the Pixel.
 
 ## Phone companion
 
-1. Sideload `phonepi-android/app/build/outputs/apk/debug/app-debug.apk` (or the release APK signed with the PhonePi key). Open PhonePi and Connect.
+1. Sideload the **release** APK `phonepi-android/app/build/outputs/apk/release/app-release.apk` (or the signed update). Open PhonePi and Connect. The WebSocket token is stored in the Android Keystore (one-time migration from the old prefs value so an already-paired phone keeps working).
 2. **Usage access:** Settings → Usage access → enable PhonePi. Tool permissions and the Screen time panel open that screen. Needed for `get_screen_time`.
 3. **Location:** grant precise location, then **Allow all the time**, plus **Physical activity**. Needed for presence and location history. Mark saved places as presence on the Presence panel (or `phone_add_location` with `presence: true`).
 4. **Health Connect:** PhonePi → Sleep and health → Privacy policy → Grant. Galaxy Watch 7 data lives in Samsung Health first. Samsung Health → Settings → Health Connect must write sleep, steps, heart rate, exercise, and blood oxygen. PhonePi only reads Health Connect. It does not use the Samsung Health Data SDK.
-5. **DND exception:** PhonePi does not change Do Not Disturb. To hear urgent PhonePi cards while DND is on, allow the **PhonePi urgent messages** channel in system Settings yourself.
+5. **DND exception:** PhonePi does not change Do Not Disturb. **PhonePi quiet 1 hour** (Connect screen or watch Quiet 1h) only holds PhonePi's own non-urgent notifications and reports presence as quiet. To hear urgent PhonePi cards while system DND is on, allow the **PhonePi urgent messages** channel in system Settings yourself.
 6. **Ask assistant:**
    - Quick Settings: shade → edit tiles → add **Ask assistant**.
    - Home shortcut: long-press the PhonePi icon → drag **Ask assistant**.
    - Pixel Quick Tap: Settings → System → Gestures → Quick Tap → Use Quick Tap → Open app → **Ask assistant** (the extra launcher entry), not the main PhonePi icon.
 
-Pause and delete:
+Pause and delete (each stream has a visible on/off):
 
+- **Stop all sharing** on the Connect screen pauses location history, presence, usage, and health at once. Resume each stream on its own panel.
 - Presence: pause / clear snapshot
 - Screen time: pause / delete usage
 - Location history: pause / delete history
 - Sleep and health: pause / delete cache
+- Ask assistant: **Delete prompts and replies**
 
 Work hours live on the box in `~/.phonepi/presence/config.json` (default 08:00–17:00 Monday–Friday, `America/Los_Angeles`). Church hours stay empty until you edit that file.
 
@@ -41,9 +45,9 @@ adb install -r phonepi-wear/build/outputs/apk/debug/phonepi-wear-debug.apk
 ```
 
 5. Watch: add the PhonePi tile. Optional: add the **Next alarm** complication.
-6. Phone: grant **Do Not Disturb access** if Quiet 1h should run (same grant volume tools already use). PhonePi still does not flip DND.
+6. After the watch APK is installed: watch **Settings → Developer options → Wireless debugging → Off**, then **Revoke authorizations** (or unpair this computer) so the debug port is not left open.
 
-Ask assistant on the watch sends a `watch_relay` prompt through the phone. The watch never holds the PhonePi token.
+Ask assistant on the watch sends a `watch_relay` prompt through the phone. Quiet 1h is in-app PhonePi quiet (confirm tap on the watch). The watch never holds the PhonePi token.
 
 ## Server env file
 
@@ -51,8 +55,11 @@ Edit `/home/box/.phonepi/env` (mode 600). Restart the PhonePi server after savin
 
 Set these names (values stay in that file):
 
-- `PHONEPI_WAKE_HOOK_URL` — `http` or `https` URL. Unset disables the hook.
+- `PHONEPI_WS_TOKEN` — phone socket and `/api/command` (already there).
+- `PHONEPI_READ_TOKEN` — sensitive reads (`get_presence`, `get_screen_time`, `get_health_summary`, `get_notification_replies`, `get_inbound_prompts`). Separate from the WS token. Optional `PHONEPI_READ_BOTS` JSON or `~/.phonepi/read-bots.json` for per-bot scoped tokens (`coords: true` only for bots allowed raw coordinates).
+- `PHONEPI_WAKE_HOOK_URL` — `https` URL (http only for loopback `127.0.0.0/8` or tailnet `100.64.0.0/10` / `*.ts.net`). Unset disables the hook.
 - `PHONEPI_WAKE_HOOK_SECRET` — optional. Sent as `X-PhonePi-Wake-Secret`.
+- Optional: `PHONEPI_HTTP_HOSTS` if loopback HTTP must accept extra `Host` values. Default is `127.0.0.1`, `localhost`, `[::1]`. Tailscale Serve still fronts WebSocket 11041, not `/api/tool`.
 
 Do not print the values. `GET /api/health` shows `wakeHookEnabled` and `hookFailed` only. It never includes the URL or secret.
 

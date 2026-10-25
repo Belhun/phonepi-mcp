@@ -4,7 +4,7 @@ Bots can ask where Alex is before messaging him. Presence is a live snapshot, no
 
 ## What `get_presence` returns
 
-`POST /api/tool` (no token), 30/min. Reads the box copy at `~/.phonepi/presence/current.json`. Works when the phone is offline.
+`POST /api/tool` (**read token** `PHONEPI_READ_TOKEN`), 30/min. Reads the box copy at `~/.phonepi/presence/current.json`. Works when the phone is offline. Default is place label + status. Raw coordinates only for a bot scoped with `coords: true`.
 
 ```json
 {"tool":"get_presence","arguments":{}}
@@ -15,19 +15,18 @@ Fields:
 - `place` — saved place name marked presence, or `away`. `home` / `work` / `church` if those are the saved names.
 - `minutesAtPlace` — minutes since the last arrive at that place.
 - `driving` / `moving` / `activity` — activity recognition (`still`, `walking`, `running`, `cycling`, `driving`, `unknown`).
-- `dnd` — Do Not Disturb (`off`, `priority`, `total_silence`, `alarms`).
-- `latitude` / `longitude` / `accuracyMeters` — raw coordinates. Alex approved these for his own allowlisted bots.
-- `capturedAtMs` / `capturedAtIso` / `ageMs` — freshness of the box copy.
+- `dnd` — interruption state (`off`, `priority`, `total_silence`, `alarms`, or `quiet` while in-app PhonePi quiet is on). PhonePi never flips system Do Not Disturb.
+- `latitude` / `longitude` / `accuracyMeters` — raw coordinates only when the caller is scoped for them **and** presence is on, not paused, and fresh (`PHONEPI_PRESENCE_TTL_MS`, default 15 minutes). Otherwise null. Turning Presence off sends a clear; the box drops coordinates when off, paused, or stale. A paused snapshot is not fresh.
 - `expected_place` / `matches_expected` — from the config file below. `null` when no hours cover now.
 - `enabled` / `paused` — phone switches.
 - `reason: "no_snapshot"` when the box has not received a push yet. `expected_place` still fills from config.
 
 Pause and clear are token commands on `POST /api/command`, same shape as location history:
 
-- `pause_presence_logging` `{ "paused": true|false }` 10/min
+- `pause_presence_logging` `{ "paused": true }` 10/min. Resume is phone-only.
 - `clear_presence_history` `{ "confirm": "delete" }` 4/min
 
-The in-app **Presence** switch is the master on/off. It starts **on**. Pause stops capture and keeps the last snapshot. Clear deletes the snapshot on the phone and the box. Saved places stay.
+The in-app **Presence** switch is the master on/off. It starts **on**. **Stop all sharing** pauses this stream with the others. Pause stops capture and keeps the last snapshot without coordinates. Clear deletes the snapshot on the phone and the box. Saved places stay.
 
 ## Config (work hours and named places)
 

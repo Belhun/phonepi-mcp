@@ -2,6 +2,7 @@ package dev.phonepi.companion.connection
 
 import android.content.Context
 import android.util.Log
+import dev.phonepi.companion.assistant.AssistantOutbox
 import dev.phonepi.companion.health.HealthSync
 import dev.phonepi.companion.history.LocationHistorySync
 import dev.phonepi.companion.presence.PresenceSync
@@ -545,6 +546,8 @@ class WebSocketManager(
                 is WsMessage.HealthAck -> HealthSync.onFrame(text)
                 is WsMessage.ActivityNote ->
                     ActivityLog.logRemoteAction(msg.title, msg.detail, msg.status)
+                is WsMessage.AssistantAck ->
+                    AssistantOutbox.ack(appContext, msg.id, msg.ok)
                 is WsMessage.Unknown -> Log.v(TAG, "ignored frame type=${msg.type}")
             }
         }

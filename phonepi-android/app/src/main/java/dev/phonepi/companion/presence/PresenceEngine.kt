@@ -75,7 +75,13 @@ object PresenceEngine {
 
     suspend fun refresh(context: Context) {
         val app = context.applicationContext
-        if (!PresencePrefs.enabled(app) || PresencePrefs.paused(app)) {
+        if (!PresencePrefs.enabled(app)) {
+            PresenceCapture.stop(app)
+            PresenceSync.requestClear(app)
+            WearStatePublisher.publish(app)
+            return
+        }
+        if (PresencePrefs.paused(app)) {
             PresenceCapture.stop(app)
             push(app, "manual")
             return
@@ -122,7 +128,10 @@ object PresenceEngine {
     }
 
     private fun push(context: Context, source: String, nowMs: Long = System.currentTimeMillis()) {
-        val dnd = runCatching { VolumeController.snapshot(context).dnd }.getOrDefault("unknown")
+        val dnd = when {
+            dev.phonepi.companion.privacy.PhonePiQuiet.isActive(context) -> "quiet"
+            else -> runCatching { VolumeController.snapshot(context).dnd }.getOrDefault("unknown")
+        }
         val snapshot = PresenceLogic.snapshot(
             memory = PresencePrefs.memory(context),
             nowMs = nowMs,

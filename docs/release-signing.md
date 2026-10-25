@@ -37,6 +37,17 @@ cd phonepi-android
 
 Output: `phonepi-android/app/build/outputs/apk/release/app-release.apk`
 
+Install **release-signed** APKs only. Before sideload, verify the signing certificate SHA-1 is:
+
+```
+49:B1:AB:F2:98:F5:D4:9A:B3:8B:A2:30:6F:E9:E3:2E:E4:89:48:9D
+```
+
+```bash
+apksigner verify --print-certs app-release.apk
+# or: keytool -printcert -jarfile app-release.apk
+```
+
 ## One-time debug → release reinstall
 
 Android will **not** update a debug-signed PhonePi with a release-signed APK (different signing cert). In-app update / `phone_push_update` cannot cross that gap.

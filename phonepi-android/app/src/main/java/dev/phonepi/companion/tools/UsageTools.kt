@@ -13,15 +13,12 @@ class PauseUsageLoggingTool(private val context: Context) : ToolHandler {
     override val name = "pause_usage_logging"
 
     override suspend fun handle(params: JsonObject): JsonObject {
-        val paused = params["paused"]?.jsonPrimitive?.booleanOrNull
-            ?: return toolError("paused must be true or false")
-        UsagePrefs.setPaused(context, paused)
-        if (!paused) UsageEngine.refresh(context)
-        ActivityLog.logUsage(
-            if (paused) "Screen time paused" else "Screen time resumed",
-            "info",
-        )
-        return success { put("paused", paused) }
+        if (params["paused"]?.jsonPrimitive?.booleanOrNull != true) {
+            return toolError("paused must be true; resume screen time on the phone")
+        }
+        UsagePrefs.setPaused(context, true)
+        ActivityLog.logUsage("Screen time paused", "info")
+        return success { put("paused", true) }
     }
 }
 

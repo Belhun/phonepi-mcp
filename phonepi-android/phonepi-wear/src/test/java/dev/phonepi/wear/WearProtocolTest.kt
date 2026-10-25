@@ -38,6 +38,7 @@ class WearProtocolTest {
         assertTrue(WearPaths.IM_OK.startsWith("/phonepi/"))
         assertTrue(WearPaths.NEXT_ALARM.startsWith("/phonepi/"))
         assertEquals("phonepi_phone", WearPaths.PHONE_CAPABILITY)
+        assertEquals("phonepi_wear", WearPaths.WEAR_CAPABILITY)
     }
 
     @Test

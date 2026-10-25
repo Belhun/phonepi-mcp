@@ -2,6 +2,7 @@ package dev.phonepi.companion.wear
 
 import android.app.AlarmManager
 import android.util.Log
+import com.google.android.gms.wearable.CapabilityClient
 import com.google.android.gms.wearable.MessageEvent
 import com.google.android.gms.wearable.Wearable
 import com.google.android.gms.wearable.WearableListenerService
@@ -14,7 +15,8 @@ import kotlinx.coroutines.tasks.await
 
 /**
  * Phone-side Data Layer listener. Receives watch messages and never reads or
- * writes the PhonePi token.
+ * writes the PhonePi token. Only nodes advertising [WearPaths.WEAR_CAPABILITY]
+ * are accepted. Inbound messages are capped per minute.
  */
 class WearListenerService : WearableListenerService() {
 
@@ -31,6 +33,31 @@ class WearListenerService : WearableListenerService() {
         val app = applicationContext
         Log.i(TAG, "path=$path bytes=${messageEvent.data.size}")
         WearBridge.scope.launch {
+            if (!WearBridge.senderAllowed(app, nodeId)) {
+                Log.i(TAG, "rejected sender")
+                runCatching {
+                    Wearable.getMessageClient(app)
+                        .sendMessage(
+                            nodeId,
+                            WearPaths.ACK,
+                            WearAck(false, "unknown", "unknown sender").encode(),
+                        )
+                        .await()
+                }
+                return@launch
+            }
+            if (!WearBridge.inboundRate.allow()) {
+                runCatching {
+                    Wearable.getMessageClient(app)
+                        .sendMessage(
+                            nodeId,
+                            WearPaths.ACK,
+                            WearAck(false, "unknown", "rate limited").encode(),
+                        )
+                        .await()
+                }
+                return@launch
+            }
             val ack = WearBridge.dispatcher(app).dispatch(path, payload)
             runCatching {
                 Wearable.getMessageClient(app)
@@ -48,12 +75,16 @@ class WearListenerService : WearableListenerService() {
 
 object WearBridge {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    val inboundRate = WearInboundLimiter(WearMessageDispatcher.LISTENER_PER_MINUTE)
 
     @Volatile
     var presence: PresenceLabelSource = PresenceLabelSource.Stub
 
     @Volatile
     var actionsOverride: WearInboundActions? = null
+
+    @Volatile
+    var senderCheck: (suspend (android.content.Context, String) -> Boolean)? = null
 
     fun ensure(context: android.content.Context) {
         val app = context.applicationContext
@@ -70,6 +101,17 @@ object WearBridge {
             }
         }
         WearStatePublisher.publish(app)
+    }
+
+    suspend fun senderAllowed(context: android.content.Context, nodeId: String): Boolean {
+        val override = senderCheck
+        if (override != null) return override(context, nodeId)
+        val cap = runCatching {
+            Wearable.getCapabilityClient(context)
+                .getCapability(WearPaths.WEAR_CAPABILITY, CapabilityClient.FILTER_ALL)
+                .await()
+        }.getOrNull() ?: return false
+        return cap.nodes.any { it.id == nodeId }
     }
 
     fun dispatcher(context: android.content.Context): WearMessageDispatcher {

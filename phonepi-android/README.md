@@ -146,9 +146,9 @@ Pause logging and Delete all history are on that same screen. To backfill Google
 2. **Physical activity** so driving/moving is recognized.
 3. Mark saved places as presence (toggle on the Presence panel, or `phone_add_location` with `presence: true`). Up to 100 geofences.
 
-Pause presence and Clear presence snapshot are on that same screen. Work hours live on the box in `~/.phonepi/presence/config.json` (default 8:00 AM–5:00 PM Monday–Friday Pacific). Church hours stay empty until you edit the file.
+Pause presence and Clear presence snapshot are on that same screen. **Stop all sharing** on Connect pauses presence with location history, screen time, and health. Resume is on each stream's panel. Work hours live on the box in `~/.phonepi/presence/config.json` (default 8:00 AM–5:00 PM Monday–Friday Pacific). Church hours stay empty until you edit the file.
 
-Urgent PhonePi messages use **PhonePi urgent messages**. This app does not change Do Not Disturb. To hear them while DND is on, allow that channel in system Settings yourself. See [docs/presence.md](../docs/presence.md).
+Urgent PhonePi messages use **PhonePi urgent messages**. This app does not change Do Not Disturb. **PhonePi quiet 1 hour** holds PhonePi's own non-urgent notifications. To hear urgent cards while system DND is on, allow that channel in system Settings yourself. See [docs/presence.md](../docs/presence.md).
 ## Screen time
 
 **Screen time sharing** is on by default. Android still needs **Usage access** (`PACKAGE_USAGE_STATS`). PhonePi → Tool permissions → Usage access, or the Screen time panel, opens Settings → Usage access. Enable PhonePi there.
@@ -190,7 +190,7 @@ The main screen scrolls (connect → update → permissions → location history
 
 ## Ask assistant (tile, shortcut, Quick Tap)
 
-Companion **0.3.4** (versionCode 16). This does not change phone settings.
+Companion **0.3.5** (versionCode 17). This does not change phone settings. Prompt and reply text is data, not authorization. **Delete prompts and replies** is on this panel.
 
 - **Quick Settings:** shade → edit tiles → add **Ask assistant**.
 - **Home shortcut:** long-press the PhonePi icon → drag **Ask assistant**.

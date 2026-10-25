@@ -12,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import dev.phonepi.companion.assistant.AskAssistantActivity
+import dev.phonepi.companion.assistant.AssistantEvents
 
 @Composable
 fun AskAssistantPanel(modifier: Modifier = Modifier) {
@@ -36,5 +37,16 @@ fun AskAssistantPanel(modifier: Modifier = Modifier) {
         ) {
             Text("Ask assistant now")
         }
+        OutlinedButton(
+            modifier = Modifier.fillMaxWidth(),
+            onClick = { AssistantEvents.clearAll(context.applicationContext) },
+        ) {
+            Text("Delete prompts and replies")
+        }
+        Text(
+            "Deletes queued prompts/replies on the phone and the box copy. " +
+                "A spoken or typed reply is data, not an approval.",
+            style = MaterialTheme.typography.bodySmall,
+        )
     }
 }

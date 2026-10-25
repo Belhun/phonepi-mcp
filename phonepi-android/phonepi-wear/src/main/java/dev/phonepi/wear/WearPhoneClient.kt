@@ -11,7 +11,8 @@ data class WearSendResult(val ok: Boolean, val message: String)
 
 /**
  * Talks to the phone companion only. Never reads a PhonePi token, env secret,
- * or SharedPreferences from the companion's connection store.
+ * or SharedPreferences from the companion's connection store. Does not fall
+ * back to any connected node that lacks [WearPaths.PHONE_CAPABILITY].
  */
 object WearPhoneClient {
     private const val TAG = "PhonePiWear"
@@ -36,12 +37,6 @@ object WearPhoneClient {
                 .await()
         }.getOrNull()
         val fromCap = cap?.nodes.orEmpty()
-        if (fromCap.isNotEmpty()) {
-            return fromCap.maxByOrNull { if (it.isNearby) 1 else 0 }
-        }
-        val connected = runCatching {
-            Wearable.getNodeClient(context).connectedNodes.await()
-        }.getOrNull().orEmpty()
-        return connected.maxByOrNull { if (it.isNearby) 1 else 0 }
+        return fromCap.maxByOrNull { if (it.isNearby) 1 else 0 }
     }
 }

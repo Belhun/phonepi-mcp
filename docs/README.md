@@ -1,11 +1,11 @@
 # PhonePi docs
 
-Index of feature docs. The combined setup list for Alex is [ALEX-CHECKLIST.md](ALEX-CHECKLIST.md). Never print tokens, wake-hook secrets, or webhook URLs.
+Index of feature docs. The combined setup list for Alex is [ALEX-CHECKLIST.md](ALEX-CHECKLIST.md). Never print `PHONEPI_WS_TOKEN`, `PHONEPI_READ_TOKEN`, wake-hook secrets, or webhook URLs.
 
 | Doc | What it covers |
 | --- | --- |
-| [ALEX-CHECKLIST.md](ALEX-CHECKLIST.md) | Sideload, grants, DND exception, Ask assistant, Wear, wake-hook env names |
-| [BOT-SKILL.md](BOT-SKILL.md) | Bot-facing tools and commands |
+| [ALEX-CHECKLIST.md](ALEX-CHECKLIST.md) | Sideload (release-signed APKs), grants, PhonePi quiet, Ask assistant, Wear, read-token / wake-hook env names |
+| [BOT-SKILL.md](BOT-SKILL.md) | Bot-facing tools and commands (sensitive reads need `PHONEPI_READ_TOKEN`) |
 | [presence.md](presence.md) | `get_presence`, work hours config, pause/clear |
 | [health.md](health.md) | Health Connect / Samsung Health, `get_health_summary` |
 | [assistant-notifications.md](assistant-notifications.md) | Watch-actionable notifications, Ask assistant, inbound prompts, wake hook |

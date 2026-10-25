@@ -7,13 +7,10 @@
         android:shortcutShortLabel="@string/ask_assistant_short"
         android:shortcutLongLabel="@string/ask_assistant_long">
         <intent
-            android:action="dev.phonepi.companion.action.ASK_ASSISTANT"
+            android:action="android.intent.action.VIEW"
             android:targetPackage="dev.phonepi.companion"
-            android:targetClass="dev.phonepi.companion.assistant.AskAssistantActivity">
-            <extra
-                android:name="source"
-                android:value="shortcut" />
-        </intent>
+            android:targetClass="dev.phonepi.companion.assistant.AskAssistantActivity"
+            android:data="phonepi://ask" />
         <categories android:name="android.shortcut.conversation" />
     </shortcut>
 </shortcuts>

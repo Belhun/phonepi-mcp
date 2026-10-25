@@ -6,7 +6,12 @@ import {
   expectedPlaceAt,
   placeMatchesExpected,
 } from "./presence-config.js";
-import { PresenceLog, PresenceSnapshot } from "./presence-log.js";
+import {
+  PresenceLog,
+  PresenceSnapshot,
+  presenceIsFresh,
+  presenceIsStale,
+} from "./presence-log.js";
 
 export const PRESENCE_READ_TOOL = "get_presence";
 export const PRESENCE_READ_PER_MINUTE = 30;
@@ -19,7 +24,7 @@ export const PRESENCE_TOOL_SCHEMAS = [
   {
     name: PRESENCE_READ_TOOL,
     description:
-      "Read where Alex is right now from the box copy of PhonePi presence (place label, minutes there, driving/moving, Do Not Disturb, lat/lng/accuracy). Works when the phone is offline. capturedAtMs is when the phone last pushed a snapshot. expected_place and matches_expected use ~/.phonepi/presence/config.json (default work hours 08:00-17:00 Mon-Fri America/Los_Angeles; church hours empty; place names empty until set). Read-only. Presence is on by default on the phone.",
+      "Read where Alex is right now from the box copy of PhonePi presence (place label, minutes there, driving/moving, quiet/DND). Default is place + status. Raw coordinates only if this bot is scoped for them. Coordinates are always null when presence is off, paused, or stale (TTL). Requires PHONEPI_READ_TOKEN. Works when the phone is offline. capturedAtMs is when the phone last pushed a snapshot. expected_place and matches_expected use ~/.phonepi/presence/config.json. Read-only.",
     inputSchema: {
       type: "object",
       properties: {},
@@ -40,6 +45,8 @@ export function runPresenceRead(options: {
   tool: string;
   nowMs?: number;
   activityLogged: boolean;
+  includeCoords?: boolean;
+  callerId?: string;
 }): PresenceReadOutcome {
   if (options.tool !== PRESENCE_READ_TOOL) {
     return {
@@ -47,7 +54,8 @@ export function runPresenceRead(options: {
       body: { text: `Tool "${options.tool}" is not a presence read`, isError: true },
     };
   }
-  const budget = options.limiter.allow(PRESENCE_READ_TOOL, PRESENCE_READ_PER_MINUTE);
+  const limitKey = `${options.callerId ?? "anon"}:${PRESENCE_READ_TOOL}`;
+  const budget = options.limiter.allow(limitKey, PRESENCE_READ_PER_MINUTE);
   if (!budget.ok) {
     return {
       status: 429,
@@ -63,7 +71,15 @@ export function runPresenceRead(options: {
   const snapshot = options.log.current();
   const expected = expectedPlaceAt(config, nowMs);
   const payload = snapshot
-    ? successFromSnapshot(snapshot, expected, config, nowMs, options.activityLogged)
+    ? successFromSnapshot(
+        snapshot,
+        expected,
+        config,
+        nowMs,
+        options.activityLogged,
+        options.includeCoords === true,
+        options.log.ttlMs
+      )
     : emptySuccess(expected, nowMs, options.activityLogged);
   return {
     status: 200,
@@ -83,10 +99,13 @@ export function validatePresenceAdminArgs(
   args: Record<string, unknown>
 ): ValidatedCommandArgs | null {
   if (name === "pause_presence_logging") {
-    if (typeof args.paused !== "boolean") {
-      return { ok: false, error: "paused must be true or false" };
+    if (args.paused !== true) {
+      return {
+        ok: false,
+        error: "paused must be true; resume presence on the phone",
+      };
     }
-    return { ok: true, args: { paused: args.paused } };
+    return { ok: true, args: { paused: true } };
   }
   if (name === "clear_presence_history") {
     if (args.confirm !== "delete") {
@@ -102,8 +121,13 @@ function successFromSnapshot(
   expected: string | null,
   config: PresenceConfigData,
   nowMs: number,
-  activityLogged: boolean
+  activityLogged: boolean,
+  includeCoords: boolean,
+  ttlMs: number
 ): Record<string, unknown> {
+  const fresh = presenceIsFresh(snapshot, nowMs, ttlMs);
+  const stale = presenceIsStale(snapshot, nowMs, ttlMs);
+  const coordsOk = includeCoords && fresh;
   return {
     status: "success",
     place: snapshot.place,
@@ -112,9 +136,10 @@ function successFromSnapshot(
     moving: snapshot.moving,
     activity: snapshot.activity,
     dnd: snapshot.dnd,
-    latitude: snapshot.latitude,
-    longitude: snapshot.longitude,
-    accuracyMeters: snapshot.accuracyMeters,
+    latitude: coordsOk ? snapshot.latitude : null,
+    longitude: coordsOk ? snapshot.longitude : null,
+    accuracyMeters: coordsOk ? snapshot.accuracyMeters : null,
+    coordsScoped: includeCoords,
     expected_place: expected,
     matches_expected: placeMatchesExpected(snapshot.place, expected, config),
     capturedAtMs: snapshot.capturedAtMs,
@@ -126,6 +151,8 @@ function successFromSnapshot(
     lastEventMs: snapshot.lastEventMs,
     enabled: snapshot.enabled,
     paused: snapshot.paused,
+    fresh,
+    stale,
     source: snapshot.source,
     activityLogged,
   };

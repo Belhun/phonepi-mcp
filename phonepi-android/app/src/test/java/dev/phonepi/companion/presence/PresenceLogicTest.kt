@@ -99,6 +99,19 @@ class PresenceLogicTest {
     }
 
     @Test
+    fun snapshotDropsCoordinatesWhenOffOrPaused() {
+        val memory = PresenceLogic.onFix(PresenceMemory.empty(), 33.5, -117.15, 18.0, start, places)
+        val off = PresenceLogic.snapshot(memory, start, enabled = false, paused = false, dnd = "off", source = "periodic")
+        assertNull(off.latitude)
+        assertNull(off.longitude)
+        assertNull(off.accuracyMeters)
+        val paused = PresenceLogic.snapshot(memory, start, enabled = true, paused = true, dnd = "off", source = "periodic")
+        assertNull(paused.latitude)
+        assertNull(paused.longitude)
+        assertTrue(paused.paused)
+    }
+
+    @Test
     fun detectedActivityIntsMapToNamesWithoutThePlayServicesSdk() {
         assertEquals("driving", PresenceLogic.activityName(0))
         assertEquals("walking", PresenceLogic.activityName(7))

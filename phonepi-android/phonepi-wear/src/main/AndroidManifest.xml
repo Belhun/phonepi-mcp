@@ -32,12 +32,12 @@
 
         <activity
             android:name=".NextAlarmActivity"
-            android:exported="true"
+            android:exported="false"
             android:taskAffinity="" />
 
         <activity
             android:name=".ConfirmActionActivity"
-            android:exported="true"
+            android:exported="false"
             android:taskAffinity="" />
 
         <service

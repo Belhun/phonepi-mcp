@@ -5,13 +5,14 @@ package dev.phonepi.companion.wear
  * token; this is what the companion runs after a Data Layer message arrives.
  *
  * [WearInboundActionsAdapter] forwards prompts through AssistantEvents
- * (`get_inbound_prompts` / wake hook) and quiet through WearQuietController.
+ * (`get_inbound_prompts` / wake hook) and quiet through WearQuietController
+ * (in-app PhonePi quiet; never system DND).
  */
 interface WearInboundActions {
     /** Forward [text] to the box as an inbound assistant prompt. */
     suspend fun submitPrompt(text: String, source: String): WearActionResult
 
-    /** Quiet notifications on the phone for [minutes] (1..720). */
+    /** Quiet PhonePi's own non-urgent notifications for [minutes] (1..720). */
     suspend fun quietForMinutes(minutes: Int): WearActionResult
 }
 

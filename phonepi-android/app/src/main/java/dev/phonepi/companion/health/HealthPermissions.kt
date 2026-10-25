@@ -21,7 +21,6 @@ object HealthPermissions {
         add(HealthPermission.getReadPermission(ExerciseSessionRecord::class))
         add(HealthPermission.getReadPermission(OxygenSaturationRecord::class))
         add(HealthPermission.PERMISSION_READ_HEALTH_DATA_IN_BACKGROUND)
-        add(HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY)
     }
 
     fun sdkAvailable(context: Context): Boolean =
@@ -53,7 +52,7 @@ object HealthPermissions {
             exercise = HealthPermission.getReadPermission(ExerciseSessionRecord::class) in granted,
             oxygenSaturation = HealthPermission.getReadPermission(OxygenSaturationRecord::class) in granted,
             background = HealthPermission.PERMISSION_READ_HEALTH_DATA_IN_BACKGROUND in granted,
-            history = HealthPermission.PERMISSION_READ_HEALTH_DATA_HISTORY in granted,
+            history = false,
         )
     }
 

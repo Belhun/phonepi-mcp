@@ -6,8 +6,18 @@
  */
 
 import fs from "fs";
-import os from "os";
 import path from "path";
+import {
+  atomicAppendLine,
+  atomicWriteFile,
+  ensureBoxDir,
+  removeFile,
+  resolveBoxDir,
+  safeReadFile,
+} from "./atomic-file.js";
+import { CommandRateLimiter } from "./command-rate-limit.js";
+import { INGEST_PER_MINUTE, ingestRateLimiter } from "./ingest-limit.js";
+import { parseIngestTs } from "./ingest-time.js";
 
 export const DEFAULT_ASSISTANT_RETENTION_DAYS = 30;
 export const ASSISTANT_MAX_ENTRIES = 200;
@@ -17,6 +27,9 @@ export const ACTION_MAX = 32;
 export const TITLE_MAX = 120;
 export const BODY_MAX = 1000;
 export const ACTIONS_MAX = 3;
+export const URGENT_TITLE_MAX = 80;
+export const URGENT_BODY_MAX = 200;
+export const URGENT_TITLE_PREFIX = "From assistant:";
 
 const ID_RE = /^[A-Za-z0-9._-]{8,80}$/;
 const FILE_RE = /^(\d{4})-(\d{2})\.jsonl$/;
@@ -68,9 +81,7 @@ export function openAssistantStore(
   env: NodeJS.ProcessEnv = process.env,
   now: () => number = Date.now
 ): AssistantStore {
-  const dir =
-    env.PHONEPI_ASSISTANT_DIR?.trim() ||
-    path.join(os.homedir(), ".phonepi", "assistant");
+  const dir = resolveBoxDir("PHONEPI_ASSISTANT_DIR", "assistant", env);
   const raw = env.PHONEPI_ASSISTANT_RETENTION_DAYS;
   let days = DEFAULT_ASSISTANT_RETENTION_DAYS;
   if (raw != null && raw.trim() !== "") {
@@ -86,12 +97,13 @@ export class AssistantStore {
   constructor(
     readonly dir: string,
     readonly retentionDays: number = DEFAULT_ASSISTANT_RETENTION_DAYS,
-    private readonly now: () => number = Date.now
+    private readonly now: () => number = Date.now,
+    private readonly limiter: CommandRateLimiter = ingestRateLimiter
   ) {}
 
   ingestReply(raw: unknown): IngestResult {
     return this.ingest("replies", raw, (value) => {
-      const parsed = parseReply(value);
+      const parsed = parseReply(value, this.now());
       if (!parsed.ok) return parsed;
       return { ok: true, value: parsed.reply };
     });
@@ -99,10 +111,18 @@ export class AssistantStore {
 
   ingestPrompt(raw: unknown): IngestResult {
     return this.ingest("prompts", raw, (value) => {
-      const parsed = parsePrompt(value);
+      const parsed = parsePrompt(value, this.now());
       if (!parsed.ok) return parsed;
       return { ok: true, value: parsed.prompt };
     });
+  }
+
+  clear(): void {
+    for (const kind of ["replies", "prompts"] as const) {
+      const dir = this.kindDir(kind);
+      if (!fs.existsSync(dir)) continue;
+      for (const file of this.listFiles(kind)) removeFile(file);
+    }
   }
 
   queryReplies(filter: {
@@ -144,6 +164,17 @@ export class AssistantStore {
   ): IngestResult {
     this.ensureDir(kind);
     this.prune(kind);
+    const budget = this.limiter.allow(
+      `ingest:assistant:${kind}`,
+      INGEST_PER_MINUTE.assistant
+    );
+    if (!budget.ok) {
+      return {
+        accepted: [],
+        rejected: [{ id: "", error: "rate limited" }],
+        duplicate: false,
+      };
+    }
     const parsed = parse(raw);
     if (!parsed.ok) {
       return {
@@ -162,6 +193,13 @@ export class AssistantStore {
     const existing = this.findById<T>(kind, parsed.value.id);
     if (existing) {
       return { accepted: [parsed.value.id], rejected: [], duplicate: true };
+    }
+    if (this.readAll<T>(kind).length >= ASSISTANT_MAX_ENTRIES) {
+      return {
+        accepted: [],
+        rejected: [{ id: parsed.value.id, error: "row cap reached" }],
+        duplicate: false,
+      };
     }
     this.append(kind, parsed.value);
     return { accepted: [parsed.value.id], rejected: [], duplicate: false };
@@ -200,12 +238,7 @@ export class AssistantStore {
   private append(kind: "replies" | "prompts", row: { ts: number }): void {
     this.ensureDir(kind);
     const file = path.join(this.kindDir(kind), monthName(row.ts));
-    const existed = fs.existsSync(file);
-    fs.appendFileSync(file, `${JSON.stringify(row)}\n`, {
-      encoding: "utf8",
-      mode: 0o600,
-    });
-    if (!existed) fs.chmodSync(file, 0o600);
+    atomicAppendLine(file, JSON.stringify(row));
   }
 
   private prune(kind: "replies" | "prompts"): void {
@@ -213,12 +246,22 @@ export class AssistantStore {
     if (!fs.existsSync(dir)) return;
     const cutoff = this.cutoffMs();
     for (const file of this.listFiles(kind)) {
-      const match = FILE_RE.exec(path.basename(file));
-      if (!match) continue;
-      const year = Number(match[1]);
-      const month = Number(match[2]);
-      const endOfMonth = Date.UTC(year, month, 0, 23, 59, 59, 999);
-      if (endOfMonth < cutoff) fs.rmSync(file, { force: true });
+      const kept: string[] = [];
+      const text = safeReadFile(file);
+      for (const line of text.split("\n")) {
+        if (!line.trim()) continue;
+        try {
+          const row = JSON.parse(line) as { ts?: number };
+          if (typeof row.ts === "number" && row.ts >= cutoff) kept.push(line);
+        } catch {
+          continue;
+        }
+      }
+      if (kept.length === 0) {
+        removeFile(file);
+      } else {
+        atomicWriteFile(file, `${kept.join("\n")}\n`);
+      }
     }
   }
 
@@ -227,11 +270,8 @@ export class AssistantStore {
   }
 
   private ensureDir(kind: "replies" | "prompts"): void {
-    fs.mkdirSync(this.dir, { recursive: true, mode: 0o700 });
-    fs.chmodSync(this.dir, 0o700);
-    const child = this.kindDir(kind);
-    fs.mkdirSync(child, { recursive: true, mode: 0o700 });
-    fs.chmodSync(child, 0o700);
+    ensureBoxDir(this.dir);
+    ensureBoxDir(this.kindDir(kind));
   }
 
   private kindDir(kind: "replies" | "prompts"): string {
@@ -248,7 +288,7 @@ export class AssistantStore {
   }
 }
 
-export function parseReply(raw: unknown): ParsedReply {
+export function parseReply(raw: unknown, nowMs: number = Date.now()): ParsedReply {
   const mapped = parseObject(raw, (record, id) => {
     const messageId =
       typeof record.messageId === "string" && ID_RE.test(record.messageId)
@@ -266,17 +306,20 @@ export function parseReply(raw: unknown): ParsedReply {
       }
       replyText = text;
     }
-    const ts = finiteNumber(record.ts) ?? finiteNumber(record.timestamp);
-    if (ts == null || ts < 0) {
-      return { ok: false, id, error: "ts must be a positive number" };
+    const ts = parseIngestTs(
+      record.ts ?? record.timestamp,
+      nowMs
+    );
+    if (!ts.ok) {
+      return { ok: false, id, error: ts.error };
     }
-    return { ok: true, value: { id, messageId, action, replyText, ts } };
+    return { ok: true, value: { id, messageId, action, replyText, ts: ts.ts } };
   });
   if (!mapped.ok) return mapped;
   return { ok: true, reply: mapped.value };
 }
 
-export function parsePrompt(raw: unknown): ParsedPrompt {
+export function parsePrompt(raw: unknown, nowMs: number = Date.now()): ParsedPrompt {
   const mapped = parseObject(raw, (record, id) => {
     const text = optionalText(record.text, PROMPT_TEXT_MAX);
     if (text === "bad" || !text) {
@@ -287,26 +330,69 @@ export function parsePrompt(raw: unknown): ParsedPrompt {
     const source = (PROMPT_SOURCES as readonly string[]).includes(sourceRaw)
       ? (sourceRaw as PromptSource)
       : "app";
-    const ts = finiteNumber(record.ts) ?? finiteNumber(record.timestamp);
-    if (ts == null || ts < 0) {
-      return { ok: false, id, error: "ts must be a positive number" };
+    const ts = parseIngestTs(
+      record.ts ?? record.timestamp,
+      nowMs
+    );
+    if (!ts.ok) {
+      return { ok: false, id, error: ts.error };
     }
-    return { ok: true, value: { id, text, source, ts } };
+    return { ok: true, value: { id, text, source, ts: ts.ts } };
   });
   if (!mapped.ok) return mapped;
   return { ok: true, prompt: mapped.value };
 }
 
+export function validateClearAssistantArgs(
+  args: Record<string, unknown>
+): { ok: true; args: Record<string, unknown> } | { ok: false; error: string } {
+  if (args.confirm !== "delete") {
+    return { ok: false, error: 'confirm must be "delete"' };
+  }
+  return { ok: true, args: { confirm: "delete" } };
+}
+
 export function validateSendNotificationArgs(
   args: Record<string, unknown>
 ): { ok: true; args: Record<string, unknown> } | { ok: false; error: string } {
-  const title = optionalText(args.title, TITLE_MAX);
-  if (title === "bad" || !title) {
-    return { ok: false, error: "title must be 1 to 120 characters" };
+  let priority = "high";
+  if (args.priority != null && args.priority !== "") {
+    if (typeof args.priority !== "string") {
+      return { ok: false, error: "priority must be default, high, or urgent" };
+    }
+    const p = args.priority.trim().toLowerCase();
+    if (p !== "default" && p !== "high" && p !== "urgent") {
+      return { ok: false, error: "priority must be default, high, or urgent" };
+    }
+    priority = p;
   }
-  const body = optionalText(args.body, BODY_MAX);
+  const urgent = priority === "urgent";
+  const titleMax = urgent ? URGENT_TITLE_MAX : TITLE_MAX;
+  const bodyMax = urgent ? URGENT_BODY_MAX : BODY_MAX;
+  let title = optionalText(args.title, titleMax);
+  if (title === "bad" || !title) {
+    return {
+      ok: false,
+      error: urgent
+        ? `urgent title must be 1 to ${URGENT_TITLE_MAX} characters`
+        : "title must be 1 to 120 characters",
+    };
+  }
+  const body = optionalText(args.body, bodyMax);
   if (body === "bad" || !body) {
-    return { ok: false, error: "body must be 1 to 1000 characters" };
+    return {
+      ok: false,
+      error: urgent
+        ? `urgent body must be 1 to ${URGENT_BODY_MAX} characters`
+        : "body must be 1 to 1000 characters",
+    };
+  }
+  const unsafe = forbiddenAssistantText(`${title} ${body}`);
+  if (unsafe) {
+    return { ok: false, error: unsafe };
+  }
+  if (urgent && !title.startsWith(URGENT_TITLE_PREFIX)) {
+    title = `${URGENT_TITLE_PREFIX} ${title}`.slice(0, URGENT_TITLE_MAX);
   }
   let requestId: string | undefined;
   if (args.requestId != null && args.requestId !== "") {
@@ -320,17 +406,6 @@ export function validateSendNotificationArgs(
   }
   const actions = parseActions(args.actions ?? args.responseOptions);
   if (!actions.ok) return actions;
-  let priority = "high";
-  if (args.priority != null && args.priority !== "") {
-    if (typeof args.priority !== "string") {
-      return { ok: false, error: "priority must be default, high, or urgent" };
-    }
-    const p = args.priority.trim().toLowerCase();
-    if (p !== "default" && p !== "high" && p !== "urgent") {
-      return { ok: false, error: "priority must be default, high, or urgent" };
-    }
-    priority = p;
-  }
   const out: Record<string, unknown> = {
     title,
     body,
@@ -410,8 +485,25 @@ function newestLast<T>(all: T[], limit: number): T[] {
 
 function monthName(ms: number): string {
   const d = new Date(ms);
+  if (Number.isNaN(d.getTime())) {
+    throw new Error("invalid timestamp for filename");
+  }
   const month = String(d.getUTCMonth() + 1).padStart(2, "0");
   return `${d.getUTCFullYear()}-${month}.jsonl`;
+}
+
+const LINK_RE = /https?:\/\/|www\.|\bbit\.ly\b|\btinyurl\b|\bgoo\.gl\b/i;
+const CREDENTIAL_RE =
+  /\b(password|passwd|passcode|pin\b|api[_\s-]?key|secret|token|credential|ssn|social security)\b/i;
+
+export function forbiddenAssistantText(text: string): string | null {
+  if (LINK_RE.test(text)) {
+    return "text must not contain links";
+  }
+  if (CREDENTIAL_RE.test(text)) {
+    return "text must not ask for credentials";
+  }
+  return null;
 }
 
 function finiteNumber(value: unknown): number | null {

@@ -10,6 +10,7 @@ import { HealthLog, SOURCE_LAG_NOTE } from "../dist/health-log.js";
 import { isHealthReadTool } from "../dist/health-tools.js";
 import { isReadOnlyHttpTool } from "../dist/read-only-tools.js";
 import { startLoopbackHttp } from "../dist/loopback-http.js";
+import { TEST_READ_AUTH, readHeaders } from "./read-auth-fixture.js";
 
 const NOW = Date.UTC(2026, 9, 25, 15, 0, 0);
 
@@ -169,6 +170,7 @@ test("get_health_summary is allowlisted, served offline with stale, and rate lim
     commandToken: "test-token",
     healthLog: log,
     locationReadLimiter: limiter,
+    readAuth: TEST_READ_AUTH,
     bridge: {
       isPhoneConnected: () => false,
       callPhoneTool: async () => {
@@ -184,10 +186,15 @@ test("get_health_summary is allowlisted, served offline with stale, and rate lim
     assert.equal(isReadOnlyHttpTool("pause_health_sync"), false);
     assert.equal(isReadOnlyHttpTool("clear_health_cache"), false);
 
-    const res = await post(started.port, "/api/tool", {
-      tool: "get_health_summary",
-      arguments: {},
-    });
+    const res = await post(
+      started.port,
+      "/api/tool",
+      {
+        tool: "get_health_summary",
+        arguments: {},
+      },
+      readHeaders()
+    );
     assert.equal(res.status, 200);
     const body = JSON.parse(res.json.text);
     assert.equal(body.status, "success");
@@ -207,15 +214,25 @@ test("get_health_summary is allowlisted, served offline with stale, and rate lim
     assert.equal(phoneCalls, 0);
 
     for (let i = 0; i < 40; i += 1) {
-      await post(started.port, "/api/tool", {
+      await post(
+        started.port,
+        "/api/tool",
+        {
+          tool: "get_health_summary",
+          arguments: {},
+        },
+        readHeaders()
+      );
+    }
+    const limited = await post(
+      started.port,
+      "/api/tool",
+      {
         tool: "get_health_summary",
         arguments: {},
-      });
-    }
-    const limited = await post(started.port, "/api/tool", {
-      tool: "get_health_summary",
-      arguments: {},
-    });
+      },
+      readHeaders()
+    );
     assert.equal(limited.status, 429);
     assert.equal(phoneCalls, 0);
   } finally {
@@ -229,6 +246,7 @@ test("empty cache still returns a summary shape with stale true", async () => {
     port: 0,
     wsPort: 11041,
     healthLog: log,
+    readAuth: TEST_READ_AUTH,
     bridge: {
       isPhoneConnected: () => false,
       callPhoneTool: async () => ({ leaked: true }),
@@ -236,10 +254,15 @@ test("empty cache still returns a summary shape with stale true", async () => {
   });
   assert.ok(started);
   try {
-    const res = await post(started.port, "/api/tool", {
-      tool: "get_health_summary",
-      arguments: {},
-    });
+    const res = await post(
+      started.port,
+      "/api/tool",
+      {
+        tool: "get_health_summary",
+        arguments: {},
+      },
+      readHeaders()
+    );
     assert.equal(res.status, 200);
     const body = JSON.parse(res.json.text);
     assert.equal(body.status, "success");

@@ -43,6 +43,8 @@ import dev.phonepi.companion.connection.ServerPrefs
 import dev.phonepi.companion.connection.SetupBus
 import dev.phonepi.companion.connection.statusLabel
 import dev.phonepi.companion.log.ActivityLog
+import dev.phonepi.companion.privacy.PhonePiQuiet
+import dev.phonepi.companion.privacy.SharingMaster
 
 @Composable
 fun ConnectScreen(modifier: Modifier = Modifier) {
@@ -63,6 +65,8 @@ fun ConnectScreen(modifier: Modifier = Modifier) {
     }
     val active by ActiveServer.info.collectAsState()
     var serverSnap by remember { mutableStateOf(ServerPrefs.load(context.applicationContext)) }
+    var sharingStopped by remember { mutableStateOf(SharingMaster.anyPaused(context.applicationContext)) }
+    var quietOn by remember { mutableStateOf(PhonePiQuiet.isActive(context.applicationContext)) }
     fun reloadServers() {
         serverSnap = ServerPrefs.load(context.applicationContext)
     }
@@ -305,6 +309,55 @@ fun ConnectScreen(modifier: Modifier = Modifier) {
                 reconnectOnBoot = true
             }) {
                 Text("Forget saved host")
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Stop all sharing", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        "Pauses location history, presence, screen time, and health at once. Resume each stream below.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Switch(
+                    checked = sharingStopped,
+                    onCheckedChange = { on ->
+                        val app = context.applicationContext
+                        if (on) {
+                            SharingMaster.stopAll(app)
+                        }
+                        sharingStopped = SharingMaster.anyPaused(app)
+                    },
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("PhonePi quiet 1 hour", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        "Holds PhonePi's own non-urgent notifications. Does not change system Do Not Disturb.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Switch(
+                    checked = quietOn,
+                    onCheckedChange = { on ->
+                        val app = context.applicationContext
+                        if (on) {
+                            PhonePiQuiet.quietFor(app, 60)
+                            quietOn = true
+                        } else {
+                            PhonePiQuiet.clear(app)
+                            quietOn = false
+                        }
+                    },
+                )
             }
         }
 

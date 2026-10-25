@@ -1,6 +1,14 @@
 import fs from "fs";
-import os from "os";
 import path from "path";
+import {
+  atomicAppendLine,
+  atomicWriteFile,
+  ensureBoxDir,
+  removeFile,
+  resolveBoxDir,
+  safeReadFile,
+} from "./atomic-file.js";
+import { parseIngestTs } from "./ingest-time.js";
 
 /**
  * On-box copy of PhonePi location history.
@@ -64,9 +72,7 @@ export function openLocationLog(
   env: NodeJS.ProcessEnv = process.env,
   now: () => number = Date.now
 ): LocationLog {
-  const dir =
-    env.PHONEPI_LOCATION_DIR?.trim() ||
-    path.join(os.homedir(), ".phonepi", "location");
+  const dir = resolveBoxDir("PHONEPI_LOCATION_DIR", "location", env);
   const raw = env.PHONEPI_LOCATION_RETENTION_MONTHS;
   let months = DEFAULT_RETENTION_MONTHS;
   if (raw != null && raw.trim() !== "") {
@@ -104,7 +110,7 @@ export class LocationLog {
       });
     }
     for (const raw of limited) {
-      const parsed = parseLocationEvent(raw);
+      const parsed = parseLocationEvent(raw, this.now());
       if (!parsed.ok) {
         rejected.push({ id: parsed.id, error: parsed.error });
         continue;
@@ -203,13 +209,20 @@ export class LocationLog {
     if (!fs.existsSync(this.dir)) return;
     const cutoff = this.cutoffMs();
     for (const file of this.listFiles()) {
-      const name = path.basename(file);
-      const match = FILE_RE.exec(name);
-      if (!match) continue;
-      const year = Number(match[1]);
-      const month = Number(match[2]);
-      const endOfMonth = Date.UTC(year, month, 0, 23, 59, 59, 999);
-      if (endOfMonth < cutoff) fs.rmSync(file, { force: true });
+      const kept: string[] = [];
+      const text = safeReadFile(file);
+      for (const line of text.split("\n")) {
+        if (!line.trim()) continue;
+        try {
+          const row = JSON.parse(line) as { startMs?: number; updatedAtMs?: number };
+          const ts = row.startMs ?? row.updatedAtMs;
+          if (typeof ts === "number" && ts >= cutoff) kept.push(line);
+        } catch {
+          continue;
+        }
+      }
+      if (kept.length === 0) removeFile(file);
+      else atomicWriteFile(file, `${kept.join("\n")}\n`);
     }
   }
 
@@ -223,8 +236,7 @@ export class LocationLog {
   }
 
   private ensureDir(): void {
-    fs.mkdirSync(this.dir, { recursive: true, mode: 0o700 });
-    fs.chmodSync(this.dir, 0o700);
+    ensureBoxDir(this.dir);
   }
 
   private listFiles(): string[] {
@@ -238,12 +250,7 @@ export class LocationLog {
   private append(event: LocationEvent): void {
     this.ensureDir();
     const file = path.join(this.dir, monthName(event.startMs));
-    const existed = fs.existsSync(file);
-    fs.appendFileSync(file, `${JSON.stringify(event)}\n`, {
-      encoding: "utf8",
-      mode: 0o600,
-    });
-    if (!existed) fs.chmodSync(file, 0o600);
+    atomicAppendLine(file, JSON.stringify(event));
   }
 
   private findById(id: string): LocationEvent | null {
@@ -266,7 +273,7 @@ export class LocationLog {
         999
       );
       if (monthEnd < fromMs || month > toMs) continue;
-      const text = fs.readFileSync(file, "utf8");
+      const text = safeReadFile(file);
       for (const line of text.split("\n")) {
         if (!line.trim()) continue;
         let raw: unknown;
@@ -275,7 +282,7 @@ export class LocationLog {
         } catch {
           continue;
         }
-        const parsed = parseLocationEvent(raw);
+        const parsed = parseLocationEvent(raw, this.now());
         if (!parsed.ok) continue;
         const prev = byId.get(parsed.event.id);
         if (!prev || parsed.event.updatedAtMs >= prev.updatedAtMs) {
@@ -287,7 +294,10 @@ export class LocationLog {
   }
 }
 
-export function parseLocationEvent(raw: unknown): ParsedEvent {
+export function parseLocationEvent(
+  raw: unknown,
+  nowMs: number = Date.now()
+): ParsedEvent {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return { ok: false, id: "", error: "event must be an object" };
   }
@@ -308,10 +318,11 @@ export function parseLocationEvent(raw: unknown): ParsedEvent {
   if (record.kind !== "visit" && record.kind !== "drive") {
     return { ok: false, id, error: "kind must be visit or drive" };
   }
-  const startMs = finiteNumber(record.startMs);
-  if (startMs == null || startMs < 0) {
-    return { ok: false, id, error: "startMs must be a positive number" };
+  const started = parseIngestTs(record.startMs, nowMs);
+  if (!started.ok) {
+    return { ok: false, id, error: started.error };
   }
+  const startMs = started.ts;
   let endMs: number | null = null;
   if (record.endMs != null) {
     endMs = finiteNumber(record.endMs);
@@ -405,6 +416,9 @@ function optionalText(value: unknown, max: number): string | null | "bad" {
 
 function monthName(startMs: number): string {
   const d = new Date(startMs);
+  if (Number.isNaN(d.getTime())) {
+    throw new Error("invalid timestamp for filename");
+  }
   const month = String(d.getUTCMonth() + 1).padStart(2, "0");
   return `${d.getUTCFullYear()}-${month}.jsonl`;
 }

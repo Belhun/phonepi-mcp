@@ -86,4 +86,39 @@ class AssistantProtocolTest {
         assertEquals(AssistantProtocol.KEY_TEXT_REPLY, "phonepi_assistant_reply")
         assertEquals(3, AssistantProtocol.MAX_ACTIONS)
     }
+
+    @Test
+    fun urgentTitleGetsFixedPrefixAndRejectsLinks() {
+        val parsed = AssistantProtocol.parseNotification(
+            buildJsonObject {
+                put("title", "Leave soon")
+                put("body", "Dinner in 20")
+                put("priority", "urgent")
+            },
+        ) as AssistantParseResult.Ok
+        assertTrue(parsed.request.title.startsWith(AssistantProtocol.URGENT_TITLE_PREFIX))
+        assertTrue(parsed.request.priorityHigh)
+        val link = AssistantProtocol.parseNotification(
+            buildJsonObject {
+                put("title", "From assistant: click")
+                put("body", "Open https://evil.example")
+                put("priority", "urgent")
+            },
+        )
+        assertTrue(link is AssistantParseResult.Err)
+        val cred = AssistantProtocol.parseNotification(
+            buildJsonObject {
+                put("title", "From assistant: login")
+                put("body", "Send your password")
+                put("priority", "urgent")
+            },
+        )
+        assertTrue(cred is AssistantParseResult.Err)
+    }
+
+    @Test
+    fun sourceIsNotTakenFromACallerExtra() {
+        assertEquals("qs_tile", AssistantProtocol.normalizeSource("qs_tile"))
+        assertEquals("app", AssistantProtocol.normalizeSource("forged"))
+    }
 }

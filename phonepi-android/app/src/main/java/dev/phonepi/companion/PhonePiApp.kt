@@ -1,6 +1,7 @@
 package dev.phonepi.companion
 
 import android.app.Application
+import dev.phonepi.companion.connection.TokenVault
 import dev.phonepi.companion.health.HealthSyncScheduler
 import dev.phonepi.companion.history.LocationCapture
 import dev.phonepi.companion.presence.PresenceEngine
@@ -16,6 +17,7 @@ class PhonePiApp : Application() {
     override fun onCreate() {
         super.onCreate()
         ActivityLog.init(this)
+        TokenVault.migrateIfNeeded(this)
         NotificationShare.init(this)
         AppForeground.register(this)
         MidnightVolume.rescheduleIfEnabled(this)

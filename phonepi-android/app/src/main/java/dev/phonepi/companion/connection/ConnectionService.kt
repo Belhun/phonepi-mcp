@@ -38,6 +38,8 @@ import dev.phonepi.companion.tools.GetVolumesTool
 import dev.phonepi.companion.tools.SetVolumeTool
 import dev.phonepi.companion.tools.ListLocationsTool
 import dev.phonepi.companion.tools.ListNotificationAppsTool
+import dev.phonepi.companion.assistant.ClearAssistantEventsTool
+import dev.phonepi.companion.assistant.AssistantOutbox
 import dev.phonepi.companion.health.ClearHealthCacheTool
 import dev.phonepi.companion.health.PauseHealthSyncTool
 import dev.phonepi.companion.tools.ClearLocationHistoryTool
@@ -154,6 +156,7 @@ class ConnectionService : Service() {
                 ClearUsageHistoryTool(ctx),
                 PauseHealthSyncTool(ctx),
                 ClearHealthCacheTool(ctx),
+                ClearAssistantEventsTool(ctx),
                 RequestSendTextTool(ctx),
                 GetSendStatusTool(ctx),
             ),
@@ -171,6 +174,7 @@ class ConnectionService : Service() {
             onReady = {
                 SendLogOutbox.flush(applicationContext)
                 WearPromptOutbox.flush(applicationContext)
+                AssistantOutbox.flush(applicationContext)
                 WearStatePublisher.publish(applicationContext)
             },
         )

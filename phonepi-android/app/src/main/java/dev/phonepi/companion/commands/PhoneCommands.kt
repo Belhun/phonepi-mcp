@@ -40,6 +40,7 @@ object PhoneCommands {
         PhoneCommandSpec("clear_usage_history", PhoneCommandSpec.Kind.WRITE, 4),
         PhoneCommandSpec("pause_health_sync", PhoneCommandSpec.Kind.WRITE, 10),
         PhoneCommandSpec("clear_health_cache", PhoneCommandSpec.Kind.WRITE, 4),
+        PhoneCommandSpec("clear_assistant_events", PhoneCommandSpec.Kind.WRITE, 4),
         // 10/min is a shared backstop. The text budget enforces 5/min and the daily cap per mode.
         PhoneCommandSpec("request_send_text", PhoneCommandSpec.Kind.ACTION, 10),
         PhoneCommandSpec("get_send_status", PhoneCommandSpec.Kind.READ, 60),

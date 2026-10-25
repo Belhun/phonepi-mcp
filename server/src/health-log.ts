@@ -1,6 +1,13 @@
 import fs from "fs";
-import os from "os";
 import path from "path";
+import {
+  atomicWriteFile,
+  ensureBoxDir,
+  removeFile,
+  resolveBoxDir,
+  safeReadFile,
+} from "./atomic-file.js";
+import { parseIngestTs } from "./ingest-time.js";
 
 /**
  * On-box copy of PhonePi health summaries (daily totals only).
@@ -107,8 +114,7 @@ export function openHealthLog(
   env: NodeJS.ProcessEnv = process.env,
   now: () => number = Date.now
 ): HealthLog {
-  const dir =
-    env.PHONEPI_HEALTH_DIR?.trim() || path.join(os.homedir(), ".phonepi", "health");
+  const dir = resolveBoxDir("PHONEPI_HEALTH_DIR", "health", env);
   const raw = env.PHONEPI_HEALTH_RETENTION_DAYS;
   let days = DEFAULT_HEALTH_RETENTION_DAYS;
   if (raw != null && raw.trim() !== "") {
@@ -129,7 +135,7 @@ export class HealthLog {
 
   ingest(raw: unknown): IngestResult {
     this.ensureDir();
-    const parsed = parseHealthSummary(raw);
+    const parsed = parseHealthSummary(raw, this.now());
     if (!parsed.ok) return { ok: false, error: parsed.error };
     const current = this.peekLatest();
     if (current && current.syncedAtMs > parsed.summary.syncedAtMs) {
@@ -145,8 +151,8 @@ export class HealthLog {
     const file = path.join(this.dir, "latest.json");
     if (!fs.existsSync(file)) return null;
     try {
-      const raw = JSON.parse(fs.readFileSync(file, "utf8"));
-      const parsed = parseHealthSummary(raw);
+      const raw = JSON.parse(safeReadFile(file));
+      const parsed = parseHealthSummary(raw, this.now());
       return parsed.ok ? parsed.summary : null;
     } catch {
       return null;
@@ -183,8 +189,8 @@ export class HealthLog {
     const latest = path.join(this.dir, "latest.json");
     if (fs.existsSync(latest)) {
       try {
-        const raw = JSON.parse(fs.readFileSync(latest, "utf8"));
-        const parsed = parseHealthSummary(raw);
+        const raw = JSON.parse(safeReadFile(latest));
+        const parsed = parseHealthSummary(raw, this.now());
         if (!parsed.ok || parsed.summary.syncedAtMs < cutoff) {
           fs.rmSync(latest, { force: true });
         }
@@ -201,8 +207,7 @@ export class HealthLog {
   }
 
   private ensureDir(): void {
-    fs.mkdirSync(this.dir, { recursive: true, mode: 0o700 });
-    fs.chmodSync(this.dir, 0o700);
+    ensureBoxDir(this.dir);
   }
 
   private writeLatest(summary: HealthSummary): void {
@@ -216,16 +221,14 @@ export class HealthLog {
   private writeFile(name: string, summary: HealthSummary): void {
     this.ensureDir();
     const file = path.join(this.dir, name);
-    const existed = fs.existsSync(file);
-    fs.writeFileSync(file, `${JSON.stringify(summary)}\n`, {
-      encoding: "utf8",
-      mode: 0o600,
-    });
-    if (!existed) fs.chmodSync(file, 0o600);
+    atomicWriteFile(file, `${JSON.stringify(summary)}\n`);
   }
 }
 
-export function parseHealthSummary(raw: unknown): ParsedSummary {
+export function parseHealthSummary(
+  raw: unknown,
+  nowMs: number = Date.now()
+): ParsedSummary {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return { ok: false, error: "summary must be an object" };
   }
@@ -239,10 +242,11 @@ export function parseHealthSummary(raw: unknown): ParsedSummary {
       return { ok: false, error: "refusing raw heart-rate stream or samples" };
     }
   }
-  const syncedAtMs = finiteNumber(record.syncedAtMs);
-  if (syncedAtMs == null || syncedAtMs < 0) {
-    return { ok: false, error: "syncedAtMs must be a positive number" };
+  const synced = parseIngestTs(record.syncedAtMs, nowMs);
+  if (!synced.ok) {
+    return { ok: false, error: synced.error };
   }
+  const syncedAtMs = synced.ts;
   const timezone = optionalText(record.timezone, 80);
   if (timezone === "bad") return { ok: false, error: "timezone is too long" };
   const enabled = record.enabled === true;
@@ -576,5 +580,9 @@ function iso(ms: number): string {
 }
 
 function utcDate(ms: number): string {
-  return new Date(ms).toISOString().slice(0, 10);
+  const iso = new Date(ms).toISOString();
+  if (iso === "Invalid Date") {
+    throw new Error("invalid timestamp for filename");
+  }
+  return iso.slice(0, 10);
 }

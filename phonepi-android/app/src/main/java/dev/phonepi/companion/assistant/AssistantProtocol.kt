@@ -24,6 +24,9 @@ object AssistantProtocol {
     const val MAX_ACTIONS = 3
     const val TITLE_MAX = 120
     const val BODY_MAX = 1000
+    const val URGENT_TITLE_MAX = 80
+    const val URGENT_BODY_MAX = 200
+    const val URGENT_TITLE_PREFIX = "From assistant:"
     const val ACTION_MAX = 32
     const val PROMPT_MAX = 1000
     const val ACTION_REPLY = "reply"
@@ -32,10 +35,28 @@ object AssistantProtocol {
     val PROMPT_SOURCES = setOf("qs_tile", "shortcut", "quick_tap", "watch_relay", "app")
 
     fun parseNotification(params: JsonObject): AssistantParseResult {
-        val title = requiredText(params, "title", TITLE_MAX)
-            ?: return AssistantParseResult.Err("title must be 1 to 120 characters")
-        val body = requiredText(params, "body", BODY_MAX)
-            ?: return AssistantParseResult.Err("body must be 1 to 1000 characters")
+        val priority = params["priority"]?.jsonPrimitive?.contentOrNull?.trim()?.lowercase() ?: "high"
+        if (priority != "default" && priority != "high" && priority != "urgent") {
+            return AssistantParseResult.Err("priority must be default, high, or urgent")
+        }
+        val urgent = priority == "urgent"
+        val titleMax = if (urgent) URGENT_TITLE_MAX else TITLE_MAX
+        val bodyMax = if (urgent) URGENT_BODY_MAX else BODY_MAX
+        var title = requiredText(params, "title", titleMax)
+            ?: return AssistantParseResult.Err(
+                if (urgent) "urgent title must be 1 to $URGENT_TITLE_MAX characters"
+                else "title must be 1 to 120 characters",
+            )
+        val body = requiredText(params, "body", bodyMax)
+            ?: return AssistantParseResult.Err(
+                if (urgent) "urgent body must be 1 to $URGENT_BODY_MAX characters"
+                else "body must be 1 to 1000 characters",
+            )
+        val unsafe = forbiddenText("$title $body")
+        if (unsafe != null) return AssistantParseResult.Err(unsafe)
+        if (urgent && !title.startsWith(URGENT_TITLE_PREFIX)) {
+            title = "$URGENT_TITLE_PREFIX $title".take(URGENT_TITLE_MAX)
+        }
         val actions = parseActions(params)
         if (actions.size > MAX_ACTIONS) {
             return AssistantParseResult.Err("at most $MAX_ACTIONS action buttons")
@@ -48,7 +69,6 @@ object AssistantProtocol {
         if (!ID_RE.matches(id)) {
             return AssistantParseResult.Err("requestId must be 8-80 letters, digits, _ . or -")
         }
-        val priority = params["priority"]?.jsonPrimitive?.contentOrNull?.trim()?.lowercase() ?: "high"
         val priorityHigh = priority == "high" || priority == "urgent"
         return AssistantParseResult.Ok(
             AssistantNotificationRequest(
@@ -59,6 +79,20 @@ object AssistantProtocol {
                 priorityHigh = priorityHigh,
             ),
         )
+    }
+
+    fun forbiddenText(text: String): String? {
+        if (Regex("https?://|www\\.|\\bbit\\.ly\\b", RegexOption.IGNORE_CASE).containsMatchIn(text)) {
+            return "text must not contain links"
+        }
+        if (Regex(
+                "\\b(password|passwd|passcode|pin\\b|api[_\\s-]?key|secret|token|credential)\\b",
+                RegexOption.IGNORE_CASE,
+            ).containsMatchIn(text)
+        ) {
+            return "text must not ask for credentials"
+        }
+        return null
     }
 
     fun parseActions(params: JsonObject): List<String> {

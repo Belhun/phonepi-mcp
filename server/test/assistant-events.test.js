@@ -10,6 +10,7 @@ import {
 } from "../dist/assistant-events.js";
 import { isPhoneCommand, validatePhoneCommandArgs } from "../dist/commands.js";
 import { startLoopbackHttp } from "../dist/loopback-http.js";
+import { TEST_READ_AUTH, readHeaders } from "./read-auth-fixture.js";
 import {
   isReadOnlyHttpTool,
   READ_ONLY_HTTP_TOOLS,
@@ -24,7 +25,7 @@ function tempStore(nowRef = { t: NOW }) {
   return { dir, store, nowRef };
 }
 
-function postTool(port, body) {
+function postTool(port, body, extraHeaders = {}) {
   return new Promise((resolve, reject) => {
     const payload = JSON.stringify(body);
     const req = http.request(
@@ -36,6 +37,7 @@ function postTool(port, body) {
         headers: {
           "Content-Type": "application/json",
           "Content-Length": Buffer.byteLength(payload),
+          ...extraHeaders,
         },
       },
       (res) => {
@@ -201,27 +203,38 @@ test("HTTP /api/tool serves replies and prompts while the phone is offline", asy
       },
     },
     assistantStore: store,
+    readAuth: TEST_READ_AUTH,
   });
   assert.ok(started);
   try {
-    const replies = await postTool(started.port, {
-      tool: "get_notification_replies",
-      arguments: { messageId: "notif-cccc" },
-    });
+    const replies = await postTool(
+      started.port,
+      {
+        tool: "get_notification_replies",
+        arguments: { messageId: "notif-cccc" },
+      },
+      readHeaders()
+    );
     assert.equal(replies.status, 200);
     const replyBody = JSON.parse(replies.json.text);
     assert.equal(replyBody.status, "success");
     assert.equal(replyBody.count, 1);
     assert.equal(replyBody.replies[0].action, "reply");
-    assert.equal(replyBody.replies[0].replyText, "On my way");
+    assert.equal(replyBody.replies[0].untrusted, true);
+    assert.match(replyBody.replies[0].replyText.text, /On my way/);
 
-    const prompts = await postTool(started.port, {
-      tool: "get_inbound_prompts",
-      arguments: {},
-    });
+    const prompts = await postTool(
+      started.port,
+      {
+        tool: "get_inbound_prompts",
+        arguments: {},
+      },
+      readHeaders()
+    );
     assert.equal(prompts.status, 200);
     const promptBody = JSON.parse(prompts.json.text);
-    assert.equal(promptBody.prompts[0].text, "Ask the assistant about traffic");
+    assert.equal(promptBody.prompts[0].untrusted, true);
+    assert.match(promptBody.prompts[0].text.text, /Ask the assistant about traffic/);
     assert.equal(phoneCalls, 0);
   } finally {
     await new Promise((resolve) => started.server.close(resolve));

@@ -279,7 +279,7 @@ Tailscale state does not survive a refresh, so login is needed every time: `sudo
 
 ### 0.3.4 — sleep and health (Health Connect)
 
-Galaxy Watch 7 + Pixel. PhonePi uses `androidx.health.connect:connect-client` only. It does not use the Samsung Health Data SDK (partner approval). Reads: sleep sessions with stages, steps, heart rate, resting heart rate, exercise sessions, oxygen saturation, `READ_HEALTH_DATA_IN_BACKGROUND`, optional `READ_HEALTH_DATA_HISTORY`.
+Galaxy Watch 7 + Pixel. PhonePi uses `androidx.health.connect:connect-client` only. It does not use the Samsung Health Data SDK (partner approval). Reads: sleep sessions with stages, steps, heart rate, resting heart rate, exercise sessions, oxygen saturation, `READ_HEALTH_DATA_IN_BACKGROUND` (last 7 days; no `READ_HEALTH_DATA_HISTORY`).
 
 The in-app **Sleep and health** switch starts **on**. Alex still grants Health Connect, and Android requires the privacy/rationale activity (`ACTION_SHOW_PERMISSIONS_RATIONALE` plus `VIEW_PERMISSION_USAGE` / `HEALTH_PERMISSIONS`) before that prompt. The settings row shows granted state, last Health Connect read time, pause, and delete.
 
@@ -305,10 +305,16 @@ Pixel Quick Tap steps: Settings → System → Gestures → Quick Tap → Use Qu
 
 Galaxy Watch 7 / future Pixel Watch. New Gradle module `phonepi-android/phonepi-wear`. Same `applicationId` `dev.phonepi.companion` and the same release key as the companion (Data Layer pairing). The watch never stores `PHONEPI_WS_TOKEN`, `TS_AUTHKEY`, the send-gateway token, or the bridge key. MessageClient paths under `/phonepi/` (`prompt`, `quiet`, `im-ok`, `next-alarm`, `ack`). DataClient `/phonepi/state` carries next-alarm epoch and an optional presence label.
 
-Phone-side `WearListenerService` dispatches to `WearInboundActions`. `WearInboundActionsAdapter.submitPrompt` calls `AssistantEvents.emitPrompt(..., "watch_relay")` so Ask assistant on the watch uses the same queue, `get_inbound_prompts`, and wake hook as the phone tile. Quiet uses `WearQuietController` (DND access). Presence complication label reads `PresencePrefs` through `PresenceWatchLabel` (hidden when presence is off or paused) and refreshes from `PresenceEngine` via `WearStatePublisher`. Next alarm on the watch is `AlarmManager.getNextAlarmClock()`. Watch Face Push is not used; the complication is a `ComplicationDataSourceService`.
+Phone-side `WearListenerService` dispatches to `WearInboundActions`. `WearInboundActionsAdapter.submitPrompt` calls `AssistantEvents.emitPrompt(..., "watch_relay")` so Ask assistant on the watch uses the same queue, `get_inbound_prompts`, and wake hook as the phone tile. Quiet uses `WearQuietController` / `PhonePiQuiet` (in-app; never system DND). Presence complication label reads `PresencePrefs` through `PresenceWatchLabel` (hidden when presence is off or paused) and refreshes from `PresenceEngine` via `WearStatePublisher`. Next alarm on the watch is `AlarmManager.getNextAlarmClock()`. Watch Face Push is not used; the complication is a `ComplicationDataSourceService`.
 
 Sideload is a one-time Linux `adb pair` / `adb connect` over the watch's wireless debugging. Do not bake the debug port into a script; it changes when Wi-Fi changes. Build: `./gradlew :phonepi-wear:assembleDebug`. Wear stays **0.1.0** / 1.
 
 ### 0.3.5 (versionCode 17) — integration
 
 One companion APK with presence, screen time, Health Connect, watch-actionable notifications, Ask assistant, and the Wear module. Location history default is now **on** (same as presence and usage). Docs index: [README.md](README.md). Combined setup: [ALEX-CHECKLIST.md](ALEX-CHECKLIST.md).
+
+### Privacy / security pass (same 0.3.5)
+
+- Sensitive reads (`get_presence`, `get_screen_time`, `get_health_summary`, `get_notification_replies`, `get_inbound_prompts`) need a separate `PHONEPI_READ_TOKEN` (HTTP + MCP). Optional per-bot scoped tokens. Default-deny. Caller id is logged, never the token. `get_location_history` stays no-token for existing callers.
+- Loopback HTTP: Host allowlist (`127.0.0.1` / `localhost` / `[::1]`, extra names via `PHONEPI_HTTP_HOSTS`), reject Origin and `Sec-Fetch-Site: cross-site`, POST `Content-Type: application/json`. Tailscale Serve still fronts WS 11041.
+- Prompt/reply text is `{untrusted:true}` plus data delimiters. Resume of paused presence/usage/health is phone-only. Coordinates null when off/paused/stale. `allowBackup=false`. WS token in Keystore. Wake hook https except loopback/tailnet. In-app PhonePi quiet (no DND). **Stop all sharing**. Wear: confirm tap, capability check, no connected-node fallback. Release-signed APKs only (cert SHA-1 in [release-signing.md](release-signing.md)).

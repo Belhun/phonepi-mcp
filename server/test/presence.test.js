@@ -17,6 +17,7 @@ import { PresenceLog, parsePresenceSnapshot } from "../dist/presence-log.js";
 import { isReadOnlyHttpTool } from "../dist/read-only-tools.js";
 import { isPresenceReadTool, runPresenceRead } from "../dist/presence-tools.js";
 import { startLoopbackHttp } from "../dist/loopback-http.js";
+import { TEST_READ_AUTH, readHeaders } from "./read-auth-fixture.js";
 
 const TUE_10AM_PDT = Date.parse("2026-10-20T10:00:00-07:00");
 const TUE_5PM_PDT = Date.parse("2026-10-20T17:00:00-07:00");
@@ -194,6 +195,7 @@ test("get_presence is a read-only box copy and does not call the phone", async (
     presenceConfig: DEFAULT_PRESENCE_CONFIG,
     presenceNow: () => TUE_10AM_PDT,
     locationReadLimiter: limiter,
+    readAuth: TEST_READ_AUTH,
     bridge: {
       isPhoneConnected: () => false,
       callPhoneTool: async () => {
@@ -209,10 +211,15 @@ test("get_presence is a read-only box copy and does not call the phone", async (
     assert.equal(isReadOnlyHttpTool("clear_presence_history"), false);
     assert.equal(isPresenceReadTool("get_presence"), true);
 
-    const res = await post(started.port, "/api/tool", {
-      tool: "get_presence",
-      arguments: {},
-    });
+    const res = await post(
+      started.port,
+      "/api/tool",
+      {
+        tool: "get_presence",
+        arguments: {},
+      },
+      readHeaders()
+    );
     assert.equal(res.status, 200);
     const body = JSON.parse(res.json.text);
     assert.equal(body.status, "success");
@@ -244,12 +251,22 @@ test("get_presence is a read-only box copy and does not call the phone", async (
     assert.equal(phoneCalls, 0);
 
     for (let i = 0; i < 40; i += 1) {
-      await post(started.port, "/api/tool", { tool: "get_presence", arguments: {} });
+      await post(
+        started.port,
+        "/api/tool",
+        { tool: "get_presence", arguments: {} },
+        readHeaders()
+      );
     }
-    const limited = await post(started.port, "/api/tool", {
-      tool: "get_presence",
-      arguments: {},
-    });
+    const limited = await post(
+      started.port,
+      "/api/tool",
+      {
+        tool: "get_presence",
+        arguments: {},
+      },
+      readHeaders()
+    );
     assert.equal(limited.status, 429);
     assert.equal(phoneCalls, 0);
   } finally {

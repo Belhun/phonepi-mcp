@@ -78,6 +78,26 @@ import { requestPhoneTool } from "./phone-request.js";
 import { PhoneSession, bindPhoneConnection } from "./phone-session.js";
 import { createPhoneWebSocketServer } from "./phone-ws.js";
 import { createPhoneVerifyClient } from "./ws-token.js";
+import {
+  authorizeSensitiveRead,
+  isSensitiveReadTool,
+  loadReadAuth,
+  logSensitiveRead,
+  takeTokenArg,
+} from "./read-auth.js";
+import { allowIngest } from "./ingest-limit.js";
+
+function redactWsDebug(message: Record<string, unknown>): Record<string, unknown> {
+  const copy: Record<string, unknown> = { ...message };
+  for (const key of ["text", "replyText", "token", "secret", "password"]) {
+    if (key in copy) {
+      const value = copy[key];
+      copy[key] =
+        typeof value === "string" ? `<redacted ${value.length} chars>` : "<redacted>";
+    }
+  }
+  return copy;
+}
 
 installTimestampedConsole();
 
@@ -122,6 +142,7 @@ class PhonePiMCPServer {
   private notificationPoller: NotificationPoller | null = null;
   private assistantStore = openAssistantStore();
   private wakeHook = new WakeHook();
+  private readAuth = loadReadAuth();
 
   constructor(
     private serverPort: number = 11041,
@@ -193,6 +214,7 @@ class PhonePiMCPServer {
       notificationCaptureStatus: () => this.notificationCaptureStatus(),
       assistantStore: this.assistantStore,
       wakeHookStatus: () => this.wakeHook.status(),
+      readAuth: this.readAuth,
     });
   }
 
@@ -239,6 +261,22 @@ class PhonePiMCPServer {
       }
       return;
     }
+    const budget = allowIngest("presence");
+    if (!budget.ok) {
+      console.error("[WebSocket] presence snapshot rate limited");
+      try {
+        ws.send(
+          JSON.stringify({
+            type: "presence_sync_ack",
+            ok: false,
+            error: "rate limited",
+          })
+        );
+      } catch (err) {
+        console.error("[WebSocket] Failed to ack presence sync");
+      }
+      return;
+    }
     const result = this.presenceLog.ingest(message.snapshot);
     if (result.ok) {
       console.error("[WebSocket] presence snapshot stored");
@@ -258,6 +296,19 @@ class PhonePiMCPServer {
     }
   }
 
+  private handleAssistantClear(ws: WebSocket): void {
+    if (!this.session.isCurrent(ws)) {
+      console.error("[WebSocket] Ignored assistant clear from a stale socket");
+      return;
+    }
+    this.assistantStore.clear();
+    try {
+      ws.send(JSON.stringify({ type: "assistant_cleared_ack" }));
+    } catch (err) {
+      console.error("[WebSocket] Failed to ack assistant clear");
+    }
+  }
+
   private handleAssistantFrame(
     ws: WebSocket,
     message: Record<string, unknown>
@@ -271,17 +322,31 @@ class PhonePiMCPServer {
       kind === "notification_reply"
         ? this.assistantStore.ingestReply(message)
         : this.assistantStore.ingestPrompt(message);
+    const id =
+      result.accepted[0] ||
+      (typeof message.id === "string" ? message.id : "");
+    const ok = result.rejected.length === 0;
     if (result.rejected.length > 0) {
       console.error(
         `[WebSocket] assistant ${String(kind)} rejected=${result.rejected.length}`
       );
-      return;
+    } else {
+      console.error(
+        `[WebSocket] assistant ${String(kind)} accepted=${result.accepted.length} duplicate=${result.duplicate}`
+      );
     }
-    console.error(
-      `[WebSocket] assistant ${String(kind)} accepted=${result.accepted.length} duplicate=${result.duplicate}`
-    );
-    if (result.duplicate) return;
-    const id = result.accepted[0];
+    try {
+      ws.send(
+        JSON.stringify({
+          type: "assistant_ack",
+          id,
+          ok,
+        })
+      );
+    } catch (err) {
+      console.error("[WebSocket] Failed to ack assistant event");
+    }
+    if (!ok || result.duplicate) return;
     if (!id) return;
     const ts = typeof message.ts === "number" ? message.ts : Date.now();
     const event =
@@ -300,6 +365,22 @@ class PhonePiMCPServer {
         ws.send(JSON.stringify({ type: "location_cleared_ack" }));
       } catch (err) {
         console.error("[WebSocket] Failed to ack location clear");
+      }
+      return;
+    }
+    const locationBudget = allowIngest("location");
+    if (!locationBudget.ok) {
+      console.error("[WebSocket] location sync rate limited");
+      try {
+        ws.send(
+          JSON.stringify({
+            type: "location_sync_ack",
+            accepted: [],
+            rejected: [{ id: "", error: "rate limited" }],
+          })
+        );
+      } catch (err) {
+        console.error("[WebSocket] Failed to ack location sync");
       }
       return;
     }
@@ -340,6 +421,22 @@ class PhonePiMCPServer {
       }
       return;
     }
+    const usageBudget = allowIngest("usage");
+    if (!usageBudget.ok) {
+      console.error("[WebSocket] usage sync rate limited");
+      try {
+        ws.send(
+          JSON.stringify({
+            type: "usage_sync_ack",
+            accepted: [],
+            rejected: [{ id: "", error: "rate limited" }],
+          })
+        );
+      } catch (err) {
+        console.error("[WebSocket] Failed to ack usage sync");
+      }
+      return;
+    }
     const result = this.usageLog.ingest(message.days, message.meta);
     console.error(
       `[WebSocket] usage sync accepted=${result.accepted.length} rejected=${result.rejected.length}`
@@ -374,6 +471,22 @@ class PhonePiMCPServer {
       }
       return;
     }
+    const healthBudget = allowIngest("health");
+    if (!healthBudget.ok) {
+      console.error("[WebSocket] health sync rate limited");
+      try {
+        ws.send(
+          JSON.stringify({
+            type: "health_sync_ack",
+            ok: false,
+            error: "rate limited",
+          })
+        );
+      } catch (err) {
+        console.error("[WebSocket] Failed to ack health sync");
+      }
+      return;
+    }
     const result = this.healthLog.ingest(message.summary);
     console.error(
       `[WebSocket] health sync ${result.ok ? "accepted" : "rejected"}`
@@ -391,9 +504,35 @@ class PhonePiMCPServer {
     }
   }
 
+  private authorizeMcpRead(
+    tool: string,
+    provided: string | null
+  ): { callerId: string; coords: boolean } {
+    if (!isSensitiveReadTool(tool)) {
+      return { callerId: "mcp", coords: false };
+    }
+    const auth = authorizeSensitiveRead({
+      state: this.readAuth,
+      tool,
+      provided,
+      envProvided: process.env.PHONEPI_READ_TOKEN ?? null,
+      source: "mcp",
+    });
+    if (!auth.ok) {
+      throw new McpError(ErrorCode.InvalidRequest, auth.text);
+    }
+    logSensitiveRead({
+      callerId: auth.callerId,
+      tool,
+      source: "mcp",
+    });
+    return auth;
+  }
+
   private callPhoneTool(
     name: string,
-    args: Record<string, unknown>
+    args: Record<string, unknown>,
+    callerId = "shared"
   ): Promise<unknown> {
     const validated = validatePhoneCommandArgs(name, args);
     if (!validated.ok) {
@@ -422,7 +561,10 @@ class PhonePiMCPServer {
     if (isPhoneCommand(name)) {
       const spec = getPhoneCommand(name);
       if (spec) {
-        const budget = commandRateLimiter.allow(spec.name, spec.maxPerMinute);
+        const budget = commandRateLimiter.allow(
+          `${callerId}:${spec.name}`,
+          spec.maxPerMinute
+        );
         if (!budget.ok) {
           return Promise.reject(
             new RateLimitError(spec.name, budget.retryAfterSec)
@@ -432,7 +574,10 @@ class PhonePiMCPServer {
     } else {
       const maxPerMinute = readOnlyToolRateLimit(name);
       if (maxPerMinute != null) {
-        const budget = commandRateLimiter.allow(name, maxPerMinute);
+        const budget = commandRateLimiter.allow(
+          `${callerId}:${name}`,
+          maxPerMinute
+        );
         if (!budget.ok) {
           return Promise.reject(
             new RateLimitError(name, budget.retryAfterSec)
@@ -664,7 +809,9 @@ class PhonePiMCPServer {
         return;
       }
       if(DEBUG_WEBSOCKET) {
-        console.error(`[WebSocket] Parsed message: ${JSON.stringify(message)}`);
+        console.error(
+          `[WebSocket] Parsed message: ${JSON.stringify(redactWsDebug(message))}`
+        );
       }
       // Process different message types
       if (message.type === "pong") {
@@ -678,6 +825,8 @@ class PhonePiMCPServer {
         }
         const entry = sendLogFromPhone(message as Record<string, unknown>);
         if (entry) appendSendLog(entry);
+      } else if (message.type === "assistant_cleared") {
+        this.handleAssistantClear(ws);
       } else if (
         message.type === "notification_reply" ||
         message.type === "inbound_prompt"
@@ -1696,8 +1845,12 @@ class PhonePiMCPServer {
 
     // Handle tool calls
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
+      const stripped = takeTokenArg(
+        (request.params.arguments || {}) as Record<string, unknown>
+      );
+      const mcpAuth = this.authorizeMcpRead(request.params.name, stripped.token);
       if (isLocationReadTool(request.params.name)) {
-        const args = (request.params.arguments || {}) as Record<string, unknown>;
+        const args = stripped.rest;
         const outcome = runLocationRead({
           log: this.locationLog,
           limiter: commandRateLimiter,
@@ -1736,6 +1889,8 @@ class PhonePiMCPServer {
           limiter: commandRateLimiter,
           tool: request.params.name,
           activityLogged: false,
+          includeCoords: mcpAuth.coords,
+          callerId: mcpAuth.callerId,
         });
         if (outcome.status === 400) {
           throw new McpError(ErrorCode.InvalidParams, String(outcome.body.text));
@@ -1762,13 +1917,14 @@ class PhonePiMCPServer {
       }
 
       if (isUsageReadTool(request.params.name)) {
-        const args = (request.params.arguments || {}) as Record<string, unknown>;
+        const args = stripped.rest;
         const outcome = runUsageRead({
           log: this.usageLog,
           limiter: commandRateLimiter,
           args,
           phoneConnected: this.isPhoneOpen(),
           activityLogged: false,
+          callerId: mcpAuth.callerId,
         });
         if (outcome.status === 400) {
           throw new McpError(ErrorCode.InvalidParams, String(outcome.body.text));
@@ -1800,6 +1956,7 @@ class PhonePiMCPServer {
           limiter: commandRateLimiter,
           phoneConnected: this.isPhoneOpen(),
           activityLogged: false,
+          callerId: mcpAuth.callerId,
         });
         if (outcome.status === 429) {
           throw new McpError(ErrorCode.InvalidRequest, String(outcome.body.text));
@@ -1826,7 +1983,7 @@ class PhonePiMCPServer {
         const outcome = runNotificationLogRead({
           log: this.notificationLog,
           limiter: commandRateLimiter,
-          args: (request.params.arguments || {}) as Record<string, unknown>,
+          args: stripped.rest,
           capture: () => this.notificationCaptureStatus(),
         });
         if (outcome.status === 400) {
@@ -1843,8 +2000,9 @@ class PhonePiMCPServer {
           store: this.assistantStore,
           limiter: commandRateLimiter,
           tool: request.params.name,
-          args: (request.params.arguments || {}) as Record<string, unknown>,
+          args: stripped.rest,
           activityLogged: false,
+          callerId: mcpAuth.callerId,
         });
         if (outcome.status === 400) {
           throw new McpError(ErrorCode.InvalidParams, outcome.body.text);
@@ -1868,6 +2026,38 @@ class PhonePiMCPServer {
           }
         }
         return { content: [{ type: "text", text }] };
+      }
+
+      if (request.params.name === "clear_assistant_events") {
+        const validated = validatePhoneCommandArgs(
+          request.params.name,
+          stripped.rest
+        );
+        if (!validated.ok) {
+          throw new McpError(ErrorCode.InvalidParams, validated.error);
+        }
+        const spec = getPhoneCommand(request.params.name);
+        if (spec) {
+          const budget = commandRateLimiter.allow(
+            `${mcpAuth.callerId}:${spec.name}`,
+            spec.maxPerMinute
+          );
+          if (!budget.ok) {
+            throw new McpError(
+              ErrorCode.InvalidRequest,
+              `Rate limited: ${spec.name}. Try again in ${budget.retryAfterSec}s`
+            );
+          }
+        }
+        this.assistantStore.clear();
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({ status: "success", cleared: true }, null, 2),
+            },
+          ],
+        };
       }
 
       if (isGmTool(request.params.name)) {
@@ -1906,9 +2096,10 @@ class PhonePiMCPServer {
       }
 
       try {
-        const response = await this.callPhoneTool(
+        const response = await           this.callPhoneTool(
           request.params.name,
-          (request.params.arguments || {}) as Record<string, unknown>
+          stripped.rest,
+          mcpAuth.callerId
         );
 
         // Check if this is a photo response with image data

@@ -6,18 +6,21 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.wear.compose.material3.Button
 import androidx.wear.compose.material3.MaterialTheme
 import androidx.wear.compose.material3.Text
+import kotlinx.coroutines.launch
 
 class ConfirmActionActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -26,27 +29,18 @@ class ConfirmActionActivity : ComponentActivity() {
         setContent {
             MaterialTheme {
                 val context = LocalContext.current
-                var status by remember { mutableStateOf("Sending…") }
-                LaunchedEffect(kind) {
-                    val result = when (kind) {
-                        KIND_QUIET -> WearPhoneClient.send(
-                            context,
-                            WearPaths.QUIET,
-                            WearProtocol.encodeQuiet(60),
-                        )
-                        KIND_IM_OK -> WearPhoneClient.send(
-                            context,
-                            WearPaths.IM_OK,
-                            ByteArray(0),
-                        )
-                        else -> WearSendResult(false, "Unknown action")
-                    }
-                    status = when {
-                        result.ok && kind == KIND_QUIET -> "Quiet for 1 hour"
-                        result.ok && kind == KIND_IM_OK -> "I'm OK sent"
-                        else -> result.message
-                    }
+                val scope = rememberCoroutineScope()
+                var status by remember {
+                    mutableStateOf(
+                        when (kind) {
+                            KIND_QUIET -> "Quiet PhonePi for 1 hour?"
+                            KIND_IM_OK -> "Send I'm OK?"
+                            else -> "Unknown action"
+                        },
+                    )
                 }
+                var busy by remember { mutableStateOf(false) }
+                var done by remember { mutableStateOf(kind != KIND_QUIET && kind != KIND_IM_OK) }
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -55,6 +49,48 @@ class ConfirmActionActivity : ComponentActivity() {
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Text(status)
+                    if (!done) {
+                        Button(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 8.dp),
+                            enabled = !busy,
+                            onClick = {
+                                busy = true
+                                scope.launch {
+                                    val result = when (kind) {
+                                        KIND_QUIET -> WearPhoneClient.send(
+                                            context,
+                                            WearPaths.QUIET,
+                                            WearProtocol.encodeQuiet(60),
+                                        )
+                                        KIND_IM_OK -> WearPhoneClient.send(
+                                            context,
+                                            WearPaths.IM_OK,
+                                            ByteArray(0),
+                                        )
+                                        else -> WearSendResult(false, "Unknown action")
+                                    }
+                                    status = when {
+                                        result.ok && kind == KIND_QUIET -> "Quiet for 1 hour"
+                                        result.ok && kind == KIND_IM_OK -> "I'm OK sent"
+                                        else -> result.message
+                                    }
+                                    done = true
+                                    busy = false
+                                }
+                            },
+                        ) {
+                            Text("Send")
+                        }
+                        Button(
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = !busy,
+                            onClick = { finish() },
+                        ) {
+                            Text("Cancel")
+                        }
+                    }
                 }
             }
         }

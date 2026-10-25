@@ -2,13 +2,13 @@ package dev.phonepi.companion.assistant
 
 import android.content.Context
 import dev.phonepi.companion.log.ActivityLog
-import dev.phonepi.companion.textsend.SendLogOutbox
+import dev.phonepi.companion.textsend.PhoneUplink
 import org.json.JSONObject
+import java.util.UUID
 
 /**
  * Phone → box frames for notification replies and inbound prompts.
- * Reuses the send-text outbox so a drop during failover still delivers
- * the same requestId. Never includes the WebSocket token.
+ * Queued until assistant_ack. Never includes the WebSocket token.
  */
 object AssistantEvents {
     fun emitReply(
@@ -18,8 +18,7 @@ object AssistantEvents {
         replyText: String?,
         ts: Long = System.currentTimeMillis(),
     ) {
-        val stable = "r-$messageId"
-        val id = if (AssistantProtocol.isId(stable)) stable.take(80) else AssistantProtocol.newId("reply")
+        val id = "r-${messageId.take(32)}-${UUID.randomUUID()}".take(80)
         val json = JSONObject()
             .put("type", "notification_reply")
             .put("id", id)
@@ -31,7 +30,7 @@ object AssistantEvents {
             json.put("replyText", replyText.take(AssistantProtocol.PROMPT_MAX))
         }
         ActivityLog.logMessage("Notification $messageId $action", "success")
-        SendLogOutbox.enqueue(context, json.toString())
+        AssistantOutbox.enqueue(context, json.toString())
     }
 
     fun emitPrompt(
@@ -50,7 +49,13 @@ object AssistantEvents {
             .put("source", AssistantProtocol.normalizeSource(source))
             .put("ts", ts)
         ActivityLog.logMessage("Inbound prompt (${AssistantProtocol.normalizeSource(source)})", "success")
-        SendLogOutbox.enqueue(context, json.toString())
+        AssistantOutbox.enqueue(context, json.toString())
         return id
+    }
+
+    fun clearAll(context: Context) {
+        AssistantOutbox.clear(context)
+        PhoneUplink.send?.invoke("""{"type":"assistant_cleared"}""")
+        ActivityLog.logMessage("Deleted prompts and replies", "success")
     }
 }

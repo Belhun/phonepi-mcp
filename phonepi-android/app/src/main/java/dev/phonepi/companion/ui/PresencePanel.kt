@@ -129,6 +129,7 @@ fun PresencePanel(modifier: Modifier = Modifier) {
                         PresencePrefs.setEnabled(context, false)
                         PresencePrefs.setPaused(context, false)
                         PresenceCapture.stop(context)
+                        PresenceEngine.nudge(context)
                         ActivityLog.logPresence("Presence off", "info")
                         refreshKey++
                         return@Switch

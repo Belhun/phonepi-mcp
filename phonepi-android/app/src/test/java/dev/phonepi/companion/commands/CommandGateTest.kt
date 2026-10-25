@@ -10,6 +10,7 @@ class CommandGateTest {
     fun allowlistIsExactlyThePhoneCommands() {
         assertEquals(
             setOf(
+                "clear_assistant_events",
                 "clear_health_cache",
                 "clear_location_history",
                 "clear_presence_history",

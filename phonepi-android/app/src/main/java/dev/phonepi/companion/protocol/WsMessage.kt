@@ -47,6 +47,12 @@ sealed interface WsMessage {
         val status: String,
     ) : WsMessage
 
+    /** Ack for a prompt or reply the phone queued until the box stored it. */
+    data class AssistantAck(
+        val id: String,
+        val ok: Boolean,
+    ) : WsMessage
+
     /** Any other or unparseable frame. Ignored by the message loop. */
     data class Unknown(val type: String) : WsMessage
 
@@ -73,6 +79,10 @@ sealed interface WsMessage {
                     title = obj["title"]?.jsonPrimitive?.contentOrNull?.take(80) ?: "activity",
                     detail = obj["detail"]?.jsonPrimitive?.contentOrNull?.take(240).orEmpty(),
                     status = obj["status"]?.jsonPrimitive?.contentOrNull ?: "info",
+                )
+                "assistant_ack" -> AssistantAck(
+                    id = obj["id"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                    ok = obj["ok"]?.jsonPrimitive?.contentOrNull != "false",
                 )
                 else -> Unknown(obj["type"]?.jsonPrimitive?.contentOrNull ?: "none")
             }

@@ -15,18 +15,13 @@ class PauseHealthSyncTool(private val context: Context) : ToolHandler {
     override val name = "pause_health_sync"
 
     override suspend fun handle(params: JsonObject): JsonObject {
-        val paused = params["paused"]?.jsonPrimitive?.booleanOrNull
-            ?: return toolError("paused must be true or false")
-        HealthConnectPrefs.setPaused(context, paused)
-        if (paused) {
-            ActivityLog.logHealth("Health sync paused", "info")
-        } else {
-            HealthSyncScheduler.ensure(context)
-            HealthSync.run(context)
-            ActivityLog.logHealth("Health sync resumed", "info")
+        if (params["paused"]?.jsonPrimitive?.booleanOrNull != true) {
+            return toolError("paused must be true; resume health sync on the phone")
         }
+        HealthConnectPrefs.setPaused(context, true)
+        ActivityLog.logHealth("Health sync paused", "info")
         HealthSync.nudge()
-        return success { put("paused", paused) }
+        return success { put("paused", true) }
     }
 }
 

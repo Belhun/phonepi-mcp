@@ -1,18 +1,28 @@
 import fs from "fs";
-import os from "os";
 import path from "path";
+import {
+  atomicWriteFile,
+  ensureBoxDir,
+  removeFile,
+  resolveBoxDir,
+  safeReadFile,
+} from "./atomic-file.js";
+import { parseIngestTs } from "./ingest-time.js";
 
 /**
  * Box copy of the latest PhonePi presence snapshot.
  * One JSON object at ~/.phonepi/presence/current.json (mode 600).
  * The phone is the writer. Bots only read this file.
  * A secret field is rejected and never written.
+ * Coordinates are dropped when presence is off, paused, or past the TTL.
  */
 
 const SECRET_KEYS = ["token", "wstoken", "authorization", "password", "secret"];
 const ACTIVITIES = new Set(["still", "walking", "running", "cycling", "driving", "unknown"]);
 const EVENTS = new Set(["arrive", "leave"]);
 const SOURCES = new Set(["geofence", "periodic", "activity", "manual"]);
+
+export const DEFAULT_PRESENCE_TTL_MS = 15 * 60 * 1000;
 
 export interface PresenceSnapshot {
   capturedAtMs: number;
@@ -38,61 +48,117 @@ export type ParsedSnapshot =
   | { ok: true; snapshot: PresenceSnapshot }
   | { ok: false; error: string };
 
+export function presenceTtlMs(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = env.PHONEPI_PRESENCE_TTL_MS?.trim();
+  if (!raw) return DEFAULT_PRESENCE_TTL_MS;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 60_000 || n > 24 * 60 * 60 * 1000) {
+    return DEFAULT_PRESENCE_TTL_MS;
+  }
+  return n;
+}
+
 export function presenceLogDir(env: NodeJS.ProcessEnv = process.env): string {
-  return (
-    env.PHONEPI_PRESENCE_DIR?.trim() ||
-    path.join(os.homedir(), ".phonepi", "presence")
-  );
+  return resolveBoxDir("PHONEPI_PRESENCE_DIR", "presence", env);
 }
 
 export function openPresenceLog(
-  env: NodeJS.ProcessEnv = process.env
+  env: NodeJS.ProcessEnv = process.env,
+  now: () => number = Date.now
 ): PresenceLog {
-  return new PresenceLog(presenceLogDir(env));
+  return new PresenceLog(presenceLogDir(env), presenceTtlMs(env), now);
 }
 
 export class PresenceLog {
-  constructor(readonly dir: string) {}
+  constructor(
+    readonly dir: string,
+    readonly ttlMs: number = DEFAULT_PRESENCE_TTL_MS,
+    private readonly now: () => number = Date.now
+  ) {}
 
   get file(): string {
     return path.join(this.dir, "current.json");
   }
 
   ingest(raw: unknown): ParsedSnapshot {
-    const parsed = parsePresenceSnapshot(raw);
+    const parsed = parsePresenceSnapshot(raw, this.now());
     if (!parsed.ok) return parsed;
-    this.write(parsed.snapshot);
-    return parsed;
+    const stored = this.readStored();
+    if (stored && stored.capturedAtMs > parsed.snapshot.capturedAtMs) {
+      return { ok: false, error: "snapshot is older than the stored copy" };
+    }
+    const snapshot = dropCoordsIfHidden(parsed.snapshot);
+    this.write(snapshot);
+    return { ok: true, snapshot };
   }
 
   current(): PresenceSnapshot | null {
+    const stored = this.readStored();
+    if (!stored) return null;
+    return sanitizePresenceSnapshot(stored, this.now(), this.ttlMs);
+  }
+
+  clear(): void {
+    removeFile(this.file);
+  }
+
+  private readStored(): PresenceSnapshot | null {
     if (!fs.existsSync(this.file)) return null;
     try {
-      const raw = JSON.parse(fs.readFileSync(this.file, "utf8"));
-      const parsed = parsePresenceSnapshot(raw);
+      const raw = JSON.parse(safeReadFile(this.file));
+      const parsed = parsePresenceSnapshot(raw, this.now());
       return parsed.ok ? parsed.snapshot : null;
     } catch {
       return null;
     }
   }
 
-  clear(): void {
-    if (fs.existsSync(this.file)) fs.rmSync(this.file, { force: true });
-  }
-
   private write(snapshot: PresenceSnapshot): void {
-    fs.mkdirSync(this.dir, { recursive: true, mode: 0o700 });
-    fs.chmodSync(this.dir, 0o700);
-    const existed = fs.existsSync(this.file);
-    fs.writeFileSync(this.file, `${JSON.stringify(snapshot)}\n`, {
-      encoding: "utf8",
-      mode: 0o600,
-    });
-    if (!existed) fs.chmodSync(this.file, 0o600);
+    ensureBoxDir(this.dir);
+    atomicWriteFile(this.file, `${JSON.stringify(snapshot)}\n`);
   }
 }
 
-export function parsePresenceSnapshot(raw: unknown): ParsedSnapshot {
+export function presenceIsFresh(
+  snapshot: PresenceSnapshot,
+  nowMs: number,
+  ttlMs: number = DEFAULT_PRESENCE_TTL_MS
+): boolean {
+  if (!snapshot.enabled || snapshot.paused) return false;
+  return nowMs - snapshot.capturedAtMs <= ttlMs;
+}
+
+export function presenceIsStale(
+  snapshot: PresenceSnapshot,
+  nowMs: number,
+  ttlMs: number = DEFAULT_PRESENCE_TTL_MS
+): boolean {
+  return !presenceIsFresh(snapshot, nowMs, ttlMs);
+}
+
+export function sanitizePresenceSnapshot(
+  snapshot: PresenceSnapshot,
+  nowMs: number,
+  ttlMs: number = DEFAULT_PRESENCE_TTL_MS
+): PresenceSnapshot {
+  if (presenceIsFresh(snapshot, nowMs, ttlMs)) return snapshot;
+  return dropCoordsIfHidden({ ...snapshot });
+}
+
+export function dropCoordsIfHidden(snapshot: PresenceSnapshot): PresenceSnapshot {
+  if (snapshot.enabled && !snapshot.paused) return snapshot;
+  return {
+    ...snapshot,
+    latitude: null,
+    longitude: null,
+    accuracyMeters: null,
+  };
+}
+
+export function parsePresenceSnapshot(
+  raw: unknown,
+  nowMs: number = Date.now()
+): ParsedSnapshot {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return { ok: false, error: "snapshot must be an object" };
   }
@@ -102,10 +168,11 @@ export function parsePresenceSnapshot(raw: unknown): ParsedSnapshot {
       return { ok: false, error: "refusing snapshot that carries a secret field" };
     }
   }
-  const capturedAtMs = finiteNumber(record.capturedAtMs);
-  if (capturedAtMs == null || capturedAtMs < 0) {
-    return { ok: false, error: "capturedAtMs must be a positive number" };
+  const captured = parseIngestTs(record.capturedAtMs, nowMs);
+  if (!captured.ok) {
+    return { ok: false, error: captured.error };
   }
+  const capturedAtMs = captured.ts;
   if (typeof record.enabled !== "boolean") {
     return { ok: false, error: "enabled must be a boolean" };
   }
@@ -141,8 +208,8 @@ export function parsePresenceSnapshot(raw: unknown): ParsedSnapshot {
   if (dnd === "bad") {
     return { ok: false, error: "dnd is invalid" };
   }
-  const latitude = optionalCoord(record.latitude);
-  const longitude = optionalCoord(record.longitude);
+  let latitude = optionalCoord(record.latitude);
+  let longitude = optionalCoord(record.longitude);
   if (latitude === "bad" || longitude === "bad") {
     return { ok: false, error: "latitude/longitude out of range" };
   }
@@ -158,6 +225,11 @@ export function parsePresenceSnapshot(raw: unknown): ParsedSnapshot {
     if (accuracyMeters == null || accuracyMeters < 0 || accuracyMeters > 100_000) {
       return { ok: false, error: "accuracyMeters must be a positive number" };
     }
+  }
+  if (!record.enabled || record.paused) {
+    latitude = null;
+    longitude = null;
+    accuracyMeters = null;
   }
   const lastEvent = optionalText(record.lastEvent, 16);
   if (lastEvent === "bad" || (lastEvent && !EVENTS.has(lastEvent))) {

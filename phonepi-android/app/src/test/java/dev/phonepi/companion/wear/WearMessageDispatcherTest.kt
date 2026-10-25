@@ -83,6 +83,24 @@ class WearMessageDispatcherTest {
     }
 
     @Test
+    fun promptAndQuietAreRateLimited() = runBlocking {
+        var now = 10_000L
+        val dispatcher = WearMessageDispatcher(
+            actions = FakeActions(),
+            nowMs = { now },
+            promptLimiter = WearInboundLimiter(1, now = { now }),
+            quietLimiter = WearInboundLimiter(1, now = { now }),
+        )
+        val promptPayload = String(WearProtocol.encodePrompt("hello", "ask"), Charsets.UTF_8)
+        assertTrue(dispatcher.dispatch(WearPaths.PROMPT, promptPayload).ok)
+        val limited = dispatcher.dispatch(WearPaths.PROMPT, promptPayload)
+        assertFalse(limited.ok)
+        assertEquals("rate limited", limited.message)
+        assertTrue(dispatcher.dispatch(WearPaths.QUIET, String(WearProtocol.encodeQuiet(60), Charsets.UTF_8)).ok)
+        assertFalse(dispatcher.dispatch(WearPaths.QUIET, String(WearProtocol.encodeQuiet(60), Charsets.UTF_8)).ok)
+    }
+
+    @Test
     fun unknownPathFailsClosed() = runBlocking {
         val ack = WearMessageDispatcher(FakeActions()).dispatch("/other", "")
         assertFalse(ack.ok)
