@@ -128,7 +128,9 @@ test("read-only allowlist is exactly the phone read tools", () => {
       "get_contact_by_id",
       "get_contacts",
       "get_health_summary",
+      "get_inbound_prompts",
       "get_location_history",
+      "get_notification_replies",
       "get_notifications",
       "get_presence",
       "get_recent_calls",
@@ -226,7 +228,9 @@ test("each allowlisted tool can be called when the phone answers", async () => {
           tool === "search_places" ||
           tool === "get_presence" ||
           tool === "get_screen_time" ||
-          tool === "get_health_summary"
+          tool === "get_health_summary" ||
+          tool === "get_notification_replies" ||
+          tool === "get_inbound_prompts"
         ) {
           continue;
         }
@@ -269,6 +273,7 @@ test("GET /api/health reports ports, phone state, and empty history", async () =
       const res = await getHealth(port);
       assert.equal(res.status, 200);
       assert.deepEqual(Object.keys(res.json).sort(), [
+        "hookFailed",
         "httpPort",
         "lastConnectedAt",
         "lastDisconnectCode",
@@ -279,8 +284,11 @@ test("GET /api/health reports ports, phone state, and empty history", async () =
         "ok",
         "phoneConnected",
         "phonePermissions",
+        "wakeHookEnabled",
         "wsPort",
       ]);
+      assert.equal(res.json.wakeHookEnabled, false);
+      assert.equal(res.json.hookFailed, 0);
       assert.equal(res.json.ok, true);
       assert.equal(res.json.phoneConnected, false);
       assert.equal(res.json.wsPort, 11041);

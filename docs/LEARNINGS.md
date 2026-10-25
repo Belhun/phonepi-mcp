@@ -2,8 +2,7 @@
 
 Standing log for this PR branch (`cursor/phone-navigate-locations-1ceb`). Update this file in the same change as every future PhonePi feature, bugfix, or device lesson. Do not merge this branch from this log. Never commit secrets (`PHONEPI_WS_TOKEN`, command tokens, hostnames with tokens in the URL, APK signing keystores, or personal MagicDNS names that are not already public in the repo).
 
-Current companion: **0.3.4** (versionCode **16**). 0.3.3 / versionCode 15 is the server-failover release.
-Current companion: **0.3.4** (versionCode **16**). 0.3.3 / versionCode 15 is server-list failover. 0.3.2 / versionCode 14 is texts.
+Current companion: **0.3.4** (versionCode **16**). 0.3.3 / versionCode 15 is the server-list failover release. 0.3.2 / versionCode 14 is the safe-text release.
 
 Bot-facing skill: [BOT-SKILL.md](BOT-SKILL.md).
 
@@ -223,6 +222,7 @@ Android-only (do not assume iOS equivalents):
 - `SmsManager`, `SEND_SMS`, notification actions, `TextToSpeech`, `SpeechRecognizer`, `ACTIVITY_RECOGNITION`, and Bluetooth device class. Keep the command names, the two modes, the phone-added prefix, the default-off switches, and "HTTP 200 is not sent". iOS cannot send SMS from a third-party app without the system composer, which the user can edit. An iPhone companion would have to say direct send is unsupported.
 - `UsageStatsManager`, `PACKAGE_USAGE_STATS`, and Settings → Usage access. iOS Screen Time is not a third-party API. Keep the tool name, daily totals only, the box JSON copy, the stale flag, and the on-by-default switch that still needs an OS grant.
 - Health Connect (`androidx.health.connect`), `READ_SLEEP` / `READ_STEPS` / `READ_HEART_RATE` / `READ_RESTING_HEART_RATE` / `READ_EXERCISE` / `READ_OXYGEN_SATURATION`, `READ_HEALTH_DATA_IN_BACKGROUND`, `READ_HEALTH_DATA_HISTORY`, WorkManager hourly reads, and the Health Connect rationale activity. iOS would use HealthKit. Keep the tool name `get_health_summary`, daily totals only, the on-by-default switch that still needs an OS grant, box files under `~/.phonepi/health`, and the rule that a watch app is not this feature.
+- Wear OS notification mirroring, `RemoteInput`, Quick Settings `TileService`, static shortcuts, and Pixel Quick Tap (a Pixel-only gesture). Keep the tool names, the box JSONL copy, and the wake hook. An iPhone companion would use Notification Content Extensions for actions and a Control Center control / App Intent for Ask assistant; Quick Tap has no iOS equivalent.
 - Forever reconnect with a capped exponential backoff is portable. `ConnectivityManager` callbacks and the foreground-service keepalive are Android-only. On iOS, retry when the app becomes active and when a path monitor reports a change. Do not show connected until the socket has had recent traffic.
 
 iPhone maps/nav sketch (not implemented): open an Apple Maps or Google Maps iOS URL when the companion is allowed to become foreground. Do not expect to start Maps from a background daemon the way overlay+FSI does on Android. A tap-to-open notification is the likely fallback.
@@ -241,6 +241,8 @@ iPhone notification reading sketch (not implemented): without an Apple entitleme
 - Texts stay off until Alex turns on **Allow bots to request texts** and grants SMS, contacts, and notifications. Assistant-signed texts stay off until the second switch. Spoken confirm needs the microphone. Car detection also wants physical activity and nearby Bluetooth devices. Sideload **0.3.2** (versionCode 14).
 - Screen time stays empty until Alex grants **Usage access** (Settings → Usage access). The in-app switch is on by default. Sideload **0.3.4** (versionCode 16).
 - Sleep and health: Galaxy Watch 7 data is in Samsung Health first. Samsung Health → Settings → Health Connect must write sleep/steps/heart rate/exercise/blood oxygen. Then PhonePi grants those Health Connect reads. The PhonePi switch starts on. Sideload **0.3.4** (versionCode 16).
+- Texts stay off until Alex turns on **Allow bots to request texts** and grants SMS, contacts, and notifications. Assistant-signed texts stay off until the second switch. Spoken confirm needs the microphone. Car detection also wants physical activity and nearby Bluetooth devices. Sideload **0.3.2** (versionCode 14) or newer.
+- Ask assistant and watch-actionable notifications: sideload **0.3.4** (versionCode 16). Add the Quick Settings tile and optionally Pixel Quick Tap → Open app → Ask assistant. No extra watch app. Notifications posting is the same Connect grant.
 
 ## Box refresh recovery (2026-10-18)
 
@@ -284,3 +286,14 @@ Hourly WorkManager plus a read on connect. The phone sends `health_sync` / `heal
 Read (no token, 30/min, works offline): `get_health_summary`. Daily totals: last night's sleep (start, end, total, stages), `lastNightSleepEndMs` / `lastNightSleepEndIso` (for later Clock bedtime/wake; this change does not touch phonepi-clock), steps today and 7-day, resting and average heart rate, recent workouts. No raw heart-rate streams. `stale` is true when the phone is offline. `syncedAtIso` is the last Health Connect read; Samsung Health can lag minutes to hours (`sourceLagNote`). Writes (token): `pause_health_sync` (`paused` boolean, 10/min) and `clear_health_cache` (`confirm` `"delete"`, 4/min). Invalid args are HTTP 400 and do not call the phone.
 
 Alex's phone steps: Samsung Health → Settings → Health Connect → allow Samsung Health to write sleep, steps, heart rate, exercise, blood oxygen; then PhonePi → Sleep and health → Privacy policy → Grant Health Connect. Details: [health.md](health.md).
+## 0.3.4 (versionCode 16): watch-actionable notifications and Ask assistant
+
+Alex answers the assistant from the Pixel or Galaxy Watch 7 with no watch app. Phone notifications already mirror to Wear OS.
+
+- Command `send_notification` (`POST /api/command`, 20/min): title, body, optional `requestId` (idempotent), up to 3 action labels, plus an inline `RemoteInput` Reply (voice or keyboard on the watch). Default priority `high` uses the existing PhonePi urgent channel. Same `requestId` does not post twice.
+- Phone sends `notification_reply` frames through `SendLogOutbox`. Box store `~/.phonepi/assistant/replies/` (dir 700, files 600). Read-only `get_notification_replies` (60/min, works offline).
+- Ask assistant: Quick Settings tile, static home shortcut, exported `AskAssistantActivity` (`dev.phonepi.companion.action.ASK_ASSISTANT`, `phonepi://ask`), and a LAUNCHER activity-alias labeled **Ask assistant** so Pixel Quick Tap → Open app can pick it. Frames: `inbound_prompt`. Read-only `get_inbound_prompts`.
+- Wake hook (`server/src/wake-hook.ts`): `PHONEPI_WAKE_HOOK_URL` plus optional `PHONEPI_WAKE_HOOK_SECRET`. POST `{event, id, ts}` only. Short timeout, 3 attempts, backoff, dedupe by id, non-blocking. `GET /api/health` has `wakeHookEnabled` and `hookFailed`. Unset URL disables it. Never log the URL or secret.
+- This feature does not change DND, volumes, or other phone settings. `POST_NOTIFICATIONS` is the same grant Connect already asks for.
+
+Pixel Quick Tap steps: Settings → System → Gestures → Quick Tap → Use Quick Tap on → Open app → Ask assistant.

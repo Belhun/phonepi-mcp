@@ -19,6 +19,8 @@ export const READ_ONLY_HTTP_TOOLS = new Set<string>([
   "get_presence",
   "get_screen_time",
   "get_health_summary",
+  "get_notification_replies",
+  "get_inbound_prompts",
 ]);
 
 /** Sliding-window limits (per minute) for sensitive read tools. */
@@ -33,6 +35,8 @@ export const READ_ONLY_TOOL_RATE_LIMITS: Record<string, number> = {
   get_presence: 30,
   get_screen_time: 30,
   get_health_summary: 30,
+  get_notification_replies: 60,
+  get_inbound_prompts: 60,
 };
 
 export function isReadOnlyHttpTool(name: string): boolean {

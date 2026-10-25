@@ -186,7 +186,18 @@ PhonePi can show recent and currently active notifications to MCP / the loopback
 
 `get_notifications` returns app name, title, text, time, and package. If Android hid a field, the value is `(hidden by Android)` plus a `hiddenFields` reason. Unshared apps are counted in `omittedUnsharedCount`, not silently dropped. Tools are rate-limited (60/min) and show up in Recent activity.
 
-The main screen scrolls (connect → update → permissions → location history → sleep and health → volumes → notification sharing → **Recent activity**) and sits inside the system bars. Scroll to the bottom for **Share all**, per-app toggles, and **Recent activity** with its **Clear** button.
+The main screen scrolls (connect → update → permissions → location history → presence → screen time → sleep and health → volumes → texts → Ask assistant → notification sharing → **Recent activity**) and sits inside the system bars. Scroll to the bottom for **Share all**, per-app toggles, and **Recent activity** with its **Clear** button.
+
+## Ask assistant (tile, shortcut, Quick Tap)
+
+Companion **0.3.4** (versionCode 16). This does not change phone settings.
+
+- **Quick Settings:** shade → edit tiles → add **Ask assistant**.
+- **Home shortcut:** long-press the PhonePi icon → drag **Ask assistant**.
+- **Pixel Quick Tap:** Settings → System → Gestures → Quick Tap → turn on Use Quick Tap → Open app → **Ask assistant** (the extra launcher entry). Some Pixels list it as PhonePi → Ask assistant.
+- Watch: no watch app. `send_notification` cards mirror automatically. Tap a button or use Reply.
+
+Speak or type, then Send. Bots read `get_inbound_prompts`. Bot-posted cards: `send_notification` / `get_notification_replies`. See [docs/assistant-notifications.md](../docs/assistant-notifications.md).
 
 ## Alarms and timers
 

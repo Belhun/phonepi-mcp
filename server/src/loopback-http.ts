@@ -28,6 +28,9 @@ import {
 } from "./presence-config.js";
 import { PresenceLog, openPresenceLog } from "./presence-log.js";
 import { isPresenceReadTool, runPresenceRead } from "./presence-tools.js";
+import { AssistantStore, openAssistantStore } from "./assistant-events.js";
+import { isAssistantReadTool, runAssistantRead } from "./assistant-tools.js";
+import type { WakeHookStatus } from "./wake-hook.js";
 import {
   authorizeCommandToken,
   tokenFromHttpRequest,
@@ -79,6 +82,10 @@ export interface StartLoopbackHttpOptions {
   usageLog?: UsageLog;
   /** Box copy of health summaries. Reads do not need the phone. */
   healthLog?: HealthLog;
+  /** Box copy of notification replies and inbound prompts. */
+  assistantStore?: AssistantStore;
+  /** Wake hook counters for GET /api/health. Never includes the URL or secret. */
+  wakeHookStatus?: () => WakeHookStatus;
 }
 
 type ToolBody = {
@@ -191,6 +198,10 @@ async function handleRequest(
       return;
     }
     const details = healthDetailsFrom(options.bridge);
+    const wake = options.wakeHookStatus?.() ?? {
+      wakeHookEnabled: false,
+      hookFailed: 0,
+    };
     sendJson(res, 200, {
       ok: true,
       phoneConnected: options.bridge.isPhoneConnected(),
@@ -203,6 +214,11 @@ async function handleRequest(
       lastPongAt: details.lastPongAt,
       phonePermissions: details.phonePermissions,
       missingPermissions: details.missingPermissions,
+      wakeHookEnabled: wake.wakeHookEnabled === true,
+      hookFailed:
+        typeof wake.hookFailed === "number" && Number.isFinite(wake.hookFailed)
+          ? wake.hookFailed
+          : 0,
     });
     return;
   }
@@ -392,6 +408,33 @@ async function handleTool(
           outcome.body.text = JSON.stringify(payload, null, 2);
         } catch {
           // The text is already a success payload. Leave activityLogged false.
+        }
+      }
+    }
+    sendJson(res, outcome.status, outcome.body);
+    return;
+  }
+  if (isAssistantReadTool(body.tool)) {
+    const outcome = runAssistantRead({
+      store: options.assistantStore ?? openAssistantStore(),
+      limiter: options.locationReadLimiter ?? commandRateLimiter,
+      tool: body.tool,
+      args,
+      activityLogged: false,
+    });
+    if (outcome.status === 200) {
+      const logged =
+        bridge.noteActivity?.({
+          title: body.tool,
+          detail: "read box assistant events",
+        }) ?? false;
+      if (logged) {
+        try {
+          const payload = JSON.parse(String(outcome.body.text));
+          payload.activityLogged = true;
+          outcome.body.text = JSON.stringify(payload, null, 2);
+        } catch {
+          // Leave activityLogged false.
         }
       }
     }

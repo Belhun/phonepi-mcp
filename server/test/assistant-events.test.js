@@ -1,0 +1,312 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import http from "node:http";
+import os from "node:os";
+import path from "path";
+import test from "node:test";
+import {
+  AssistantStore,
+  validateSendNotificationArgs,
+} from "../dist/assistant-events.js";
+import { isPhoneCommand, validatePhoneCommandArgs } from "../dist/commands.js";
+import { startLoopbackHttp } from "../dist/loopback-http.js";
+import {
+  isReadOnlyHttpTool,
+  READ_ONLY_HTTP_TOOLS,
+  READ_ONLY_TOOL_RATE_LIMITS,
+} from "../dist/read-only-tools.js";
+
+const NOW = Date.UTC(2026, 9, 25, 12, 0, 0);
+
+function tempStore(nowRef = { t: NOW }) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "phonepi-assistant-"));
+  const store = new AssistantStore(dir, 30, () => nowRef.t);
+  return { dir, store, nowRef };
+}
+
+function postTool(port, body) {
+  return new Promise((resolve, reject) => {
+    const payload = JSON.stringify(body);
+    const req = http.request(
+      {
+        host: "127.0.0.1",
+        port,
+        path: "/api/tool",
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(payload),
+        },
+      },
+      (res) => {
+        const chunks = [];
+        res.on("data", (chunk) => chunks.push(chunk));
+        res.on("end", () => {
+          const raw = Buffer.concat(chunks).toString("utf8");
+          resolve({ status: res.statusCode, json: JSON.parse(raw), raw });
+        });
+      }
+    );
+    req.on("error", reject);
+    req.end(payload);
+  });
+}
+
+function postCommand(port, body) {
+  return new Promise((resolve, reject) => {
+    const payload = JSON.stringify(body);
+    const req = http.request(
+      {
+        host: "127.0.0.1",
+        port,
+        path: "/api/command",
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(payload),
+          Authorization: "Bearer test-token",
+        },
+      },
+      (res) => {
+        const chunks = [];
+        res.on("data", (chunk) => chunks.push(chunk));
+        res.on("end", () => {
+          const raw = Buffer.concat(chunks).toString("utf8");
+          resolve({ status: res.statusCode, json: JSON.parse(raw), raw });
+        });
+      }
+    );
+    req.on("error", reject);
+    req.end(payload);
+  });
+}
+
+test("send_notification is an allowlisted command; replies and prompts are read-only tools", () => {
+  assert.equal(isPhoneCommand("send_notification"), true);
+  assert.equal(isReadOnlyHttpTool("get_notification_replies"), true);
+  assert.equal(isReadOnlyHttpTool("get_inbound_prompts"), true);
+  assert.equal(isReadOnlyHttpTool("send_notification"), false);
+  assert.equal(READ_ONLY_HTTP_TOOLS.has("get_notification_replies"), true);
+  assert.equal(READ_ONLY_TOOL_RATE_LIMITS.get_notification_replies, 60);
+  assert.equal(READ_ONLY_TOOL_RATE_LIMITS.get_inbound_prompts, 60);
+});
+
+test("send_notification validation: actions cap 3, requestId, high default", () => {
+  const ok = validateSendNotificationArgs({
+    title: "Dinner?",
+    body: "Leave in 10?",
+    requestId: "notif-aaaa",
+    actions: ["OK", "Snooze 1h", "No"],
+  });
+  assert.equal(ok.ok, true);
+  assert.equal(ok.args.priority, "high");
+  assert.deepEqual(ok.args.actions, ["OK", "Snooze 1h", "No"]);
+
+  const tooMany = validatePhoneCommandArgs("send_notification", {
+    title: "X",
+    body: "Y",
+    actions: ["A", "B", "C", "D"],
+  });
+  assert.equal(tooMany.ok, false);
+  assert.match(tooMany.error, /at most 3/);
+
+  const badId = validateSendNotificationArgs({
+    title: "X",
+    body: "Y",
+    requestId: "short",
+  });
+  assert.equal(badId.ok, false);
+
+  const missing = validateSendNotificationArgs({ title: "X" });
+  assert.equal(missing.ok, false);
+});
+
+test("stores replies and prompts in 600 files, rejects secrets, dedupes by id", () => {
+  const { dir, store } = tempStore();
+  const first = store.ingestReply({
+    id: "reply-aaaa",
+    messageId: "notif-aaaa",
+    action: "Yes",
+    replyText: null,
+    ts: NOW - 1_000,
+  });
+  assert.equal(first.duplicate, false);
+  const again = store.ingestReply({
+    id: "reply-aaaa",
+    messageId: "notif-aaaa",
+    action: "Yes",
+    ts: NOW,
+  });
+  assert.equal(again.duplicate, true);
+  const secret = store.ingestReply({
+    id: "reply-bbbb",
+    messageId: "notif-aaaa",
+    action: "No",
+    ts: NOW,
+    token: "super-secret-token",
+  });
+  assert.equal(secret.accepted.length, 0);
+  assert.match(secret.rejected[0].error, /secret field/);
+
+  const prompt = store.ingestPrompt({
+    id: "prompt-aaaa",
+    text: "What's on my calendar",
+    source: "qs_tile",
+    ts: NOW,
+  });
+  assert.equal(prompt.duplicate, false);
+
+  assert.equal(fs.statSync(dir).mode & 0o777, 0o700);
+  const replyFile = path.join(dir, "replies", "2026-10.jsonl");
+  assert.equal(fs.statSync(replyFile).mode & 0o777, 0o600);
+  const lines = fs.readFileSync(replyFile, "utf8").trim().split("\n");
+  assert.equal(lines.length, 1);
+  const row = JSON.parse(lines[0]);
+  assert.equal(row.messageId, "notif-aaaa");
+  assert.equal(row.action, "Yes");
+  assert.equal(Object.hasOwn(row, "token"), false);
+
+  const replies = store.queryReplies({ messageId: "notif-aaaa" });
+  assert.equal(replies.length, 1);
+  assert.equal(replies[0].action, "Yes");
+  const prompts = store.queryPrompts({});
+  assert.equal(prompts.length, 1);
+  assert.equal(prompts[0].source, "qs_tile");
+});
+
+test("HTTP /api/tool serves replies and prompts while the phone is offline", async () => {
+  const { store } = tempStore();
+  store.ingestReply({
+    id: "reply-cccccc",
+    messageId: "notif-cccc",
+    action: "reply",
+    replyText: "On my way",
+    ts: NOW,
+  });
+  store.ingestPrompt({
+    id: "prompt-cccccc",
+    text: "Ask the assistant about traffic",
+    source: "shortcut",
+    ts: NOW,
+  });
+  let phoneCalls = 0;
+  const started = await startLoopbackHttp({
+    port: 0,
+    wsPort: 11041,
+    bridge: {
+      isPhoneConnected: () => false,
+      callPhoneTool: async () => {
+        phoneCalls += 1;
+        throw new Error("should not call the phone");
+      },
+    },
+    assistantStore: store,
+  });
+  assert.ok(started);
+  try {
+    const replies = await postTool(started.port, {
+      tool: "get_notification_replies",
+      arguments: { messageId: "notif-cccc" },
+    });
+    assert.equal(replies.status, 200);
+    const replyBody = JSON.parse(replies.json.text);
+    assert.equal(replyBody.status, "success");
+    assert.equal(replyBody.count, 1);
+    assert.equal(replyBody.replies[0].action, "reply");
+    assert.equal(replyBody.replies[0].replyText, "On my way");
+
+    const prompts = await postTool(started.port, {
+      tool: "get_inbound_prompts",
+      arguments: {},
+    });
+    assert.equal(prompts.status, 200);
+    const promptBody = JSON.parse(prompts.json.text);
+    assert.equal(promptBody.prompts[0].text, "Ask the assistant about traffic");
+    assert.equal(phoneCalls, 0);
+  } finally {
+    await new Promise((resolve) => started.server.close(resolve));
+  }
+});
+
+test("POST /api/command send_notification validates then calls the phone", async () => {
+  const calls = [];
+  const started = await startLoopbackHttp({
+    port: 0,
+    wsPort: 11041,
+    bridge: {
+      isPhoneConnected: () => true,
+      callPhoneTool: async (name, args) => {
+        calls.push({ name, args });
+        return { status: "success", messageId: args.requestId, duplicate: false };
+      },
+    },
+    commandToken: "test-token",
+  });
+  assert.ok(started);
+  try {
+    const bad = await postCommand(started.port, {
+      command: "send_notification",
+      arguments: { title: "Hi", actions: ["A", "B", "C", "D"] },
+    });
+    assert.equal(bad.status, 400);
+    assert.equal(calls.length, 0);
+
+    const ok = await postCommand(started.port, {
+      command: "send_notification",
+      arguments: {
+        title: "Leave soon?",
+        body: "Dinner in 20",
+        requestId: "notif-dddd",
+        actions: ["OK", "Snooze 1h"],
+      },
+    });
+    assert.equal(ok.status, 200);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].name, "send_notification");
+    assert.equal(calls[0].args.requestId, "notif-dddd");
+    assert.deepEqual(calls[0].args.actions, ["OK", "Snooze 1h"]);
+    assert.equal(calls[0].args.priority, "high");
+  } finally {
+    await new Promise((resolve) => started.server.close(resolve));
+  }
+});
+
+test("GET /api/health includes hookFailed and never the wake URL or secret", async () => {
+  const started = await startLoopbackHttp({
+    port: 0,
+    wsPort: 11041,
+    bridge: {
+      isPhoneConnected: () => false,
+      callPhoneTool: async () => ({}),
+    },
+    wakeHookStatus: () => ({ wakeHookEnabled: true, hookFailed: 4 }),
+  });
+  assert.ok(started);
+  try {
+    const res = await new Promise((resolve, reject) => {
+      const req = http.request(
+        { host: "127.0.0.1", port: started.port, path: "/api/health", method: "GET" },
+        (r) => {
+          const chunks = [];
+          r.on("data", (c) => chunks.push(c));
+          r.on("end", () =>
+            resolve({
+              status: r.statusCode,
+              json: JSON.parse(Buffer.concat(chunks).toString("utf8")),
+              raw: Buffer.concat(chunks).toString("utf8"),
+            })
+          );
+        }
+      );
+      req.on("error", reject);
+      req.end();
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.json.wakeHookEnabled, true);
+    assert.equal(res.json.hookFailed, 4);
+    assert.equal(res.raw.includes("secret"), false);
+    assert.equal(res.raw.toLowerCase().includes("http://"), false);
+  } finally {
+    await new Promise((resolve) => started.server.close(resolve));
+  }
+});

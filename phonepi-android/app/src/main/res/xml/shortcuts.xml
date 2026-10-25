@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="ask_assistant"
+        android:enabled="true"
+        android:icon="@drawable/ic_stat_link"
+        android:shortcutShortLabel="@string/ask_assistant_short"
+        android:shortcutLongLabel="@string/ask_assistant_long">
+        <intent
+            android:action="dev.phonepi.companion.action.ASK_ASSISTANT"
+            android:targetPackage="dev.phonepi.companion"
+            android:targetClass="dev.phonepi.companion.assistant.AskAssistantActivity">
+            <extra
+                android:name="source"
+                android:value="shortcut" />
+        </intent>
+        <categories android:name="android.shortcut.conversation" />
+    </shortcut>
+</shortcuts>

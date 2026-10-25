@@ -58,6 +58,9 @@ Stdout stays the MCP channel. HTTP logs go to stderr. If port 11043 is already t
 | Phone WebSocket | `0.0.0.0:11041` | `--port` |
 | Loopback HTTP | `127.0.0.1:11043` | `--http-port` or `PHONEPI_HTTP_PORT` |
 | Phone WebSocket token | off | `PHONEPI_WS_TOKEN` |
+| Wake hook URL | off | `PHONEPI_WAKE_HOOK_URL` |
+| Wake hook secret | off | `PHONEPI_WAKE_HOOK_SECRET` |
+| Wake hook timeout | 2000 ms | `PHONEPI_WAKE_HOOK_TIMEOUT_MS` |
 
 `--http-port` wins over `PHONEPI_HTTP_PORT`. The HTTP listener always binds `127.0.0.1`. It will not bind a LAN or Tailscale address.
 
@@ -70,7 +73,7 @@ $env:PHONEPI_HTTP_PORT = "11043"
 $env:PHONEPI_WS_TOKEN = "choose-a-long-secret"
 ```
 
-Do not commit the token. The server never logs its value.
+Do not commit the token, the wake-hook URL, or the wake-hook secret. The server never logs those values.
 
 ### `GET /api/health`
 
@@ -93,11 +96,13 @@ Do not commit the token. The server never logs its value.
     "dnd_access": false,
     "exact_alarms": true
   },
-  "missingPermissions": ["notification_listener", "dnd_access"]
+  "missingPermissions": ["notification_listener", "dnd_access"],
+  "wakeHookEnabled": false,
+  "hookFailed": 0
 }
 ```
 
-No contact names, numbers, snippets, or token. `ok` means this HTTP API is up. `phoneConnected` is whether the current phone socket is open. `lastConnectedAt`, `lastDisconnectedAt`, and `lastPongAt` are ISO-8601 timestamps or null. `lastDisconnectCode` and `lastDisconnectReason` describe the latest drop (for example `1006` / `abnormal closure`, or `no pong received`). `phonePermissions` is the allowlisted grant map the phone last sent. `missingPermissions` lists the ones that are not granted. A replaced socket's close cannot clear a newer connection, so `phoneConnected` stays true after a reconnect.
+No contact names, numbers, snippets, or token. `ok` means this HTTP API is up. `phoneConnected` is whether the current phone socket is open. `lastConnectedAt`, `lastDisconnectedAt`, and `lastPongAt` are ISO-8601 timestamps or null. `lastDisconnectCode` and `lastDisconnectReason` describe the latest drop (for example `1006` / `abnormal closure`, or `no pong received`). `phonePermissions` is the allowlisted grant map the phone last sent. `missingPermissions` lists the ones that are not granted. A replaced socket's close cannot clear a newer connection, so `phoneConnected` stays true after a reconnect. `wakeHookEnabled` is true when `PHONEPI_WAKE_HOOK_URL` is set. `hookFailed` is how many wake-hook deliveries exhausted retries. Health never includes the hook URL or secret.
 
 Every server log line on stderr starts with an ISO-8601 timestamp.
 
@@ -168,6 +173,7 @@ Success is HTTP 200:
 | 400 | Bad JSON, missing tool name, or `arguments` is not an object | `{ "text", "isError": true }` |
 | 403 | Tool is not on the allowlist | `{ "text", "isError": true }` |
 | 429 | Over the per-tool rate limit (`get_notifications`, `list_notification_apps`, `get_volumes`, `get_recent_photos`, `list_alarms`, `get_location_history`, `search_places`, `get_presence`, `get_screen_time`, `get_health_summary`, `get_notification_log`) | `{ "text", "isError": true }` |
+| 429 | Over the per-tool rate limit (`get_notifications`, `list_notification_apps`, `get_volumes`, `get_recent_photos`, `list_alarms`, `get_location_history`, `search_places`, `get_notification_log`, `get_notification_replies`, `get_inbound_prompts`) | `{ "text", "isError": true }` |
 | 503 | Phone socket is not open | `{ "text", "isError": true }` |
 | 502 | The phone request failed (for example a timeout) | `{ "text", "isError": true }` |
 
@@ -193,6 +199,8 @@ Allowlist:
 - `get_screen_time` (30/min). Daily screen-on minutes, unlock count, top apps, and last used from `~/.phonepi/usage`. Works when the phone is offline. `stale` is true when the phone is disconnected or the last sync is older than 30 minutes. `days` default 7, cap 90. `from`/`to` are `YYYY-MM-DD` local phone dates. `top` default 10, cap 25. Totals only.
 - `get_health_summary` (30/min). Last night's sleep, steps today and 7-day, resting and average heart rate, recent workouts. Daily totals only. Works when the phone is offline (`stale` true). See **Sleep and health** below.
 - `get_notification_log` (60/min). Box-side running log of phone notifications. Works when the phone is offline. See **Notification log** below.
+- `get_notification_replies` (60/min). Action taps and RemoteInput replies for `send_notification`. Box copy. Works when the phone is offline.
+- `get_inbound_prompts` (60/min). Prompts Alex started from the Ask assistant tile, shortcut, Quick Tap, or a watch relay. Box copy. Works when the phone is offline.
 
 ### Notification log (box copy)
 
@@ -215,6 +223,7 @@ curl -s -X POST http://127.0.0.1:11043/api/tool -H 'Content-Type: application/js
 Limits: the phone keeps only the latest version of each notification key in memory (cap 200) and clears it when the companion restarts, so a notification posted and replaced or cleared while the box could not poll is only captured if the phone still returns it. Each poll is one `get_notifications` call, so the phone's Recent activity shows a line per poll and the poll shares the 60/min `get_notifications` budget.
 
 Everything else is rejected with 403 and is not sent to the phone. That includes `make_call`, `find_phone`, `set_alarm`, `set_timer`, `dismiss_alarm`, `dismiss_timer`, `copy_to_clipboard`, `send_message`, `send_notification`, snippet or contact add/update/delete, `share_snippet`, and every `gm_*` Google Messages tool. Clock writes, location admin, and health pause/clear use `POST /api/command`.
+Everything else is rejected with 403 and is not sent to the phone. That includes `make_call`, `find_phone`, `set_alarm`, `set_timer`, `dismiss_alarm`, `dismiss_timer`, `copy_to_clipboard`, `send_message`, snippet or contact add/update/delete, `share_snippet`, and every `gm_*` Google Messages tool. Clock writes, `send_notification`, and other phone actions use `POST /api/command`.
 
 ```powershell
 Invoke-RestMethod http://127.0.0.1:11043/api/health
@@ -263,6 +272,7 @@ Body:
 | `clear_health_cache` | write | 4/min |
 | `request_send_text` | action | 5/min and 30/day (`as_alex`), 5/min and 20/day (`attributed`) |
 | `get_send_status` | read | 60/min |
+| `send_notification` | action | 20/min |
 
 `get_photo` is a read, but it is not on `POST /api/tool`. Image bytes need the shared token. `get_recent_photos` is the no-token metadata list. The phone recompresses each image so one JSON frame stays under 1 MB. Original EXIF, including GPS, is not copied into those bytes.
 
@@ -293,6 +303,8 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:11043/api/tool `
   -ContentType "application/json" `
   -Body '{"tool":"search_places","arguments":{"query":"pizza vista"}}'
 ```
+
+`send_notification` posts an actionable PhonePi notification (up to 3 buttons plus Reply). `requestId` is idempotent. Default priority is high (existing urgent channel). The watch mirrors it with no watch app. Replies land in `~/.phonepi/assistant/replies/` and are read with `get_notification_replies`. Inbound prompts from the Ask assistant tile/shortcut land in `~/.phonepi/assistant/prompts/` (`get_inbound_prompts`). When `PHONEPI_WAKE_HOOK_URL` is set, the server POSTs `{event, id, ts}` immediately so bots do not wait for a poll. Optional `PHONEPI_WAKE_HOOK_SECRET` is sent as `X-PhonePi-Wake-Secret`. Never log either value. See [docs/assistant-notifications.md](../docs/assistant-notifications.md).
 
 `request_send_text` asks the phone to text one person. The server does not send SMS. `recipient` is one contact name or one phone number. `message` is at most 1000 characters. `mode` is `as_alex` (default) or `attributed`. `as_alex` stays `pending` until Alex taps Send or says send. `attributed` can send only after the phone adds `[Alex's assistant Grok]: `, and only if that switch is on. Fields such as `confirmed` or `skipConfirm` are HTTP 400. A name that matches several contacts returns `needs_clarification` and sends nothing. `get_send_status` reads `pending`, `sent`, `cancelled`, `expired`, `failed`, `needs_clarification`, or `rejected`. HTTP 200 is not proof the text was sent. Cancel and expiry are final. The box log is `~/.phonepi/sent-texts.jsonl`. The token is not written there. See [docs/send-text.md](../docs/send-text.md).
 
