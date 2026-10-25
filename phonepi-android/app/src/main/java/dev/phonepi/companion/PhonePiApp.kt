@@ -3,6 +3,7 @@ package dev.phonepi.companion
 import android.app.Application
 import dev.phonepi.companion.history.LocationCapture
 import dev.phonepi.companion.log.ActivityLog
+import dev.phonepi.companion.usage.UsageEngine
 import dev.phonepi.companion.notify.NotificationShare
 import dev.phonepi.companion.textsend.SendTextController
 import dev.phonepi.companion.volume.MidnightVolume
@@ -16,6 +17,7 @@ class PhonePiApp : Application() {
         AppForeground.register(this)
         MidnightVolume.rescheduleIfEnabled(this)
         LocationCapture.refresh(this)
+        UsageEngine.start(this)
         SendTextController.rearm(this)
     }
 }

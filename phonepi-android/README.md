@@ -138,6 +138,14 @@ No extra Maps API key.
 
 Pause logging and Delete all history are on that same screen. To backfill Google Timeline, export it yourself (Settings, Location, Location services, Timeline, Export Timeline data) and share the JSON into PhonePi, or tap **Import Timeline export**. PhonePi cannot press that Settings button for you.
 
+## Screen time
+
+**Screen time sharing** is on by default. Android still needs **Usage access** (`PACKAGE_USAGE_STATS`). PhonePi → Tool permissions → Usage access, or the Screen time panel, opens Settings → Usage access. Enable PhonePi there.
+
+The phone uses `UsageStatsManager.queryUsageStats` for daily per-app minutes and `queryEvents` for screen-on, unlocks, and last-used. Events are only kept a few days, so PhonePi stores a daily rollup on the phone and syncs it to the box. Totals only: no event timeline, no notification contents.
+
+Pause logging and Delete all usage are on that panel. Token commands from the box: `pause_usage_logging` and `clear_usage_history`.
+
 ### How to test
 
 With the phone linked and Maps installed:

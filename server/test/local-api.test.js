@@ -43,6 +43,8 @@ const FORBIDDEN = [
   "get_photo",
   "pause_location_logging",
   "clear_location_history",
+  "pause_usage_logging",
+  "clear_usage_history",
   "not_a_real_tool",
 ];
 
@@ -125,6 +127,7 @@ test("read-only allowlist is exactly the phone read tools", () => {
       "get_notifications",
       "get_recent_calls",
       "get_recent_photos",
+      "get_screen_time",
       "get_snippet_by_id",
       "get_snippets_by_type",
       "get_volumes",
@@ -212,7 +215,13 @@ test("each allowlisted tool can be called when the phone answers", async () => {
     },
     async ({ port }) => {
       for (const tool of READ_ONLY_HTTP_TOOLS) {
-        if (tool === "get_location_history" || tool === "search_places") continue;
+        if (
+          tool === "get_location_history" ||
+          tool === "search_places" ||
+          tool === "get_screen_time"
+        ) {
+          continue;
+        }
         const res = await postTool(port, { tool, arguments: { query: "x" } });
         assert.equal(res.status, 200, tool);
         assert.equal(res.json.isError, false, tool);

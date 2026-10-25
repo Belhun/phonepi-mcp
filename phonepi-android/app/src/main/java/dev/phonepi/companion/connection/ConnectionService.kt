@@ -39,7 +39,9 @@ import dev.phonepi.companion.tools.SetVolumeTool
 import dev.phonepi.companion.tools.ListLocationsTool
 import dev.phonepi.companion.tools.ListNotificationAppsTool
 import dev.phonepi.companion.tools.ClearLocationHistoryTool
+import dev.phonepi.companion.tools.ClearUsageHistoryTool
 import dev.phonepi.companion.tools.NavigateTool
+import dev.phonepi.companion.tools.PauseUsageLoggingTool
 import dev.phonepi.companion.tools.PauseLocationLoggingTool
 import dev.phonepi.companion.tools.PushUpdateTool
 import dev.phonepi.companion.tools.RemoveLocationTool
@@ -140,6 +142,8 @@ class ConnectionService : Service() {
                 DeleteContactTool(ctx),
                 PauseLocationLoggingTool(ctx),
                 ClearLocationHistoryTool(ctx),
+                PauseUsageLoggingTool(ctx),
+                ClearUsageHistoryTool(ctx),
                 RequestSendTextTool(ctx),
                 GetSendStatusTool(ctx),
             ),

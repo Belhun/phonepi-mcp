@@ -30,6 +30,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import dev.phonepi.companion.notify.NotificationAccess
 import dev.phonepi.companion.permissions.PermissionTier
+import dev.phonepi.companion.usage.UsageAccess
 import dev.phonepi.companion.update.UnknownAppInstall
 import dev.phonepi.companion.permissions.isGranted
 import dev.phonepi.companion.permissions.missingPermissions
@@ -48,6 +49,7 @@ fun PermissionsPanel(modifier: Modifier = Modifier) {
     }
     val overlayOk = remember(refreshKey) { Settings.canDrawOverlays(context) }
     val notificationAccessOk = remember(refreshKey) { NotificationAccess.isGranted(context) }
+    val usageAccessOk = remember(refreshKey) { UsageAccess.isGranted(context) }
     val unknownAppsOk = remember(refreshKey) { UnknownAppInstall.isGranted(context) }
     val fsiOk = remember(refreshKey) {
         if (Build.VERSION.SDK_INT >= 34) {
@@ -74,9 +76,10 @@ fun PermissionsPanel(modifier: Modifier = Modifier) {
     ) {
         Text("Tool permissions", style = MaterialTheme.typography.titleMedium)
         Text(
-            "Grant access before running call, contact, location, navigation, or notification tools. " +
+            "Grant access before running call, contact, location, navigation, notification, or screen time tools. " +
                 "Display over other apps is what lets Maps open while PhonePi is in the background. " +
-                "Notification access is a separate system setting; PhonePi still shares no apps until you pick them.",
+                "Notification access is a separate system setting; PhonePi still shares no apps until you pick them. " +
+                "Usage access is Settings → Usage access; it is not a runtime dialog.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -94,6 +97,14 @@ fun PermissionsPanel(modifier: Modifier = Modifier) {
             granted = notificationAccessOk,
             onGrant = {
                 context.startActivity(NotificationAccess.settingsIntent(context))
+            },
+        )
+
+        PermissionTierRow(
+            label = "Usage access",
+            granted = usageAccessOk,
+            onGrant = {
+                context.startActivity(UsageAccess.settingsIntent())
             },
         )
 

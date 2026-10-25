@@ -17,6 +17,8 @@ import { CommandRateLimiter, commandRateLimiter } from "./command-rate-limit.js"
 import { isLocationReadTool, runLocationRead } from "./location-tools.js";
 import { NotificationLog, openNotificationLog } from "./notification-log.js";
 import { isNotificationLogTool, runNotificationLogRead } from "./notification-log-tools.js";
+import { UsageLog, openUsageLog } from "./usage-log.js";
+import { isUsageReadTool, runUsageRead } from "./usage-tools.js";
 import {
   authorizeCommandToken,
   tokenFromHttpRequest,
@@ -60,6 +62,8 @@ export interface StartLoopbackHttpOptions {
   /** Box copy of captured notifications. Reads do not need the phone. */
   notificationLog?: NotificationLog;
   notificationCaptureStatus?: () => Record<string, unknown>;
+  /** Box copy of daily screen time. Reads do not need the phone. */
+  usageLog?: UsageLog;
 }
 
 type ToolBody = {
@@ -293,6 +297,35 @@ async function handleTool(
       args,
       capture: options.notificationCaptureStatus,
     });
+    sendJson(res, outcome.status, outcome.body);
+    return;
+  }
+  if (isUsageReadTool(body.tool)) {
+    const log = options.usageLog ?? openUsageLog();
+    const limiter = options.locationReadLimiter ?? commandRateLimiter;
+    const outcome = runUsageRead({
+      log,
+      limiter,
+      args,
+      phoneConnected: bridge.isPhoneConnected(),
+      activityLogged: false,
+    });
+    if (outcome.status === 200) {
+      const logged =
+        bridge.noteActivity?.({
+          title: body.tool,
+          detail: "read box screen time",
+        }) ?? false;
+      if (logged) {
+        try {
+          const payload = JSON.parse(String(outcome.body.text));
+          payload.activityLogged = true;
+          outcome.body.text = JSON.stringify(payload, null, 2);
+        } catch {
+          // The text is already a success payload. Leave activityLogged false.
+        }
+      }
+    }
     sendJson(res, outcome.status, outcome.body);
     return;
   }

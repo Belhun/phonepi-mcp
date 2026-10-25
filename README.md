@@ -70,6 +70,22 @@ Address of the pizza place in Vista:
 
 Token commands: `pause_location_logging` (`paused` true or false, 10/min) and `clear_location_history` (`confirm` must be `"delete"`, 4/min). The phone has the same pause and delete actions. The box stores `~/.phonepi/location/YYYY-MM.jsonl` for 12 months unless `PHONEPI_LOCATION_RETENTION_MONTHS` says otherwise.
 
+## Screen time
+
+Companion **0.3.4**. Daily totals from Android `UsageStatsManager`. No event timeline and no notification contents.
+
+`get_screen_time` is a no-token read (`POST /api/tool`, 30/min) from the box copy, including when the phone is offline (`stale` true then, or when the last sync is older than 30 minutes):
+
+- `days` (default 7, cap 90) or `from` / `to` as `YYYY-MM-DD` local phone dates
+- `top` (default 10, cap 25) apps by foreground minutes
+- Returns screen-on minutes, unlock count, top apps, and last time the phone was used
+
+```json
+{"tool":"get_screen_time","arguments":{"days":7,"top":10}}
+```
+
+Token commands: `pause_usage_logging` (`paused` true or false, 10/min) and `clear_usage_history` (`confirm` must be `"delete"`, 4/min). The master switch is on by default. Alex still has to grant **Usage access** in Settings. The box stores `~/.phonepi/usage/YYYY-MM-DD.json` (dir 700, files 600) for 90 days unless `PHONEPI_USAGE_RETENTION_DAYS` says otherwise.
+
 Android will not let PhonePi edit or delete arbitrary Clock alarms. A dismiss result says whether Clock accepted the intent. It does not prove the alarm is gone. If that Clock app has no dismiss handler, the phone returns `status:"error"`. HTTP 200 still has to be parsed for `status` and `started`.
 
 ## Texts
