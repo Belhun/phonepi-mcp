@@ -37,6 +37,8 @@ sealed interface WsMessage {
     data class PresenceAck(val raw: String) : WsMessage
     /** Ack for a usage sync or a screen-time wipe. */
     data class UsageAck(val raw: String) : WsMessage
+    /** Ack for a health summary sync or a cache wipe. */
+    data class HealthAck(val raw: String) : WsMessage
 
     /** A box-side read that should show up in Recent activity. */
     data class ActivityNote(
@@ -66,6 +68,7 @@ sealed interface WsMessage {
                 "location_sync_ack", "location_cleared_ack" -> LocationAck(text)
                 "presence_sync_ack", "presence_cleared_ack" -> PresenceAck(text)
                 "usage_sync_ack", "usage_cleared_ack" -> UsageAck(text)
+                "health_sync_ack", "health_cleared_ack" -> HealthAck(text)
                 "activity" -> ActivityNote(
                     title = obj["title"]?.jsonPrimitive?.contentOrNull?.take(80) ?: "activity",
                     detail = obj["detail"]?.jsonPrimitive?.contentOrNull?.take(240).orEmpty(),

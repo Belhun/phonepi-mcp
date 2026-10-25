@@ -79,6 +79,7 @@ test("command allowlist is the phone commands", () => {
   assert.deepEqual(
     [...PHONE_COMMAND_NAMES].sort(),
     [
+      "clear_health_cache",
       "clear_location_history",
       "clear_presence_history",
       "clear_usage_history",
@@ -86,6 +87,7 @@ test("command allowlist is the phone commands", () => {
       "dismiss_timer",
       "get_photo",
       "get_send_status",
+      "pause_health_sync",
       "pause_location_logging",
       "pause_presence_logging",
       "pause_usage_logging",

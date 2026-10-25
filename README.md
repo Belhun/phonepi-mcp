@@ -98,6 +98,17 @@ Companion **0.3.4**. Daily totals from Android `UsageStatsManager`. No event tim
 ```
 
 Token commands: `pause_usage_logging` (`paused` true or false, 10/min) and `clear_usage_history` (`confirm` must be `"delete"`, 4/min). The master switch is on by default. Alex still has to grant **Usage access** in Settings. The box stores `~/.phonepi/usage/YYYY-MM-DD.json` (dir 700, files 600) for 90 days unless `PHONEPI_USAGE_RETENTION_DAYS` says otherwise.
+## Sleep and health
+
+Companion **0.3.4**. Health Connect on the Pixel (Galaxy Watch 7 via Samsung Health). PhonePi does not use the Samsung Health Data SDK.
+
+Read-only `get_health_summary` (`POST /api/tool`, 30/min) returns last night's sleep, steps today and 7-day, resting and average heart rate, and recent workouts as **daily totals**. No raw heart-rate streams. `lastNightSleepEndMs` is the sleep end for later Clock bedtime/wake. Works when the phone is offline (`stale` true). Samsung Health can lag minutes to hours; `syncedAtIso` is the last Health Connect read.
+
+```json
+{"tool":"get_health_summary","arguments":{}}
+```
+
+The in-app **Sleep and health** switch starts on. Alex still grants Health Connect after the privacy screen. Token commands: `pause_health_sync` (`paused` true or false, 10/min) and `clear_health_cache` (`confirm` must be `"delete"`, 4/min). Box files: `~/.phonepi/health` (dir 700, files 600). See [docs/health.md](docs/health.md) for the Samsung Health → Health Connect taps.
 
 Android will not let PhonePi edit or delete arbitrary Clock alarms. A dismiss result says whether Clock accepted the intent. It does not prove the alarm is gone. If that Clock app has no dismiss handler, the phone returns `status:"error"`. HTTP 200 still has to be parsed for `status` and `started`.
 

@@ -186,7 +186,7 @@ PhonePi can show recent and currently active notifications to MCP / the loopback
 
 `get_notifications` returns app name, title, text, time, and package. If Android hid a field, the value is `(hidden by Android)` plus a `hiddenFields` reason. Unshared apps are counted in `omittedUnsharedCount`, not silently dropped. Tools are rate-limited (60/min) and show up in Recent activity.
 
-The main screen scrolls (connect → update → permissions → volumes → notification sharing → **Recent activity**) and sits inside the system bars. Scroll to the bottom for **Share all**, per-app toggles, and **Recent activity** with its **Clear** button.
+The main screen scrolls (connect → update → permissions → location history → sleep and health → volumes → notification sharing → **Recent activity**) and sits inside the system bars. Scroll to the bottom for **Share all**, per-app toggles, and **Recent activity** with its **Clear** button.
 
 ## Alarms and timers
 
@@ -228,6 +228,23 @@ A text that reads as you always needs the **Send** action, or the word "send" af
 The PC serves `GET /phonepi/update/manifest` and `GET /phonepi/update/apk` on the same WebSocket host (token required). Drop a **release** APK in `PHONEPI_UPDATE_DIR` (default `~/.phonepi/updates`) and run `scripts/sign-update-manifest.sh`. The phone checks the Ed25519 manifest signature, APK sha256, and the pinned release cert before showing Install. After Install, `ACTION_MY_PACKAGE_REPLACED` reconnects to the saved host.
 
 On the phone: **Check for update** / **Force update**, or MCP `phone_push_update`. Force update reinstalls the same versionCode only; it will not downgrade. Grant **Install unknown apps** once (Tool permissions). Keys: [docs/release-signing.md](../docs/release-signing.md).
+
+## Sleep and health
+
+Companion **0.3.4** (versionCode 16). PhonePi reads Health Connect (`androidx.health.connect:connect-client`). It does not use the Samsung Health Data SDK.
+
+**Sleep and health** on the main screen starts **on**. You still grant Health Connect. The privacy/rationale screen is required before Android will ask. The row shows granted state and the last Health Connect read time. Samsung Health can lag minutes to hours.
+
+### What Alex must do
+
+1. Install this companion (**0.3.4**). Debug → release is still a one-time uninstall.
+2. Open **Samsung Health** → drawer or profile → **Settings** → **Health Connect**. Turn it on if asked.
+3. Allow Samsung Health to **write** Sleep, Steps, Heart rate, Exercise, and Blood oxygen.
+4. Open **PhonePi** → **Sleep and health** → **Privacy policy** → **I understand, continue**.
+5. Tap **Grant Health Connect**. Allow sleep, steps, heart rate, resting heart rate, exercise, blood oxygen, background access, and optional past data.
+6. Pause and Delete health cache are on that panel. Bots use `get_health_summary` on the box. Details: [docs/health.md](../docs/health.md).
+
+Hourly WorkManager plus a read on connect. Daily totals only (no raw heart-rate streams).
 
 Unit tests (no device):
 

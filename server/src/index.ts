@@ -27,6 +27,8 @@ import {
 } from "./presence-tools.js";
 import { openUsageLog } from "./usage-log.js";
 import { isUsageReadTool, USAGE_TOOL_SCHEMAS, runUsageRead } from "./usage-tools.js";
+import { openHealthLog } from "./health-log.js";
+import { HEALTH_TOOL_SCHEMAS, isHealthReadTool, runHealthRead } from "./health-tools.js";
 import { openNotificationLog } from "./notification-log.js";
 import {
   NOTIFICATION_LOG_TOOL_SCHEMAS,
@@ -108,6 +110,7 @@ class PhonePiMCPServer {
   private presenceLog = openPresenceLog();
   private presenceConfig = openPresenceConfig();
   private usageLog = openUsageLog();
+  private healthLog = openHealthLog();
   private notificationLog = openNotificationLog();
   private notificationPoller: NotificationPoller | null = null;
 
@@ -176,6 +179,7 @@ class PhonePiMCPServer {
       presenceLog: this.presenceLog,
       presenceConfig: this.presenceConfig,
       usageLog: this.usageLog,
+      healthLog: this.healthLog,
       notificationLog: this.notificationLog,
       notificationCaptureStatus: () => this.notificationCaptureStatus(),
     });
@@ -311,6 +315,37 @@ class PhonePiMCPServer {
       );
     } catch (err) {
       console.error("[WebSocket] Failed to ack usage sync");
+    }
+  }
+
+  private handleHealthFrame(ws: WebSocket, message: { type?: string; summary?: unknown }): void {
+    if (!this.session.isCurrent(ws)) {
+      console.error("[WebSocket] Ignored health frame from a stale socket");
+      return;
+    }
+    if (message.type === "health_cleared") {
+      this.healthLog.clear();
+      try {
+        ws.send(JSON.stringify({ type: "health_cleared_ack" }));
+      } catch (err) {
+        console.error("[WebSocket] Failed to ack health clear");
+      }
+      return;
+    }
+    const result = this.healthLog.ingest(message.summary);
+    console.error(
+      `[WebSocket] health sync ${result.ok ? "accepted" : "rejected"}`
+    );
+    try {
+      ws.send(
+        JSON.stringify({
+          type: "health_sync_ack",
+          ok: result.ok,
+          error: result.ok ? undefined : result.error,
+        })
+      );
+    } catch (err) {
+      console.error("[WebSocket] Failed to ack health sync");
     }
   }
 
@@ -577,6 +612,13 @@ class PhonePiMCPServer {
         (message.type === "usage_sync" || message.type === "usage_cleared")
       ) {
         this.handleUsageFrame(ws, message);
+        return;
+      }
+      if (
+        message &&
+        (message.type === "health_sync" || message.type === "health_cleared")
+      ) {
+        this.handleHealthFrame(ws, message);
         return;
       }
       if(DEBUG_WEBSOCKET) {
@@ -1625,6 +1667,7 @@ class PhonePiMCPServer {
         ...LOCATION_TOOL_SCHEMAS,
         ...PRESENCE_TOOL_SCHEMAS,
         ...USAGE_TOOL_SCHEMAS,
+        ...HEALTH_TOOL_SCHEMAS,
         ...NOTIFICATION_LOG_TOOL_SCHEMAS,
         ...PHONE_COMMAND_SCHEMAS,
         ...GM_TOOL_SCHEMAS,
@@ -1718,6 +1761,34 @@ class PhonePiMCPServer {
           this.notePhoneActivity({
             title: request.params.name,
             detail: "read box screen time",
+          })
+        ) {
+          try {
+            const payload = JSON.parse(text);
+            payload.activityLogged = true;
+            text = JSON.stringify(payload, null, 2);
+          } catch {
+            // Keep the original success text.
+          }
+        }
+        return { content: [{ type: "text", text }] };
+      }
+
+      if (isHealthReadTool(request.params.name)) {
+        const outcome = runHealthRead({
+          log: this.healthLog,
+          limiter: commandRateLimiter,
+          phoneConnected: this.isPhoneOpen(),
+          activityLogged: false,
+        });
+        if (outcome.status === 429) {
+          throw new McpError(ErrorCode.InvalidRequest, String(outcome.body.text));
+        }
+        let text = String(outcome.body.text);
+        if (
+          this.notePhoneActivity({
+            title: request.params.name,
+            detail: "read box health summary",
           })
         ) {
           try {

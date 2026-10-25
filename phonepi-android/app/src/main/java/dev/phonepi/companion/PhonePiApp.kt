@@ -1,6 +1,7 @@
 package dev.phonepi.companion
 
 import android.app.Application
+import dev.phonepi.companion.health.HealthSyncScheduler
 import dev.phonepi.companion.history.LocationCapture
 import dev.phonepi.companion.presence.PresenceEngine
 import dev.phonepi.companion.log.ActivityLog
@@ -21,5 +22,6 @@ class PhonePiApp : Application() {
         PresenceEngine.nudge(this)
         UsageEngine.start(this)
         SendTextController.rearm(this)
+        HealthSyncScheduler.apply(this)
     }
 }

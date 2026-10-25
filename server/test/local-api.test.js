@@ -47,6 +47,8 @@ const FORBIDDEN = [
   "clear_presence_history",
   "pause_usage_logging",
   "clear_usage_history",
+  "pause_health_sync",
+  "clear_health_cache",
   "not_a_real_tool",
 ];
 
@@ -125,6 +127,7 @@ test("read-only allowlist is exactly the phone read tools", () => {
       "get_battery_level",
       "get_contact_by_id",
       "get_contacts",
+      "get_health_summary",
       "get_location_history",
       "get_notifications",
       "get_presence",
@@ -221,8 +224,9 @@ test("each allowlisted tool can be called when the phone answers", async () => {
         if (
           tool === "get_location_history" ||
           tool === "search_places" ||
-          tool === "get_presence"
-          tool === "get_screen_time"
+          tool === "get_presence" ||
+          tool === "get_screen_time" ||
+          tool === "get_health_summary"
         ) {
           continue;
         }

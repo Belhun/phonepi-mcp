@@ -2,6 +2,7 @@ package dev.phonepi.companion.connection
 
 import android.content.Context
 import android.util.Log
+import dev.phonepi.companion.health.HealthSync
 import dev.phonepi.companion.history.LocationHistorySync
 import dev.phonepi.companion.presence.PresenceSync
 import dev.phonepi.companion.log.ActivityLog
@@ -321,6 +322,7 @@ class WebSocketManager(
                 LocationHistorySync.detach()
                 PresenceSync.detach()
                 UsageSync.detach()
+                HealthSync.detach()
             }
             try {
                 old.close(1000, "switching server")
@@ -409,6 +411,7 @@ class WebSocketManager(
         LocationHistorySync.detach()
         PresenceSync.detach()
         UsageSync.detach()
+        HealthSync.detach()
         keepaliveJob?.cancel()
         attemptTimeoutJob?.cancel()
         probeJob?.cancel()
@@ -510,6 +513,15 @@ class WebSocketManager(
                     false
                 }
             }
+            HealthSync.attach(appContext) { payload ->
+                try {
+                    webSocket.send(payload)
+                    true
+                } catch (t: Throwable) {
+                    Log.w(TAG, "health sync send failed: ${t.message}")
+                    false
+                }
+            }
             startProbeLoop(webSocket)
             onReady()
         }
@@ -530,6 +542,7 @@ class WebSocketManager(
                 is WsMessage.LocationAck -> LocationHistorySync.onFrame(text)
                 is WsMessage.PresenceAck -> PresenceSync.onFrame(text)
                 is WsMessage.UsageAck -> UsageSync.onFrame(text)
+                is WsMessage.HealthAck -> HealthSync.onFrame(text)
                 is WsMessage.ActivityNote ->
                     ActivityLog.logRemoteAction(msg.title, msg.detail, msg.status)
                 is WsMessage.Unknown -> Log.v(TAG, "ignored frame type=${msg.type}")

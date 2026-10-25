@@ -150,6 +150,8 @@ dependencies {
 
     implementation(libs.eddsa)
     implementation(libs.play.services.location)
+    implementation(libs.androidx.health.connect)
+    implementation(libs.androidx.work.runtime.ktx)
 
     testImplementation("junit:junit:4.13.2")
 }
