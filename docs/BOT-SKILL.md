@@ -38,7 +38,7 @@ Responses are always `{"text": "<JSON string>", "isError": bool}`. **HTTP 200 do
 curl -s -X POST http://127.0.0.1:11043/api/tool -H 'Content-Type: application/json' \
   -d '{"tool":"get_battery_level","arguments":{}}'
 ```
-Allowlist (exact): `get_battery_level`, `get_volumes`, `get_contacts`, `search_contacts` {query, limit≤50}, `get_contact_by_id` {id}, `get_recent_calls` {limit, hours (default 168) | since (epoch ms), type/types, number, includeContactNames}, `get_notifications` {package, since (epoch ms), limit default 50 cap 200}, `list_notification_apps`, `get_recent_photos` {limit default 5, hard cap 20, since (epoch ms)}, `list_alarms`, `get_location_history`, `search_places`, `get_presence`, `get_notification_log` {since, until, postedSince, postedUntil, package, query, limit default 100 cap 500}, `get_all_snippets`, `get_snippet_by_id`, `get_snippets_by_type`, `search_snippets`.
+Allowlist (exact): `get_battery_level`, `get_volumes`, `get_contacts`, `search_contacts` {query, limit≤50}, `get_contact_by_id` {id}, `get_recent_calls` {limit, hours (default 168) | since (epoch ms), type/types, number, includeContactNames}, `get_notifications` {package, since (epoch ms), limit default 50 cap 200}, `list_notification_apps`, `get_recent_photos` {limit default 5, hard cap 20, since (epoch ms)}, `list_alarms`, `get_location_history`, `search_places`, `get_presence`, `get_screen_time` {days default 7 cap 90, from/to YYYY-MM-DD local dates, top default 10 cap 25}, `get_notification_log` {since, until, postedSince, postedUntil, package, query, limit default 100 cap 500}, `get_all_snippets`, `get_snippet_by_id`, `get_snippets_by_type`, `search_snippets`.
 - Battery → `level`, `isCharging`, `chargingStatus`.
 - Volumes → per-stream `current`/`max`, `ringerMode`, `dnd`, `notificationPolicyAccess`, `exactAlarmsAllowed`, `midnightMaxEnabled`.
 - Notifications: only apps Alex allowlisted in the app (default: none). Unshared apps are counted in `omittedUnsharedCount`.
@@ -46,6 +46,7 @@ Allowlist (exact): `get_battery_level`, `get_volumes`, `get_contacts`, `search_c
 - `list_alarms` (60/min): `nextAlarm` from `AlarmManager.getNextAlarmClock()` (`triggerAt` epoch ms, or null), plus `phonePiAlarms` (hour, minute, label, repeat day names, createdAt) for alarms PhonePi itself asked Clock to create. This is not the Clock app's full list.
 - `get_location_history` and `search_places` (30/min each) read the box copy. They work when the phone is offline. See the location history section below.
 - `get_presence` (30/min) reads the box presence snapshot. Works when the phone is offline. See [presence.md](presence.md). Check this before messaging Alex if location matters.
+- `get_screen_time` (30/min) reads the box copy of daily screen-on minutes, unlock count, top apps, and last used. Works when the phone is offline (`stale` true then). See the screen time section below.
 - `get_notification_log` (60/min) reads the box's running notification log. Works when the phone is offline. See section c2.
 
 ### b) Commands — `POST /api/command`, token required
@@ -75,6 +76,8 @@ curl -s -X POST http://127.0.0.1:11043/api/command \
 | `clear_location_history` | `confirm` must be `"delete"` | 4 | Deletes history on the phone and on the box. |
 | `pause_presence_logging` | `paused` true or false | 10 | Stops or resumes presence geofences and the 3-minute check. Last snapshot stays. |
 | `clear_presence_history` | `confirm` must be `"delete"` | 4 | Deletes the presence snapshot on the phone and on the box. |
+| `pause_usage_logging` | `paused` true or false | 10 | Stops or resumes new screen time totals. History stays. |
+| `clear_usage_history` | `confirm` must be `"delete"` | 4 | Deletes screen time history on the phone and on the box. |
 | `request_send_text` | `recipient`, `message` (max 1000). Optional `mode`: `as_alex` (default) or `attributed` | 5/min and 30/day for `as_alex`; 5/min and 20/day for `attributed` | Does not send by itself. See section 3d. |
 | `get_send_status` | `id` from the request | 60 | `pending`, `sent`, `cancelled`, `expired`, `failed`, `needs_clarification`, or `rejected`. |
 
@@ -122,6 +125,20 @@ curl -s -X POST http://127.0.0.1:11043/api/tool -H 'Content-Type: application/js
 If `place` is `work` (or the mapped work name) and `matches_expected` is true, he is where the schedule says. If `expected_place` is `work` and `place` is `away`, he is not at work. If `ageMs` is large, say the snapshot is stale.
 
 Needs the in-app **Presence** switch (on by default), location **Allow all the time**, and saved places marked presence. Details: [presence.md](presence.md).
+### c1) Screen time (box copy, works offline)
+
+Daily totals. Companion **0.3.4**. `queryUsageStats` for per-app minutes. `queryEvents` for screen-on, unlocks, and last-used. Android only keeps events a few days, so the phone stores a daily rollup and syncs it to `~/.phonepi/usage/YYYY-MM-DD.json` (dir 700, files 600). Default retention is 90 days (`PHONEPI_USAGE_RETENTION_DAYS`). Totals only: no event timeline, no notification contents.
+
+`get_screen_time` arguments: `days` (default 7, cap 90), `from`/`to` as `YYYY-MM-DD` **local phone dates**, `top` (default 10, cap 25). `stale` is true when the phone is offline or the last sync is older than 30 minutes.
+
+```bash
+curl -s -X POST http://127.0.0.1:11043/api/tool -H 'Content-Type: application/json' \
+  -d '{"tool":"get_screen_time","arguments":{"days":7,"top":10}}'
+```
+
+The master switch is on by default. Alex still has to grant **Usage access** (Settings → Usage access). Pause and delete are token commands: `pause_usage_logging` and `clear_usage_history`.
+
+These reads do not need `phoneConnected:true`. `activityLogged` is false when the phone was offline.
 
 ### c2) Notification log (box copy, works offline)
 
@@ -298,14 +315,15 @@ Full rules: [send-text.md](send-text.md).
 - **Presence** (on by default): same location **Allow all the time** plus marked saved places. DND state uses `ACCESS_NOTIFICATION_POLICY` (already in the manifest). PhonePi does not change Do Not Disturb. Urgent messages use the **PhonePi urgent messages** channel; Alex can allow that channel through DND himself.
 - **Clock**: `SET_ALARM` is granted at install. Google Clock (or another app that handles the Clock intents) must be installed. **Display over other apps** is what lets `set_alarm` / `set_timer` / dismiss run without a tap. There is no permission that lets PhonePi edit someone else's alarms.
 - **Texts**: **Allow bots to request texts** (off by default) plus SMS, contacts, and notifications. Microphone for spoken confirm. Physical activity and nearby Bluetooth devices help detect driving. **Allow assistant-signed texts without confirm** is a second switch, also off. Details in section 3d.
+- **Usage access** (`PACKAGE_USAGE_STATS`): for `get_screen_time`. Settings → Usage access. The in-app switch is on by default; this grant is still required.
 
-## 5. What PhonePi can and cannot do (as of companion 0.3.2)
-Can (via HTTP, any bot): navigation to anything Maps can search, saved places, volumes (read/set/max all), battery, contacts (read/search), recent calls, allowlisted notifications, snippets, recent photo metadata (`get_recent_photos`), one recompressed photo at a time (`get_photo`, shared token), `list_alarms`, Clock `set_alarm` / `set_timer` / `dismiss_alarm` / `dismiss_timer` (those four need the shared token), `request_send_text` / `get_send_status` (token, phone confirm, switches off by default), location history (`get_location_history`, `search_places`), presence (`get_presence`), and the notification log (`get_notification_log`) from the box copy even when the phone is offline.
-On-phone only: "Max volumes at midnight" toggle, reconnect-on-boot, reconnect after update, the Location history switch, pause, delete, and Timeline JSON import, the Presence switch (on by default), presence pause/clear, and marking saved places as presence. Work hours are the box config file, not a phone setting.
+## 5. What PhonePi can and cannot do (as of companion 0.3.4)
+Can (via HTTP, any bot): navigation to anything Maps can search, saved places, volumes (read/set/max all), battery, contacts (read/search), recent calls, allowlisted notifications, snippets, recent photo metadata (`get_recent_photos`), one recompressed photo at a time (`get_photo`, shared token), `list_alarms`, Clock `set_alarm` / `set_timer` / `dismiss_alarm` / `dismiss_timer` (those four need the shared token), `request_send_text` / `get_send_status` (token, phone confirm, switches off by default), location history (`get_location_history`, `search_places`), presence (`get_presence`), screen time (`get_screen_time`), and the notification log (`get_notification_log`) from the box copy even when the phone is offline.
+On-phone only: "Max volumes at midnight" toggle, reconnect-on-boot, reconnect after update, the Location history switch, pause, delete, and Timeline JSON import, the Presence switch (on by default), presence pause/clear, marking saved places as presence, work hours on the box config file, and the Screen time switch / Usage access row / pause / delete.
 
 Exists on the phone but NOT reachable from bots right now: `find_phone` (ring), `copy_to_clipboard`, `make_call`, `get_location`, `send_notification`, contact edits, snippet writes. Don't promise these; `/api/tool` returns 403.
 
-Cannot: read SMS or RCS, send RCS, send a text with no phone-side rule, press Android Auto's Start now, install updates silently, run arbitrary commands, report what is on screen, list or delete arbitrary Clock alarms, trigger Google's Timeline export, or work at all when the phone is off the tailnet (location history reads of the box copy are the exception). A dismiss result is a request to the Clock app, not proof the alarm is gone. A text request is not proof the text was sent. `gm_send_message` is not this flow. Do not use it to skip the phone. Location history stays empty until Alex opts in.
+Cannot: read SMS or RCS, send RCS, send a text with no phone-side rule, press Android Auto's Start now, install updates silently, run arbitrary commands, report what is on screen, list or delete arbitrary Clock alarms, trigger Google's Timeline export, return a usage event timeline or notification contents, or work at all when the phone is off the tailnet (location history and screen time reads of the box copy are the exception). A dismiss result is a request to the Clock app, not proof the alarm is gone. A text request is not proof the text was sent. `gm_send_message` is not this flow. Do not use it to skip the phone. Location history stays empty until Alex opts in. Screen time stays empty until he grants Usage access.
 
 ## 6. Diagnosing "Phone not connected"
 Check in order (all read-only):

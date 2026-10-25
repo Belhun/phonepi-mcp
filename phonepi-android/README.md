@@ -149,6 +149,13 @@ Pause logging and Delete all history are on that same screen. To backfill Google
 Pause presence and Clear presence snapshot are on that same screen. Work hours live on the box in `~/.phonepi/presence/config.json` (default 8:00 AM–5:00 PM Monday–Friday Pacific). Church hours stay empty until you edit the file.
 
 Urgent PhonePi messages use **PhonePi urgent messages**. This app does not change Do Not Disturb. To hear them while DND is on, allow that channel in system Settings yourself. See [docs/presence.md](../docs/presence.md).
+## Screen time
+
+**Screen time sharing** is on by default. Android still needs **Usage access** (`PACKAGE_USAGE_STATS`). PhonePi → Tool permissions → Usage access, or the Screen time panel, opens Settings → Usage access. Enable PhonePi there.
+
+The phone uses `UsageStatsManager.queryUsageStats` for daily per-app minutes and `queryEvents` for screen-on, unlocks, and last-used. Events are only kept a few days, so PhonePi stores a daily rollup on the phone and syncs it to the box. Totals only: no event timeline, no notification contents.
+
+Pause logging and Delete all usage are on that panel. Token commands from the box: `pause_usage_logging` and `clear_usage_history`.
 
 ### How to test
 

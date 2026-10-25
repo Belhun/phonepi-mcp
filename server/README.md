@@ -167,7 +167,7 @@ Success is HTTP 200:
 | 200 | Allowlisted tool ran | `{ "text", "isError": false }` |
 | 400 | Bad JSON, missing tool name, or `arguments` is not an object | `{ "text", "isError": true }` |
 | 403 | Tool is not on the allowlist | `{ "text", "isError": true }` |
-| 429 | Over the per-tool rate limit (`get_notifications`, `list_notification_apps`, `get_volumes`, `get_recent_photos`, `list_alarms`, `get_location_history`, `search_places`, `get_presence`, `get_notification_log`) | `{ "text", "isError": true }` |
+| 429 | Over the per-tool rate limit (`get_notifications`, `list_notification_apps`, `get_volumes`, `get_recent_photos`, `list_alarms`, `get_location_history`, `search_places`, `get_presence`, `get_screen_time`, `get_notification_log`) | `{ "text", "isError": true }` |
 | 503 | Phone socket is not open | `{ "text", "isError": true }` |
 | 502 | The phone request failed (for example a timeout) | `{ "text", "isError": true }` |
 
@@ -190,6 +190,7 @@ Allowlist:
 - `get_location_history` (30/min). Visits and drives from `~/.phonepi/location`. Works when the phone is offline. `from` and `to` are epoch ms, ISO-8601, or `YYYY-MM-DD` (UTC day). `max` default 50, cap 200. Optional `kind`: `visit` or `drive`.
 - `search_places` (30/min). `query` (2 to 80 characters) matches every word against place name and address. `max` default 20, cap 50. Returns address and visit dates. Works when the phone is offline.
 - `get_presence` (30/min). Latest presence snapshot from `~/.phonepi/presence/current.json`. Works when the phone is offline. Place label, minutes there, driving/moving, DND, lat/lng/accuracy, freshness, plus `expected_place` / `matches_expected` from `~/.phonepi/presence/config.json`. See [docs/presence.md](../docs/presence.md).
+- `get_screen_time` (30/min). Daily screen-on minutes, unlock count, top apps, and last used from `~/.phonepi/usage`. Works when the phone is offline. `stale` is true when the phone is disconnected or the last sync is older than 30 minutes. `days` default 7, cap 90. `from`/`to` are `YYYY-MM-DD` local phone dates. `top` default 10, cap 25. Totals only.
 - `get_notification_log` (60/min). Box-side running log of phone notifications. Works when the phone is offline. See **Notification log** below.
 
 ### Notification log (box copy)
@@ -255,6 +256,8 @@ Body:
 | `clear_location_history` | write | 4/min |
 | `pause_presence_logging` | write | 10/min |
 | `clear_presence_history` | write | 4/min |
+| `pause_usage_logging` | write | 10/min |
+| `clear_usage_history` | write | 4/min |
 | `request_send_text` | action | 5/min and 30/day (`as_alex`), 5/min and 20/day (`attributed`) |
 | `get_send_status` | read | 60/min |
 
@@ -269,6 +272,8 @@ Body:
 Invalid hour, minute, label, days, or seconds is HTTP 400 and is not sent to the phone. `list_alarms` stays on `POST /api/tool`.
 
 `pause_location_logging` needs `paused` true or false. `clear_location_history` needs `confirm` set to `delete`. Same for `pause_presence_logging` and `clear_presence_history`. A bad value is HTTP 400 and is not sent to the phone. `get_location_history`, `search_places`, and `get_presence` stay on `POST /api/tool` and read the box files, so they do not return 503 when the phone is offline. Location files are `~/.phonepi/location/YYYY-MM.jsonl` (mode 600). Presence snapshot is `~/.phonepi/presence/current.json`. Work hours live in `~/.phonepi/presence/config.json` (default 08:00–17:00 Mon–Fri `America/Los_Angeles`; church hours empty). `PHONEPI_LOCATION_DIR` / `PHONEPI_PRESENCE_DIR` override the directories.
+
+`pause_usage_logging` needs `paused` true or false. `clear_usage_history` needs `confirm` set to `delete`. A bad value is HTTP 400 and is not sent to the phone. `get_screen_time` stays on `POST /api/tool` and reads the box files, so it does not return 503 when the phone is offline. Files are `~/.phonepi/usage/YYYY-MM-DD.json` (dir 700, files 600). `PHONEPI_USAGE_DIR` overrides the directory. `PHONEPI_USAGE_RETENTION_DAYS` defaults to 90.
 
 ```powershell
 Invoke-RestMethod -Method Post -Uri http://127.0.0.1:11043/api/tool `

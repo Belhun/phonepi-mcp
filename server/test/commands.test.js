@@ -81,12 +81,14 @@ test("command allowlist is the phone commands", () => {
     [
       "clear_location_history",
       "clear_presence_history",
+      "clear_usage_history",
       "dismiss_alarm",
       "dismiss_timer",
       "get_photo",
       "get_send_status",
       "pause_location_logging",
       "pause_presence_logging",
+      "pause_usage_logging",
       "phone_add_location",
       "phone_list_locations",
       "phone_navigate",
@@ -110,6 +112,9 @@ test("command allowlist is the phone commands", () => {
   assert.equal(isPhoneCommand("get_volumes"), false);
   assert.equal(isPhoneCommand("get_recent_photos"), false);
   assert.equal(isPhoneCommand("list_alarms"), false);
+  assert.equal(isPhoneCommand("get_screen_time"), false);
+  assert.equal(getPhoneCommand("pause_usage_logging")?.maxPerMinute, 10);
+  assert.equal(getPhoneCommand("clear_usage_history")?.maxPerMinute, 4);
   assert.equal(getPhoneCommand("set_alarm")?.maxPerMinute, 10);
   assert.equal(getPhoneCommand("set_timer")?.kind, "action");
   assert.equal(isPhoneCommand("get_photo"), true);

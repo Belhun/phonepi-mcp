@@ -17,6 +17,7 @@ export const READ_ONLY_HTTP_TOOLS = new Set<string>([
   "get_location_history",
   "search_places",
   "get_presence",
+  "get_screen_time",
 ]);
 
 /** Sliding-window limits (per minute) for sensitive read tools. */
@@ -29,6 +30,7 @@ export const READ_ONLY_TOOL_RATE_LIMITS: Record<string, number> = {
   get_location_history: 30,
   search_places: 30,
   get_presence: 30,
+  get_screen_time: 30,
 };
 
 export function isReadOnlyHttpTool(name: string): boolean {

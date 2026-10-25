@@ -5,6 +5,7 @@ import android.util.Log
 import dev.phonepi.companion.history.LocationHistorySync
 import dev.phonepi.companion.presence.PresenceSync
 import dev.phonepi.companion.log.ActivityLog
+import dev.phonepi.companion.usage.UsageSync
 import dev.phonepi.companion.protocol.ToolRouter
 import dev.phonepi.companion.protocol.WsMessage
 import kotlinx.coroutines.CoroutineScope
@@ -319,6 +320,7 @@ class WebSocketManager(
             if (linkUp) {
                 LocationHistorySync.detach()
                 PresenceSync.detach()
+                UsageSync.detach()
             }
             try {
                 old.close(1000, "switching server")
@@ -406,6 +408,7 @@ class WebSocketManager(
         socket = null
         LocationHistorySync.detach()
         PresenceSync.detach()
+        UsageSync.detach()
         keepaliveJob?.cancel()
         attemptTimeoutJob?.cancel()
         probeJob?.cancel()
@@ -498,6 +501,15 @@ class WebSocketManager(
                     false
                 }
             }
+            UsageSync.attach(appContext) { payload ->
+                try {
+                    webSocket.send(payload)
+                    true
+                } catch (t: Throwable) {
+                    Log.w(TAG, "usage sync send failed: ${t.message}")
+                    false
+                }
+            }
             startProbeLoop(webSocket)
             onReady()
         }
@@ -517,6 +529,7 @@ class WebSocketManager(
                 is WsMessage.ServerError -> Log.w(TAG, "server error: ${msg.error}")
                 is WsMessage.LocationAck -> LocationHistorySync.onFrame(text)
                 is WsMessage.PresenceAck -> PresenceSync.onFrame(text)
+                is WsMessage.UsageAck -> UsageSync.onFrame(text)
                 is WsMessage.ActivityNote ->
                     ActivityLog.logRemoteAction(msg.title, msg.detail, msg.status)
                 is WsMessage.Unknown -> Log.v(TAG, "ignored frame type=${msg.type}")

@@ -25,6 +25,8 @@ import {
   isPresenceReadTool,
   runPresenceRead,
 } from "./presence-tools.js";
+import { openUsageLog } from "./usage-log.js";
+import { isUsageReadTool, USAGE_TOOL_SCHEMAS, runUsageRead } from "./usage-tools.js";
 import { openNotificationLog } from "./notification-log.js";
 import {
   NOTIFICATION_LOG_TOOL_SCHEMAS,
@@ -105,6 +107,7 @@ class PhonePiMCPServer {
   private locationLog = openLocationLog();
   private presenceLog = openPresenceLog();
   private presenceConfig = openPresenceConfig();
+  private usageLog = openUsageLog();
   private notificationLog = openNotificationLog();
   private notificationPoller: NotificationPoller | null = null;
 
@@ -172,6 +175,7 @@ class PhonePiMCPServer {
       locationReadLimiter: commandRateLimiter,
       presenceLog: this.presenceLog,
       presenceConfig: this.presenceConfig,
+      usageLog: this.usageLog,
       notificationLog: this.notificationLog,
       notificationCaptureStatus: () => this.notificationCaptureStatus(),
     });
@@ -270,6 +274,43 @@ class PhonePiMCPServer {
       );
     } catch (err) {
       console.error("[WebSocket] Failed to ack location sync");
+    }
+  }
+
+  private handleUsageFrame(
+    ws: WebSocket,
+    message: { type?: string; days?: unknown; meta?: unknown }
+  ): void {
+    if (!this.session.isCurrent(ws)) {
+      console.error("[WebSocket] Ignored usage frame from a stale socket");
+      return;
+    }
+    if (message.type === "usage_cleared") {
+      this.usageLog.clear();
+      try {
+        ws.send(JSON.stringify({ type: "usage_cleared_ack" }));
+      } catch (err) {
+        console.error("[WebSocket] Failed to ack usage clear");
+      }
+      return;
+    }
+    const result = this.usageLog.ingest(message.days, message.meta);
+    console.error(
+      `[WebSocket] usage sync accepted=${result.accepted.length} rejected=${result.rejected.length}`
+    );
+    try {
+      ws.send(
+        JSON.stringify({
+          type: "usage_sync_ack",
+          accepted: result.accepted,
+          rejected: result.rejected.map((item) => ({
+            id: item.id,
+            error: item.error,
+          })),
+        })
+      );
+    } catch (err) {
+      console.error("[WebSocket] Failed to ack usage sync");
     }
   }
 
@@ -529,6 +570,13 @@ class PhonePiMCPServer {
         (message.type === "presence_sync" || message.type === "presence_cleared")
       ) {
         this.handlePresenceFrame(ws, message);
+        return;
+      }
+      if (
+        message &&
+        (message.type === "usage_sync" || message.type === "usage_cleared")
+      ) {
+        this.handleUsageFrame(ws, message);
         return;
       }
       if(DEBUG_WEBSOCKET) {
@@ -1576,6 +1624,7 @@ class PhonePiMCPServer {
         ...ALARM_TOOL_SCHEMAS,
         ...LOCATION_TOOL_SCHEMAS,
         ...PRESENCE_TOOL_SCHEMAS,
+        ...USAGE_TOOL_SCHEMAS,
         ...NOTIFICATION_LOG_TOOL_SCHEMAS,
         ...PHONE_COMMAND_SCHEMAS,
         ...GM_TOOL_SCHEMAS,
@@ -1636,6 +1685,39 @@ class PhonePiMCPServer {
           this.notePhoneActivity({
             title: request.params.name,
             detail: "read box presence",
+          })
+        ) {
+          try {
+            const payload = JSON.parse(text);
+            payload.activityLogged = true;
+            text = JSON.stringify(payload, null, 2);
+          } catch {
+            // Keep the original success text.
+          }
+        }
+        return { content: [{ type: "text", text }] };
+      }
+
+      if (isUsageReadTool(request.params.name)) {
+        const args = (request.params.arguments || {}) as Record<string, unknown>;
+        const outcome = runUsageRead({
+          log: this.usageLog,
+          limiter: commandRateLimiter,
+          args,
+          phoneConnected: this.isPhoneOpen(),
+          activityLogged: false,
+        });
+        if (outcome.status === 400) {
+          throw new McpError(ErrorCode.InvalidParams, String(outcome.body.text));
+        }
+        if (outcome.status === 429) {
+          throw new McpError(ErrorCode.InvalidRequest, String(outcome.body.text));
+        }
+        let text = String(outcome.body.text);
+        if (
+          this.notePhoneActivity({
+            title: request.params.name,
+            detail: "read box screen time",
           })
         ) {
           try {

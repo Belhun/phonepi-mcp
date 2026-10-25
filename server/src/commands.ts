@@ -13,6 +13,7 @@ import {
 import type { ValidatedCommandArgs } from "./alarm-commands.js";
 import { validateLocationAdminArgs } from "./location-tools.js";
 import { validatePresenceAdminArgs } from "./presence-tools.js";
+import { validateUsageAdminArgs } from "./usage-tools.js";
 import { validateSendTextArgs } from "./send-text.js";
 
 export {
@@ -30,6 +31,8 @@ export function validatePhoneCommandArgs(
   if (location) return location;
   const presence = validatePresenceAdminArgs(name, args);
   if (presence) return presence;
+  const usage = validateUsageAdminArgs(name, args);
+  if (usage) return usage;
   if (name === "request_send_text" || name === "get_send_status") {
     return validateSendTextArgs(name, args);
   }
@@ -389,6 +392,42 @@ export const PHONE_COMMANDS: readonly PhoneCommand[] = [
     maxPerMinute: 4,
     description:
       'Delete the on-phone presence state and the box snapshot. arguments.confirm must be the string "delete". Token required. The phone logs this in Recent activity.',
+    inputSchema: {
+      type: "object",
+      properties: {
+        confirm: {
+          type: "string",
+          description: 'Must be "delete"',
+        },
+      },
+      required: ["confirm"],
+    },
+  },
+  {
+    name: "pause_usage_logging",
+    kind: "write",
+    phoneTool: "pause_usage_logging",
+    maxPerMinute: 10,
+    description:
+      "Pause or resume PhonePi screen time collection. paused true stops new daily totals. History already stored stays. Token required. The master switch stays on by default; Usage access still needs Alex's grant.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        paused: {
+          type: "boolean",
+          description: "true pauses logging, false resumes it",
+        },
+      },
+      required: ["paused"],
+    },
+  },
+  {
+    name: "clear_usage_history",
+    kind: "write",
+    phoneTool: "clear_usage_history",
+    maxPerMinute: 4,
+    description:
+      'Delete screen time history on the phone and on the box. arguments.confirm must be the string "delete". Token required. The phone logs this in Recent activity.',
     inputSchema: {
       type: "object",
       properties: {

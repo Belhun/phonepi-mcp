@@ -12,11 +12,13 @@ class CommandGateTest {
             setOf(
                 "clear_location_history",
                 "clear_presence_history",
+                "clear_usage_history",
                 "dismiss_alarm",
                 "dismiss_timer",
                 "get_photo",
                 "pause_location_logging",
                 "pause_presence_logging",
+                "pause_usage_logging",
                 "phone_add_location",
                 "phone_list_locations",
                 "phone_navigate",
@@ -33,6 +35,7 @@ class CommandGateTest {
         assertEquals(PhoneCommandSpec.Kind.READ, PhoneCommands.byName.getValue("get_photo").kind)
         assertEquals(12, PhoneCommands.byName.getValue("get_photo").maxPerMinute)
         assertFalse(PhoneCommands.isAllowlisted("get_recent_photos"))
+        assertFalse(PhoneCommands.isAllowlisted("get_screen_time"))
         assertFalse(PhoneCommands.isAllowlisted("make_call"))
         assertFalse(PhoneCommands.isAllowlisted("am"))
         assertFalse(PhoneCommands.isAllowlisted("shell"))

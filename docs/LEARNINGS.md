@@ -2,7 +2,7 @@
 
 Standing log for this PR branch (`cursor/phone-navigate-locations-1ceb`). Update this file in the same change as every future PhonePi feature, bugfix, or device lesson. Do not merge this branch from this log. Never commit secrets (`PHONEPI_WS_TOKEN`, command tokens, hostnames with tokens in the URL, APK signing keystores, or personal MagicDNS names that are not already public in the repo).
 
-Current companion: **0.3.2** (versionCode **14**). 0.3.1 / versionCode 13 is the location-history release.
+Current companion: **0.3.4** (versionCode **16**). 0.3.3 / versionCode 15 is the server-failover release.
 
 Bot-facing skill: [BOT-SKILL.md](BOT-SKILL.md).
 
@@ -167,6 +167,17 @@ Work hours live in `~/.phonepi/presence/config.json`, written on first start if 
 Urgent channel: `phonepi_urgent_messages` / **PhonePi urgent messages**, HIGH. PhonePi does not change DND. Alex can allow that channel through DND himself.
 
 versionCode stays **15** so sibling feature branches (usage, notif-actions, health, wear) can merge without a version fight.
+### 0.3.4 — screen time and app usage
+
+Read (`POST /api/tool`, no token, 30/min): `get_screen_time`. Daily screen-on minutes, unlock count, top apps by foreground minutes, and last time the phone was used. Totals only. No event timeline. No notification contents.
+
+The phone uses `UsageStatsManager.queryUsageStats(INTERVAL_DAILY)` for per-app totals and `queryEvents` for `SCREEN_INTERACTIVE` / `SCREEN_NON_INTERACTIVE` (screen-on), `KEYGUARD_HIDDEN` (unlocks), and last-used (`ACTIVITY_RESUMED` / `SCREEN_INTERACTIVE`). Android only keeps events a few days, so the phone writes a daily rollup under app files (`usage/YYYY-MM-DD.json`) and syncs it over the existing WebSocket (`usage_sync` / `usage_sync_ack`). A wipe sends `usage_cleared` before any new days. Sessions that cross local midnight are split. Bucket dates use the phone's `ZoneId`, including DST.
+
+The box stores `~/.phonepi/usage/YYYY-MM-DD.json` plus `_meta.json` (directory 700, files 600). Retention defaults to 90 days (`PHONEPI_USAGE_RETENTION_DAYS`, 1 through 730). Same date with an older `updatedAtMs` does not overwrite. A day that carries `token` or another secret field is rejected and not written. The server log line for a sync is a count, not app names, and it never logs the token.
+
+`stale` is true when the phone is offline or the last sync is older than 30 minutes. `from`/`to` are `YYYY-MM-DD` local phone dates, not UTC days. `days` default 7, cap 90. `top` default 10, cap 25.
+
+Master switch **Screen time sharing** is on by default. Usage access still needs Alex's grant (`PACKAGE_USAGE_STATS`, Settings → Usage access). A settings row on Tool permissions and on the Screen time panel opens that screen and shows whether it is granted. Writes (token, `/api/command` only): `pause_usage_logging` (`paused` boolean, 10/min) and `clear_usage_history` (`confirm` must be `"delete"`, 4/min). Invalid args are HTTP 400 and do not call the phone.
 
 ## Mistakes and fixes
 
@@ -209,6 +220,7 @@ Android-only (do not assume iOS equivalents):
 - `AlarmClock` intents (`SET_ALARM`, `SET_TIMER`, `DISMISS_ALARM`, `DISMISS_TIMER`), `SET_ALARM` permission, and `AlarmManager.getNextAlarmClock()`. iOS has no public API for another app to create or dismiss Clock alarms. Keep the tool names and the honest "not confirmed" status; an iPhone companion would have to say the action is unsupported.
 - `FusedLocationProvider`, `ACCESS_BACKGROUND_LOCATION`, `ACTIVITY_RECOGNITION`, activity-transition PendingIntents, geofences, `Sensor.TYPE_SIGNIFICANT_MOTION`, and `Geocoder`. iOS would use Core Location visits and `CLGeocoder`. Keep the tool names, the opt-in default off, the JSONL copy on the box, and the rule that a Timeline export is a file the person shares. Google's Settings path for Timeline export is Android-only.
 - `SmsManager`, `SEND_SMS`, notification actions, `TextToSpeech`, `SpeechRecognizer`, `ACTIVITY_RECOGNITION`, and Bluetooth device class. Keep the command names, the two modes, the phone-added prefix, the default-off switches, and "HTTP 200 is not sent". iOS cannot send SMS from a third-party app without the system composer, which the user can edit. An iPhone companion would have to say direct send is unsupported.
+- `UsageStatsManager`, `PACKAGE_USAGE_STATS`, and Settings → Usage access. iOS Screen Time is not a third-party API. Keep the tool name, daily totals only, the box JSON copy, the stale flag, and the on-by-default switch that still needs an OS grant.
 - Forever reconnect with a capped exponential backoff is portable. `ConnectivityManager` callbacks and the foreground-service keepalive are Android-only. On iOS, retry when the app becomes active and when a path monitor reports a change. Do not show connected until the socket has had recent traffic.
 
 iPhone maps/nav sketch (not implemented): open an Apple Maps or Google Maps iOS URL when the companion is allowed to become foreground. Do not expect to start Maps from a background daemon the way overlay+FSI does on Android. A tap-to-open notification is the likely fallback.
@@ -225,6 +237,7 @@ iPhone notification reading sketch (not implemented): without an Apple entitleme
 - Clock alarms need Google Clock (or another app that handles the intents) and, for a silent background set, **Display over other apps**. `SET_ALARM` is granted at install. Dismiss can fail when the Clock app has no dismiss activity; the tool says so.
 - Recent photos stay off until Alex turns on **Share recent photos** and grants Photos. `get_photo` needs the shared token. The bytes are recompressed, so GPS EXIF is not in the payload.
 - Texts stay off until Alex turns on **Allow bots to request texts** and grants SMS, contacts, and notifications. Assistant-signed texts stay off until the second switch. Spoken confirm needs the microphone. Car detection also wants physical activity and nearby Bluetooth devices. Sideload **0.3.2** (versionCode 14).
+- Screen time stays empty until Alex grants **Usage access** (Settings → Usage access). The in-app switch is on by default. Sideload **0.3.4** (versionCode 16).
 
 ## Box refresh recovery (2026-10-18)
 
