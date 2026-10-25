@@ -49,6 +49,7 @@ import {
   guardLoopbackRequest,
   parseHttpHostAllowlist,
 } from "./http-guard.js";
+import { markPhoneToolResponse } from "./untrusted.js";
 
 export const DEFAULT_HTTP_PORT = 11043;
 const LOOPBACK_HOST = "127.0.0.1";
@@ -499,10 +500,9 @@ async function handleTool(
   }
 
   try {
-    const result = await bridge.callPhoneTool(
+    const result = markPhoneToolResponse(
       body.tool,
-      args,
-      sensitive.callerId
+      await bridge.callPhoneTool(body.tool, args, sensitive.callerId)
     );
     sendJson(res, 200, {
       text: JSON.stringify(result, null, 2),

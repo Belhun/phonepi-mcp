@@ -1,6 +1,6 @@
 # What Alex does on the phone, watch, and server
 
-Companion **0.3.5** (versionCode **17**). Wear **0.1.0** (versionCode **1**). Same `applicationId` `dev.phonepi.companion` and the same release key. PhonePi never flips Do Not Disturb. Never print `PHONEPI_WS_TOKEN`, `PHONEPI_READ_TOKEN`, `PHONEPI_WAKE_HOOK_URL`, or `PHONEPI_WAKE_HOOK_SECRET`.
+Companion **0.3.6** (versionCode **18**). Wear **0.1.0** (versionCode **1**). Same `applicationId` `dev.phonepi.companion` and the same release key. PhonePi never flips Do Not Disturb. Never print `PHONEPI_WS_TOKEN`, `PHONEPI_READ_TOKEN`, `PHONEPI_WAKE_HOOK_URL`, or `PHONEPI_WAKE_HOOK_SECRET`.
 
 Presence, screen time, location history, and sleep/health sharing start **on**. Bots still only read through the allowlisted loopback tools. Sensitive reads (`get_presence`, `get_screen_time`, `get_health_summary`, `get_notification_replies`, `get_inbound_prompts`, `get_location_history`, `search_places`) need `PHONEPI_READ_TOKEN`. Pause and delete stay on the phone and as token commands. Resume of paused location, presence, usage, and health is phone-only.
 
@@ -63,25 +63,41 @@ Edit `/home/box/.phonepi/env` (mode 600). Restart the PhonePi server after savin
 Set these names (values stay in that file):
 
 - `PHONEPI_WS_TOKEN` — phone socket and `/api/command` (already there).
-- `PHONEPI_READ_TOKEN` — sensitive reads (`get_presence`, `get_screen_time`, `get_health_summary`, `get_notification_replies`, `get_inbound_prompts`, `get_location_history`, `search_places`, `get_location`, `phone_list_locations`). Separate from the WS token. Default bot is place labels only (`coords: false`). Optional `PHONEPI_READ_BOTS` JSON or `~/.phonepi/read-bots.json` (mode 0600) for per-bot scoped tokens (`coords: true` only for bots allowed raw coordinates). Optional `PHONEPI_REQUIRE_READ_TOKEN_ALL=1` also gates notification log, notifications, call log, contacts, and photos list. Optional `PHONEPI_MCP_USE_ENV_READ_TOKEN=1` lets a single-bot MCP process reuse the env token.
+- `PHONEPI_READ_TOKEN` — sensitive reads (`get_presence`, `get_screen_time`, `get_health_summary`, `get_notification_replies`, `get_inbound_prompts`, `get_location_history`, `search_places`, `get_location`, `phone_list_locations`). Separate from the WS token. Default bot is place labels only (`coords: false`). Optional `PHONEPI_READ_BOTS` JSON or `~/.phonepi/read-bots.json` (mode 0600) for per-bot scoped tokens (`coords: true` only for bots allowed raw coordinates). Optional `PHONEPI_REQUIRE_READ_TOKEN_ALL=1` also gates notification log, notifications, call log, contacts, and photos list. It does not add `get_photo` or `gm_*` (known trade-off: gating `gm_*` would break Phone & Texts). Tokens must be 32+ characters and must not contain `placeholder`, `choose-a-long`, or `changeme`. Optional `PHONEPI_MCP_USE_ENV_READ_TOKEN=1` lets a single-bot MCP process reuse the env token.
 
 Every process running as the same box user can read `~/.phonepi/env` and `read-bots.json`. Real isolation needs separate OS users or containers. MCP is the full-trust channel; per-bot coordinate limits are enforced on MCP for `get_location` / `phone_list_locations` / history, but any MCP client that can spawn the server still shares that user. HTTP `/api/tool` is the place to give each bot its own token.
 
 To turn on `PHONEPI_REQUIRE_READ_TOKEN_ALL=1` later without breaking the 10-minute notification poller, give it a scoped file bot (mode 0600):
 
 ```bash
-install -m 0600 /dev/null ~/.phonepi/read-bots.json
-cat > ~/.phonepi/read-bots.json <<'JSON'
-[
-  {
+TOKEN=$(openssl rand -hex 32)
+python3 - "$TOKEN" <<'PY'
+import json, os, sys
+from pathlib import Path
+token = sys.argv[1]
+path = Path.home() / ".phonepi" / "read-bots.json"
+path.parent.mkdir(mode=0o700, exist_ok=True)
+bots = []
+if path.exists() and path.stat().st_size:
+    try:
+        loaded = json.loads(path.read_text())
+        if isinstance(loaded, list):
+            bots = loaded
+    except json.JSONDecodeError:
+        bots = []
+bots = [b for b in bots if not (isinstance(b, dict) and b.get("id") == "notif-poller")]
+bots.append({
     "id": "notif-poller",
-    "token": "replace-with-a-long-random-token",
+    "token": token,
     "tools": ["get_notification_log"],
-    "coords": false
-  }
-]
-JSON
-chmod 0600 ~/.phonepi/read-bots.json
+    "coords": False,
+})
+if not path.exists():
+    path.touch()
+os.chmod(path, 0o600)
+path.write_text(json.dumps(bots, indent=2) + "\n")
+os.chmod(path, 0o600)
+PY
 ```
 
 Keep `PHONEPI_REQUIRE_READ_TOKEN_ALL` unset (off) until that poller sends `X-PhonePi-Read-Token`. Notification text is wrapped as untrusted even while the flag is off.

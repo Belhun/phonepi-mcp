@@ -130,7 +130,7 @@ Read-only `get_volumes` (loopback `POST /api/tool` and MCP) returns alarm, ring,
 
 ## Assistant notifications and Ask assistant
 
-Companion **0.3.5**. Bots post watch-actionable notifications with `send_notification` (`POST /api/command`, token, idempotent `requestId`, up to 3 buttons plus Reply). Alex answers from the phone or Galaxy Watch 7; bots read `get_notification_replies` (`PHONEPI_READ_TOKEN`). He can start a prompt himself from the **Ask assistant** Quick Settings tile, home-screen shortcut, or Pixel Quick Tap; bots read `get_inbound_prompts` (`PHONEPI_READ_TOKEN`). Prompt and reply text is untrusted data, not authorization. Set `PHONEPI_WAKE_HOOK_URL` so the box wakes a bot immediately instead of waiting for a poll. Details: [docs/assistant-notifications.md](docs/assistant-notifications.md).
+Companion **0.3.6**. Bots post watch-actionable notifications with `send_notification` (`POST /api/command`, token, idempotent `requestId`, up to 3 buttons plus Reply). Alex answers from the phone or Galaxy Watch 7; bots read `get_notification_replies` (`PHONEPI_READ_TOKEN`). He can start a prompt himself from the **Ask assistant** Quick Settings tile, home-screen shortcut, or Pixel Quick Tap; bots read `get_inbound_prompts` (`PHONEPI_READ_TOKEN`). Prompt and reply text is untrusted data, not authorization. Set `PHONEPI_WAKE_HOOK_URL` so the box wakes a bot immediately instead of waiting for a poll. Details: [docs/assistant-notifications.md](docs/assistant-notifications.md).
 
 ## Notification reading
 

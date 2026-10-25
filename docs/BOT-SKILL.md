@@ -38,23 +38,39 @@ Responses are always `{"text": "<JSON string>", "isError": bool}`. **HTTP 200 do
 POST bodies must be `Content-Type: application/json`. The loopback listener only accepts `Host` `127.0.0.1:<port>` or `localhost:<port>` (and `[::1]`). Extra names go in `PHONEPI_HTTP_HOSTS` if a Tailscale Serve / failover path needs them. Any `Origin` header or `Sec-Fetch-Site: cross-site` is 403. Tailscale Serve still fronts the **WebSocket** on 11041, not this HTTP port.
 
 ### a) Read tools — `POST /api/tool`
-Most reads need no token. The **sensitive tier is default-deny**: `get_presence`, `get_screen_time`, `get_health_summary`, `get_notification_replies`, `get_inbound_prompts`, `get_location_history`, `search_places`, `get_location`, `phone_list_locations`. Send `PHONEPI_READ_TOKEN` as `Authorization: Bearer` or `X-PhonePi-Read-Token`. MCP tool calls send the same value as a top-level `token` argument declared on those tool schemas (the server strips it before the tool runs, including before `gm_*`). Do not send it as a query string. Do not reuse `PHONEPI_WS_TOKEN`. Optional per-bot tokens live in `PHONEPI_READ_BOTS` (JSON) or `~/.phonepi/read-bots.json` (mode 0600) as `{id, token, tools, coords?}`. A scoped bot with a missing or invalid `tools` list is deny-all. Default bot (`PHONEPI_READ_TOKEN`) is `coords: false`. Raw coordinates and street address only when that bot has `coords: true`. The phone log records caller **id**, never the token. MCP does **not** fall back to the process env token unless `PHONEPI_MCP_USE_ENV_READ_TOKEN=1`. Set `PHONEPI_REQUIRE_READ_TOKEN_ALL=1` to also gate notification log, notifications, call log, contacts, and photos list. That flag defaults off so the 10-minute poller keeps working. Notification log text is wrapped as untrusted in both modes.
+Most reads need no token. The **sensitive tier is default-deny**: `get_presence`, `get_screen_time`, `get_health_summary`, `get_notification_replies`, `get_inbound_prompts`, `get_location_history`, `search_places`, `get_location`, `phone_list_locations`. Send `PHONEPI_READ_TOKEN` as `Authorization: Bearer` or `X-PhonePi-Read-Token`. MCP tool calls send the same value as a top-level `token` argument declared on those tool schemas (the server strips it before the tool runs, including before `gm_*`). Do not send it as a query string. Do not reuse `PHONEPI_WS_TOKEN`. Optional per-bot tokens live in `PHONEPI_READ_BOTS` (JSON) or `~/.phonepi/read-bots.json` (mode 0600) as `{id, token, tools, coords?}`. A scoped bot with a missing or invalid `tools` list is deny-all. Default bot (`PHONEPI_READ_TOKEN`) is `coords: false`. Raw coordinates and street address only when that bot has `coords: true`. The phone log records caller **id**, never the token. MCP does **not** fall back to the process env token unless `PHONEPI_MCP_USE_ENV_READ_TOKEN=1`. Set `PHONEPI_REQUIRE_READ_TOKEN_ALL=1` to also gate notification log, notifications, call log, contacts, and photos list. That flag defaults off so the 10-minute poller keeps working. Notification log text is wrapped as untrusted in both modes. **Known trade-off:** the flag does **not** add `get_photo` or `gm_*`. `get_photo` already needs `PHONEPI_WS_TOKEN` on `/api/command`. Putting `gm_*` on the strict tier would break the Phone & Texts bot, which reads and sends texts without a read token. Message bodies are marked untrusted instead (see below). Tokens shorter than 32 characters, or containing `placeholder` / `choose-a-long` / `changeme`, are refused.
 
-Every agent running as the same box user can read `~/.phonepi/env` and `read-bots.json`. Real isolation needs separate OS users or containers. **MCP is the full-trust channel** (it can call the listed phone tools). Per-bot coordinate limits still apply on MCP for `get_location`, `phone_list_locations`, `get_location_history`, and `search_places`; unlisted MCP names are denied. HTTP `/api/tool` is how you give each bot its own token. Copy-paste for the 10-minute notification poller, then you can turn the strict flag on at deploy time:
+Every agent running as the same box user can read `~/.phonepi/env` and `read-bots.json`. Real isolation needs separate OS users or containers. **MCP is the full-trust channel** (it can call the listed phone tools). Per-bot coordinate limits still apply on MCP for `get_location`, `phone_list_locations`, `get_location_history`, and `search_places`; unlisted MCP names are denied. HTTP `/api/tool` is how you give each bot its own token. Merge a 10-minute notification poller bot into the existing `read-bots.json` (do not overwrite other bots), then you can turn the strict flag on at deploy time:
 
 ```bash
-install -m 0600 /dev/null ~/.phonepi/read-bots.json
-cat > ~/.phonepi/read-bots.json <<'JSON'
-[
-  {
+TOKEN=$(openssl rand -hex 32)
+python3 - "$TOKEN" <<'PY'
+import json, os, sys
+from pathlib import Path
+token = sys.argv[1]
+path = Path.home() / ".phonepi" / "read-bots.json"
+path.parent.mkdir(mode=0o700, exist_ok=True)
+bots = []
+if path.exists() and path.stat().st_size:
+    try:
+        loaded = json.loads(path.read_text())
+        if isinstance(loaded, list):
+            bots = loaded
+    except json.JSONDecodeError:
+        bots = []
+bots = [b for b in bots if not (isinstance(b, dict) and b.get("id") == "notif-poller")]
+bots.append({
     "id": "notif-poller",
-    "token": "replace-with-a-long-random-token",
+    "token": token,
     "tools": ["get_notification_log"],
-    "coords": false
-  }
-]
-JSON
-chmod 0600 ~/.phonepi/read-bots.json
+    "coords": False,
+})
+if not path.exists():
+    path.touch()
+os.chmod(path, 0o600)
+path.write_text(json.dumps(bots, indent=2) + "\n")
+os.chmod(path, 0o600)
+PY
 ```
 ```bash
 READ=$(sed -n 's/^\(export \)\{0,1\}PHONEPI_READ_TOKEN=//p' /home/box/.phonepi/env)
@@ -71,10 +87,10 @@ curl -s -X POST http://127.0.0.1:11043/api/tool -H 'Content-Type: application/js
 Allowlist (exact): `get_battery_level`, `get_volumes`, `get_contacts`, `search_contacts` {query, limit≤50}, `get_contact_by_id` {id}, `get_recent_calls` {limit, hours (default 168) | since (epoch ms), type/types, number, includeContactNames}, `get_notifications` {package, since (epoch ms), limit default 50 cap 200}, `list_notification_apps`, `get_recent_photos` {limit default 5, hard cap 20, since (epoch ms)}, `list_alarms`, `get_location_history`, `search_places`, `get_presence` (**read token**), `get_screen_time` {days default 7 cap 90, from/to YYYY-MM-DD local dates, top default 10 cap 25} (**read token**), `get_health_summary` (**read token**), `get_notification_log` {since, until, postedSince, postedUntil, package, query, limit default 100 cap 500}, `get_notification_replies` {since, until, messageId, limit default 50 cap 200} (**read token**), `get_inbound_prompts` {since, until, limit default 50 cap 200} (**read token**), `get_all_snippets`, `get_snippet_by_id`, `get_snippets_by_type`, `search_snippets`.
 - Battery → `level`, `isCharging`, `chargingStatus`.
 - Volumes → per-stream `current`/`max`, `ringerMode`, `dnd`, `notificationPolicyAccess`, `exactAlarmsAllowed`, `midnightMaxEnabled`.
-- Notifications: only apps Alex allowlisted in the app (default: none). Unshared apps are counted in `omittedUnsharedCount`.
+- Notifications: only apps Alex allowlisted in the app (default: none). Unshared apps are counted in `omittedUnsharedCount`. Live `get_notifications` `title`, `text`, and `appName` are `{untrusted:true, provenance, text}` objects (same shape as the notification log). This is a breaking shape change for string parsers.
 - Recent photos: metadata only (id, display name, dateTaken, dateAdded, size, width, height, mime type). No image bytes. Needs the in-app **Share recent photos** switch (off by default) and the Photos permission. 30/min. The scan is the newest 100 images.
 - `list_alarms` (60/min): `nextAlarm` from `AlarmManager.getNextAlarmClock()` (`triggerAt` epoch ms, or null), plus `phonePiAlarms` (hour, minute, label, repeat day names, createdAt) for alarms PhonePi itself asked Clock to create. This is not the Clock app's full list.
-- `get_location_history` and `search_places` (30/min each, **read token**) read the box copy. Place labels always; street address and raw coordinates only if that bot is scoped `coords: true`. They work when the phone is offline. See the location history section below.
+- `get_location_history` and `search_places` (30/min each, **read token**) read the box copy. Place labels always; street address and raw coordinates only if that bot is scoped `coords: true`. `coords: false` search matches the place label only (not the address). Timeline street-looking names become `Saved place`. They work when the phone is offline. See the location history section below.
 - `get_location` and `phone_list_locations` (**read token** on MCP) use the same coords rule. MCP does not forward unlisted tool names.
 - `get_presence` (30/min, **read token**) reads the box presence snapshot. Default is place label + status. Raw coordinates only if that bot is scoped for them. Coordinates are null when presence is off, paused, or stale. Works when the phone is offline. See [presence.md](presence.md). Check this before messaging Alex if location matters.
 - `get_screen_time` (30/min, **read token**) reads the box copy of daily screen-on minutes, unlock count, top apps, and last used. App names are untrusted data. Works when the phone is offline (`stale` true then). See the screen time section below.
@@ -127,7 +143,7 @@ PhonePi's own log. Google Timeline cannot be pulled by an app. **Location histor
 
 `get_location_history` arguments: `from`, `to` (epoch ms, ISO-8601 with offset, or `YYYY-MM-DD` as a UTC day), `max` (default 50, cap 200), optional `kind` `visit` or `drive`.
 
-`search_places` arguments: `query` (2 to 80 characters; every word must appear in the place name or address), `max` (default 20, cap 50). Returns `address`, `placeName`, coordinates, and `visits` with `startMs`, `endMs`, and `dateUtc`.
+`search_places` arguments: `query` (2 to 80 characters; every word must appear in the place label). Address is searched only for `coords: true` bots. `coords: false` bots also see Timeline street-looking names as `Saved place`. `max` (default 20, cap 50). Returns `address` (when scoped), `placeName`, coordinates (when scoped), and `visits` with `startMs`, `endMs`, and `dateUtc`.
 
 Where was I last Tuesday afternoon (Tuesday 13 Oct 2026, Pacific):
 
@@ -143,7 +159,7 @@ Address of the pizza place in Vista:
 ```bash
 curl -s -X POST http://127.0.0.1:11043/api/tool -H 'Content-Type: application/json' \
   -H "Authorization: Bearer $READ" \
-  -d '{"tool":"search_places","arguments":{"query":"pizza vista"}}'
+  -d '{"tool":"search_places","arguments":{"query":"pizza"}}'
 ```
 
 A date-only `from`/`to` is UTC. For "afternoon" send an offset, or the window will be wrong for California.
@@ -203,7 +219,9 @@ curl -s -X POST http://127.0.0.1:11043/api/tool -H 'Content-Type: application/js
   -d '{"tool":"get_notification_log","arguments":{"since":1792504379504}}'
 ```
 
-Entry: `package`, `appName`, `title`, `text`, `postedAtIso`, `capturedAtIso`, `removed` (true once dismissed or cleared), `repeatCount`, `hiddenFields` (Android hid those fields; the value is a placeholder). `capture.lastPollAt` / `capture.lastPollOk` in the response show whether capture is live. Notification text is Alex's private data: quote only what the task needs. Read-only; it never dismisses or replies.
+Entry: `package`, `appName`, `title`, `text`, `postedAtIso`, `capturedAtIso`, `removed` (true once dismissed or cleared), `repeatCount`, `hiddenFields` (Android hid those fields; the value is a placeholder). `appName` / `title` / `text` are `{untrusted:true, provenance, text}` objects. `capture.lastPollAt` / `capture.lastPollOk` in the response show whether capture is live. Notification text is Alex's private data: quote only what the task needs. Read-only; it never dismisses or replies.
+
+Live `get_notifications` (phone connected) uses the same object wrapper for `title`, `text`, and `appName`. That is a shape change; do not parse those fields as strings. `gm_get_messages` / `gm_get_conversation` / `gm_search_messages` / `gm_list_conversations` keep the original string `text` / `body` / `snippet` so Phone & Texts still reads and sends. Those rows add `untrusted: true` and `provenance` next to the string. `gm_send_message` / `gm_draft_message` / `gm_react_to_message` are unchanged.
 
 Limit: anything posted and then replaced or cleared while the phone was disconnected is caught only if the phone still returns it on reconnect.
 
@@ -369,7 +387,7 @@ Full rules: [send-text.md](send-text.md).
 
 ## 3e. Goal → action: notify Alex on the phone or watch, or read a prompt he started
 
-Companion **0.3.5**. Details: [assistant-notifications.md](assistant-notifications.md).
+Companion **0.3.6**. Details: [assistant-notifications.md](assistant-notifications.md).
 
 **Breaking shape:** `text` (prompts) and `replyText` / `action` (replies) are objects, not strings. Bots that parse those fields as strings must switch to the object. Exact shape:
 
@@ -430,7 +448,7 @@ When `PHONEPI_WAKE_HOOK_URL` is set, the box POSTs `{event, id, ts}` immediately
 - **Texts**: **Allow bots to request texts** (off by default) plus SMS, contacts, and notifications. Microphone for spoken confirm. Physical activity and nearby Bluetooth devices help detect driving. **Allow assistant-signed texts without confirm** is a second switch, also off. Details in section 3d.
 - **Usage access** (`PACKAGE_USAGE_STATS`): for `get_screen_time`. Settings → Usage access. The in-app switch is on by default; this grant is still required.
 
-## 5. What PhonePi can and cannot do (as of companion 0.3.5)
+## 5. What PhonePi can and cannot do (as of companion 0.3.6)
 Can (via HTTP): navigation to anything Maps can search, saved places, volumes (read/set/max all), battery, contacts (read/search), recent calls, allowlisted notifications, snippets, recent photo metadata (`get_recent_photos`), one recompressed photo at a time (`get_photo`, shared token), `list_alarms`, Clock `set_alarm` / `set_timer` / `dismiss_alarm` / `dismiss_timer` (those four need the shared token), `request_send_text` / `get_send_status` (token, phone confirm, switches off by default), location history (`get_location_history`, `search_places`, **read token**), presence (`get_presence`, **read token**), screen time (`get_screen_time`, **read token**), sleep and health (`get_health_summary`, **read token**), and the notification log (`get_notification_log`) from the box copy even when the phone is offline, `send_notification` (token; watch-actionable buttons + Reply), `get_notification_replies` and `get_inbound_prompts` (**read token**, box copy, work offline).
 On-phone only: "Max volumes at midnight" toggle, reconnect-on-boot, reconnect after update, **Stop all sharing** (and one-tap resume), **PhonePi quiet 1 hour**, resume of paused location/presence/usage/health, the Location history switch, pause, delete, and Timeline JSON import, the Presence switch (on by default), presence pause/clear, marking saved places as presence, work hours on the box config file, the Screen time switch / Usage access row / pause / delete, Sleep and health switch / Health Connect grant / pause / delete, and Ask assistant (tile, shortcut, Quick Tap).
 

@@ -26,9 +26,29 @@ object AssistantAckPolicy {
  * A retryable ok:false schedules one retry of that row after retryAfterSec.
  * Flush sends at most 20 frames per minute.
  */
+internal interface AssistantOutboxStore {
+    fun read(): List<String>
+    fun write(lines: List<String>)
+}
+
+internal class MemoryOutboxStore : AssistantOutboxStore {
+    private val lock = Any()
+    private val lines = mutableListOf<String>()
+
+    override fun read(): List<String> = synchronized(lock) { lines.toList() }
+
+    override fun write(lines: List<String>) {
+        synchronized(lock) {
+            this.lines.clear()
+            this.lines += lines
+        }
+    }
+}
+
 object AssistantOutbox {
     private const val PREFS = "phonepi_assistant_outbox"
     private const val KEY = "lines"
+    private val ID_FIELD = Regex(""""id"\s*:\s*"([^"]+)"""")
     private val lock = Any()
     private val sentAt = ArrayDeque<Long>()
     private val retryAttempts = mutableMapOf<String, Int>()
@@ -36,19 +56,24 @@ object AssistantOutbox {
     internal var nowMs: () -> Long = { System.currentTimeMillis() }
     internal var jitterMs: () -> Int = { Random.nextInt(0, 1_000) }
     internal var scheduler: AssistantOutboxScheduler = AndroidOutboxScheduler
+    internal var storeOverride: AssistantOutboxStore? = null
 
     fun enqueue(context: Context, json: String) {
-        val app = context.applicationContext
+        enqueueLine(json, context)
+    }
+
+    internal fun enqueueLine(json: String, context: Context? = null) {
+        val store = store(context)
         synchronized(lock) {
-            val lines = read(app).toMutableList()
+            val lines = store.read().toMutableList()
             val id = idOf(json)
             if (id != null) {
                 lines.removeAll { idOf(it) == id }
             }
             lines += json
-            write(app, lines.takeLast(100))
+            store.write(lines.takeLast(100))
         }
-        flush(app)
+        flushBound(context)
     }
 
     fun ack(
@@ -58,38 +83,54 @@ object AssistantOutbox {
         retryable: Boolean = false,
         retryAfterSec: Int = AssistantOutboxPolicy.DEFAULT_RETRY_AFTER_SEC,
     ) {
+        ackId(id, ok, retryable, retryAfterSec, context)
+    }
+
+    internal fun ackId(
+        id: String,
+        ok: Boolean,
+        retryable: Boolean = false,
+        retryAfterSec: Int = AssistantOutboxPolicy.DEFAULT_RETRY_AFTER_SEC,
+        context: Context? = null,
+    ) {
         if (id.isBlank()) return
-        val app = context.applicationContext
+        val store = store(context)
         if (!AssistantOutboxPolicy.shouldDrop(ok, retryable)) {
-            val attempt = synchronized(lock) { retryAttempts[id] ?: 0 }
-            val delay = AssistantOutboxPolicy.retryDelayMs(
-                retryAfterSec,
-                attempt,
-                jitterMs(),
-            )
-            synchronized(lock) { retryAttempts[id] = attempt + 1 }
+            val delay = synchronized(lock) {
+                val attempt = retryAttempts[id] ?: 0
+                retryAttempts[id] = attempt + 1
+                AssistantOutboxPolicy.retryDelayMs(
+                    retryAfterSec,
+                    attempt,
+                    jitterMs(),
+                )
+            }
             scheduler.cancel("retry:$id")
             scheduler.schedule("retry:$id", delay) {
-                sendOne(app, id)
+                sendOne(context, id)
             }
             return
         }
         synchronized(lock) {
-            val kept = read(app).filter { idOf(it) != id }
-            write(app, kept)
+            val kept = store.read().filter { idOf(it) != id }
+            store.write(kept)
             retryAttempts.remove(id)
         }
         scheduler.cancel("retry:$id")
     }
 
     fun flush(context: Context) {
-        val app = context.applicationContext
+        flushBound(context)
+    }
+
+    internal fun flushBound(context: Context? = null) {
         val sender = PhoneUplink.send ?: return
+        val store = store(context)
         val batch: List<String>
         val delayMs: Long
         synchronized(lock) {
             pruneWindowLocked()
-            val remaining = read(app)
+            val remaining = store.read()
             batch = AssistantOutboxPolicy.takeFlushBatch(remaining, sentAt.size)
             val t = nowMs()
             batch.forEach { sentAt.addLast(t) }
@@ -104,18 +145,35 @@ object AssistantOutbox {
         }
         if (delayMs > 0L) {
             scheduler.cancel("flush")
-            scheduler.schedule("flush", delayMs) { flush(app) }
+            scheduler.schedule("flush", delayMs) { flushBound(context) }
         }
     }
 
     fun clear(context: Context) {
-        val app = context.applicationContext
+        clearBound(context)
+    }
+
+    internal fun clearBound(context: Context? = null) {
         synchronized(lock) {
-            write(app, emptyList())
+            store(context).write(emptyList())
             retryAttempts.clear()
             sentAt.clear()
         }
         scheduler.cancel("flush")
+    }
+
+    internal fun resetForTest(
+        store: AssistantOutboxStore? = null,
+        scheduler: AssistantOutboxScheduler = AndroidOutboxScheduler,
+    ) {
+        synchronized(lock) {
+            retryAttempts.clear()
+            sentAt.clear()
+            storeOverride = store
+            this.scheduler = scheduler
+            nowMs = { System.currentTimeMillis() }
+            jitterMs = { Random.nextInt(0, 1_000) }
+        }
     }
 
     fun parseAck(text: String): AssistantAckResult? {
@@ -132,21 +190,33 @@ object AssistantOutbox {
         )
     }
 
-    private fun sendOne(context: Context, id: String) {
+    private fun sendOne(context: Context?, id: String) {
         val sender = PhoneUplink.send ?: return
+        val store = store(context)
+        var retryDelayMs: Long? = null
         val line = synchronized(lock) {
             pruneWindowLocked()
             if (sentAt.size >= AssistantOutboxPolicy.FLUSH_BATCH) {
-                val delay = AssistantOutboxPolicy.nextFlushDelayMs(sentAt.toList(), nowMs())
-                scheduler.cancel("retry:$id")
-                scheduler.schedule("retry:$id", delay) { sendOne(context, id) }
-                return
+                retryDelayMs = AssistantOutboxPolicy.nextFlushDelayMs(sentAt.toList(), nowMs())
+                null
+            } else {
+                val match = store.read().firstOrNull { idOf(it) == id }
+                if (match != null) sentAt.addLast(nowMs())
+                match
             }
-            val match = read(context).firstOrNull { idOf(it) == id } ?: return
-            sentAt.addLast(nowMs())
-            match
         }
-        sender(line)
+        val delay = retryDelayMs
+        if (delay != null) {
+            scheduler.cancel("retry:$id")
+            scheduler.schedule("retry:$id", delay) { sendOne(context, id) }
+            return
+        }
+        if (line != null) sender(line)
+    }
+
+    private fun store(context: Context?): AssistantOutboxStore {
+        storeOverride?.let { return it }
+        return PrefsOutboxStore(requireNotNull(context).applicationContext)
     }
 
     private fun pruneWindowLocked() {
@@ -156,46 +226,62 @@ object AssistantOutbox {
         }
     }
 
-    private fun idOf(line: String): String? =
-        runCatching { JSONObject(line).optString("id") }.getOrNull()?.takeIf { it.isNotBlank() }
-
-    private fun read(context: Context): List<String> {
-        val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY, null)
-            ?: return emptyList()
-        val array = runCatching { JSONArray(raw) }.getOrNull() ?: return emptyList()
-        return buildList {
-            for (index in 0 until array.length()) {
-                val line = array.optString(index)
-                if (line.isNotBlank()) add(line)
-            }
-        }
+    private fun idOf(line: String): String? {
+        val parsed = runCatching {
+            JSONObject(line).optString("id").takeIf { it.isNotBlank() }
+        }.getOrNull()
+        if (parsed != null) return parsed
+        return ID_FIELD.find(line)?.groupValues?.get(1)?.takeIf { it.isNotBlank() }
     }
 
-    private fun write(context: Context, lines: List<String>) {
-        val array = JSONArray()
-        lines.forEach { array.put(it) }
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit()
-            .putString(KEY, array.toString())
-            .apply()
+    private class PrefsOutboxStore(private val context: Context) : AssistantOutboxStore {
+        override fun read(): List<String> {
+            val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY, null)
+                ?: return emptyList()
+            val array = runCatching { JSONArray(raw) }.getOrNull() ?: return emptyList()
+            return buildList {
+                for (index in 0 until array.length()) {
+                    val line = array.optString(index)
+                    if (line.isNotBlank()) add(line)
+                }
+            }
+        }
+
+        override fun write(lines: List<String>) {
+            val array = JSONArray()
+            lines.forEach { array.put(it) }
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit()
+                .putString(KEY, array.toString())
+                .apply()
+        }
     }
 }
 
 private object AndroidOutboxScheduler : AssistantOutboxScheduler {
-    private val handler = Handler(Looper.getMainLooper())
-    private val posted = mutableMapOf<String, Runnable>()
+    private val postedLock = Any()
+    private val posted = HashMap<String, Runnable>()
+    private val handler by lazy { Handler(Looper.getMainLooper()) }
 
     override fun schedule(token: String, delayMs: Long, run: () -> Unit) {
-        cancel(token)
-        val runnable = Runnable {
-            posted.remove(token)
-            run()
+        val task = run
+        val runnable = object : Runnable {
+            override fun run() {
+                synchronized(postedLock) {
+                    if (posted[token] === this) posted.remove(token)
+                }
+                task()
+            }
         }
-        posted[token] = runnable
+        synchronized(postedLock) {
+            posted.remove(token)?.let { handler.removeCallbacks(it) }
+            posted[token] = runnable
+        }
         handler.postDelayed(runnable, delayMs)
     }
 
     override fun cancel(token: String) {
-        posted.remove(token)?.let { handler.removeCallbacks(it) }
+        val runnable = synchronized(postedLock) { posted.remove(token) }
+        runnable?.let { handler.removeCallbacks(it) }
     }
 }

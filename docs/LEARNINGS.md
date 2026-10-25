@@ -2,7 +2,7 @@
 
 Standing log for this PR branch (`cursor/phone-navigate-locations-1ceb`). Update this file in the same change as every future PhonePi feature, bugfix, or device lesson. Do not merge this branch from this log. Never commit secrets (`PHONEPI_WS_TOKEN`, command tokens, hostnames with tokens in the URL, APK signing keystores, or personal MagicDNS names that are not already public in the repo).
 
-Current companion: **0.3.5** (versionCode **17**). Feature PRs used 0.3.4 / 16. 0.3.3 / 15 is the server-list failover release. Wear app stays **0.1.0** / 1.
+Current companion: **0.3.6** (versionCode **18**). Feature PRs used 0.3.5 / 17, 0.3.4 / 16. 0.3.3 / 15 is the server-list failover release. Wear app stays **0.1.0** / 1.
 
 Bot-facing skill: [BOT-SKILL.md](BOT-SKILL.md).
 
@@ -244,7 +244,7 @@ iPhone notification reading sketch (not implemented): without an Apple entitleme
 - Screen time stays empty until Alex grants **Usage access** (Settings → Usage access). The in-app switch is on by default.
 - Sleep and health: Galaxy Watch 7 data is in Samsung Health first. Samsung Health → Settings → Health Connect must write sleep/steps/heart rate/exercise/blood oxygen. Then PhonePi grants those Health Connect reads. The PhonePi switch starts on.
 - Ask assistant and watch-actionable notifications: add the Quick Settings tile and optionally Pixel Quick Tap → Open app → Ask assistant. Sideload `:phonepi-wear` for Ask assistant on the watch (`watch_relay`). Notifications posting is the same Connect grant.
-- Combined install: companion **0.3.5** (versionCode 17) plus Wear **0.1.0**. Checklist: [ALEX-CHECKLIST.md](ALEX-CHECKLIST.md).
+- Combined install: companion **0.3.6** (versionCode 18) plus Wear **0.1.0**. Checklist: [ALEX-CHECKLIST.md](ALEX-CHECKLIST.md).
 
 ## Box refresh recovery (2026-10-18)
 
@@ -312,6 +312,13 @@ Sideload is a one-time Linux `adb pair` / `adb connect` over the watch's wireles
 ### 0.3.5 (versionCode 17) — integration
 
 One companion APK with presence, screen time, Health Connect, watch-actionable notifications, Ask assistant, and the Wear module. Location history default is now **on** (same as presence and usage). Docs index: [README.md](README.md). Combined setup: [ALEX-CHECKLIST.md](ALEX-CHECKLIST.md).
+
+### 0.3.6 (versionCode 18) — security follow-ups
+
+- `search_places` for `coords:false` matches the place label only, not the address. Street-looking Timeline names become `Saved place`.
+- Live `get_notifications` `title`/`text`/`appName` are `{untrusted, provenance, text}` objects. `gm_*` reads keep string bodies and add `untrusted` plus `provenance` beside them so Phone & Texts still parses sends and reads. `get_photo` and `gm_*` stay off the `PHONEPI_REQUIRE_READ_TOKEN_ALL` strict tier (known trade-off; texting would break).
+- Read tokens under 32 characters, or containing `placeholder` / `choose-a-long` / `changeme`, are refused. Docs merge a poller bot into existing `read-bots.json` with `openssl rand -hex 32`.
+- Cloud-backup `<exclude>` entries use `path="."` on phone and wear. Assistant outbox scheduler map is synchronized; a retryable ack schedules one delayed retry. `clear_assistant_events` deletes `read-ids.json` and leftover `.next`/`.bak` swap dirs.
 
 ### Privacy / security pass (same 0.3.5)
 

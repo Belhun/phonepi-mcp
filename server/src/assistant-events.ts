@@ -130,9 +130,12 @@ export class AssistantStore {
   clear(): void {
     for (const kind of ["replies", "prompts"] as const) {
       const dir = this.kindDir(kind);
-      if (!fs.existsSync(dir)) continue;
-      for (const file of this.listFiles(kind)) removeFile(file);
+      removeSwapDirs(dir);
+      if (fs.existsSync(dir)) {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
     }
+    removeFile(this.readIdsFile());
   }
 
   queryReplies(filter: {
@@ -355,6 +358,7 @@ export class AssistantStore {
 
   private prune(kind: "replies" | "prompts"): void {
     const dir = this.kindDir(kind);
+    recoverSwapDir(dir);
     if (!fs.existsSync(dir)) return;
     const cutoff = this.cutoffMs();
     for (const file of this.listFiles(kind)) {
@@ -601,6 +605,15 @@ export function pickRowsToDrop<T extends { id: string; ts: number }>(
   const read = all.filter((row) => readIds.has(row.id)).sort(byTs);
   const unread = all.filter((row) => !readIds.has(row.id)).sort(byTs);
   return [...read, ...unread].slice(0, drop);
+}
+
+function removeSwapDirs(dir: string): void {
+  for (const suffix of [".next", ".bak"] as const) {
+    const extra = `${dir}${suffix}`;
+    if (fs.existsSync(extra)) {
+      fs.rmSync(extra, { recursive: true, force: true });
+    }
+  }
 }
 
 function newestLast<T>(all: T[], limit: number): T[] {

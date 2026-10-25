@@ -3,6 +3,7 @@ import {
   HISTORY_MAX_ENTRIES,
   LocationLog,
   SEARCH_MAX_PLACES,
+  displayPlaceName,
 } from "./location-log.js";
 import type { ValidatedCommandArgs } from "./alarm-commands.js";
 
@@ -44,13 +45,14 @@ export const LOCATION_TOOL_SCHEMAS = [
   {
     name: "search_places",
     description:
-      "Find visits whose place name or address contains every word in query. Requires PHONEPI_READ_TOKEN. Place labels always; street address and raw coordinates only if this bot is scoped coords:true. Returns visit dates from the box copy, so it works when the phone is offline. Example: query \"pizza vista\". max defaults to 20 and caps at 50.",
+      "Find visits whose place label contains every word in query. Requires PHONEPI_READ_TOKEN. Place labels always; street address and raw coordinates only if this bot is scoped coords:true. coords:false bots match the place label only (not the address) and see Timeline street-looking names as \"Saved place\". Returns visit dates from the box copy, so it works when the phone is offline. Example: query \"pizza\". max defaults to 20 and caps at 50.",
     inputSchema: {
       type: "object",
       properties: {
         query: {
           type: "string",
-          description: "Words to match against place name and address",
+          description:
+            "Words to match against the place label. Address is searched only for coords:true bots",
         },
         max: {
           type: "number",
@@ -128,7 +130,10 @@ export function runLocationRead(options: {
       };
     }
     const places = options.log
-      .search(parsed.query, parsed.max)
+      .search(parsed.query, parsed.max, {
+        matchAddress: includeCoords,
+        genericAddressLabels: !includeCoords,
+      })
       .map((place) => redactPlace(place, includeCoords));
     return {
       status: 200,
@@ -188,12 +193,15 @@ function redactLocationEvent(
     endLatitude: number | null;
     endLongitude: number | null;
     address: string | null;
+    placeName: string | null;
   },
   includeCoords: boolean
 ) {
-  if (includeCoords) return event;
+  const placeName = displayPlaceName(event.placeName, includeCoords);
+  if (includeCoords) return { ...event, placeName };
   return {
     ...event,
+    placeName,
     latitude: null,
     longitude: null,
     endLatitude: null,
@@ -203,11 +211,17 @@ function redactLocationEvent(
 }
 
 function redactPlace(
-  place: { latitude: number; longitude: number; address: string | null },
+  place: {
+    latitude: number;
+    longitude: number;
+    address: string | null;
+    placeName: string | null;
+  },
   includeCoords: boolean
 ) {
-  if (includeCoords) return place;
-  return { ...place, latitude: null, longitude: null, address: null };
+  const placeName = displayPlaceName(place.placeName, includeCoords);
+  if (includeCoords) return { ...place, placeName };
+  return { ...place, placeName, latitude: null, longitude: null, address: null };
 }
 
 function parseHistoryArgs(args: Record<string, unknown>):

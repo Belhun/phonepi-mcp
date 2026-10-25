@@ -34,8 +34,8 @@ function tempDir(prefix) {
 function stubCtx(overrides = {}) {
   const phoneCalls = [];
   const ctx = {
-    readAuth: loadReadAuth({ PHONEPI_READ_TOKEN: "mcp-read-token" }),
-    env: { PHONEPI_READ_TOKEN: "mcp-read-token" },
+    readAuth: loadReadAuth({ PHONEPI_READ_TOKEN: "mcp-read-token-32-chars-minimum-x" }),
+    env: { PHONEPI_READ_TOKEN: "mcp-read-token-32-chars-minimum-x" },
     limiter: new CommandRateLimiter(60_000, () => 1),
     locationLog: new LocationLog(tempDir("mcp-loc-"), 12, () => Date.now()),
     presenceLog: new PresenceLog(tempDir("mcp-pres-"), 15 * 60_000, () => Date.now()),
@@ -114,8 +114,8 @@ test("prepareMcpToolCall is deny-all for unlisted names", () => {
   const denied = prepareMcpToolCall({
     name: "send_sms",
     args: {},
-    readAuth: loadReadAuth({ PHONEPI_READ_TOKEN: "mcp-read-token" }),
-    env: { PHONEPI_READ_TOKEN: "mcp-read-token" },
+    readAuth: loadReadAuth({ PHONEPI_READ_TOKEN: "mcp-read-token-32-chars-minimum-x" }),
+    env: { PHONEPI_READ_TOKEN: "mcp-read-token-32-chars-minimum-x" },
   });
   assert.equal(denied.ok, false);
   assert.equal(denied.status, 403);
@@ -162,7 +162,7 @@ test("MCP request handler requires a read token for live location and saved plac
     {
       params: {
         name: LIVE_LOCATION_TOOL,
-        arguments: { token: "mcp-read-token" },
+        arguments: { token: "mcp-read-token-32-chars-minimum-x" },
       },
     },
     ctx
@@ -233,4 +233,63 @@ test("redactLocationPayload drops street address when coords are withheld", () =
   assert.equal(redacted.placeName, "Cafe");
   assert.equal(redacted.address, null);
   assert.equal(redacted.latitude, null);
+  const street = redactLocationPayload(
+    { name: "100 Main St", address: "100 Main St", latitude: 1, longitude: 2 },
+    false
+  );
+  assert.equal(street.name, "Saved place");
+  assert.equal(street.address, null);
+});
+
+test("MCP live notifications wrap text; gm reads keep string bodies", async () => {
+  const ctx = stubCtx({
+    callPhoneTool: async () => ({
+      status: "success",
+      notifications: [
+        { key: "n1", title: "Hi", text: "Secret", appName: "Gmail" },
+      ],
+    }),
+    callGmTool: async (name) => {
+      if (name === "gm_get_messages") {
+        return {
+          isError: false,
+          text: JSON.stringify({
+            messages: [{ id: "m9", text: "On my way", phone_number: "+1" }],
+          }),
+        };
+      }
+      if (name === "gm_send_message") {
+        return { isError: false, text: "DELIVERED to +1" };
+      }
+      return { isError: false, text: "{}" };
+    },
+  });
+  const notes = await handleMcpToolCall(
+    { params: { name: "get_notifications", arguments: { limit: 5 } } },
+    ctx
+  );
+  const body = JSON.parse(notes.content[0].text);
+  assert.equal(body.notifications[0].text.untrusted, true);
+  assert.match(body.notifications[0].text.provenance, /get_notifications:n1:text/);
+  assert.equal(typeof body.notifications[0].text.text, "string");
+
+  const gm = await handleMcpToolCall(
+    { params: { name: "gm_get_messages", arguments: {} } },
+    ctx
+  );
+  const gmBody = JSON.parse(gm.content[0].text);
+  assert.equal(gmBody.messages[0].text, "On my way");
+  assert.equal(gmBody.messages[0].untrusted, true);
+  assert.equal(gmBody.messages[0].provenance, "gm_get_messages:m9");
+
+  const sent = await handleMcpToolCall(
+    {
+      params: {
+        name: "gm_send_message",
+        arguments: { phone_number: "+1", message: "Hi" },
+      },
+    },
+    ctx
+  );
+  assert.equal(sent.content[0].text, "DELIVERED to +1");
 });
