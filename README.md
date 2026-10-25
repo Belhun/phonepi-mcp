@@ -37,7 +37,7 @@ MCP tools:
 
 See [server/README.md](server/README.md) for the loopback `POST /api/command` API and [phonepi-android/README.md](phonepi-android/README.md) for what to install and grant on the phone.
 
-Standing log of shipped features, mistakes, and iPhone portability: [docs/LEARNINGS.md](docs/LEARNINGS.md). Update that file with every future PhonePi change on this branch. Never commit secrets.
+Docs index: [docs/README.md](docs/README.md). Combined phone/watch/server setup: [docs/ALEX-CHECKLIST.md](docs/ALEX-CHECKLIST.md). Standing log: [docs/LEARNINGS.md](docs/LEARNINGS.md). Never commit secrets.
 
 ## Wear OS
 

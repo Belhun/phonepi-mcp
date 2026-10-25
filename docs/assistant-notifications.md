@@ -1,6 +1,6 @@
 # Assistant notifications and inbound prompts
 
-Companion **0.3.4** (versionCode **16**). Alex can answer the assistant from the phone or a Galaxy Watch 7 without a watch app. Phone notifications already mirror to Wear OS. He can also start a prompt himself from a Quick Settings tile, a home-screen shortcut, or Pixel Quick Tap.
+Companion **0.3.5** (versionCode **17**). Alex can answer the assistant from the phone or Galaxy Watch 7. Phone notifications already mirror to Wear OS. He can also start a prompt himself from a Quick Settings tile, a home-screen shortcut, Pixel Quick Tap, or the Wear Ask assistant tile.
 
 Bots never talk to the phone directly. They use the loopback API. Never print or log `PHONEPI_WS_TOKEN`, `PHONEPI_WAKE_HOOK_URL`, or `PHONEPI_WAKE_HOOK_SECRET`.
 
@@ -66,7 +66,7 @@ Put the URL and secret in `/home/box/.phonepi/env` (mode 600). Never commit them
 
 This feature does not change DND, volumes, or other phone settings.
 
-1. Install companion **0.3.4** (or in-app update from 0.3.3). Notifications posting permission is the same grant PhonePi already asks on Connect.
+1. Install companion **0.3.5** (or in-app update from 0.3.3 / 0.3.4). Notifications posting permission is the same grant PhonePi already asks on Connect.
 2. Keep PhonePi connected.
 3. **Quick Settings tile:** pull down the shade → edit tiles → add **Ask assistant**.
 4. **Home shortcut:** long-press the PhonePi icon → drag **Ask assistant** to the home screen.
@@ -79,6 +79,6 @@ This feature does not change DND, volumes, or other phone settings.
    6. Choose **Open app**.
    7. Pick **Ask assistant** (the extra PhonePi launcher entry), not the main PhonePi icon.
    On some Pixel builds the picker lists app shortcuts: **PhonePi → Ask assistant**.
-6. Watch: no watch app. When a bot posts `send_notification`, the card appears on the Galaxy Watch 7. Tap a button or use Reply (voice or keyboard). The phone forwards the result.
+6. Watch: sideload the Wear APK once (see [ALEX-CHECKLIST.md](ALEX-CHECKLIST.md)). When a bot posts `send_notification`, the card appears on the Galaxy Watch 7. Tap a button or use Reply (voice or keyboard). The PhonePi tile **Ask assistant** sends a `watch_relay` inbound prompt through the phone. The watch never holds the PhonePi token.
 
 Speak or type in the Ask assistant screen and tap **Send**. That is an inbound prompt, not a text message.

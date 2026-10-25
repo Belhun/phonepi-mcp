@@ -1,34 +1,22 @@
 package dev.phonepi.companion.wear
 
 import android.content.Context
+import dev.phonepi.companion.assistant.AssistantEvents
+import dev.phonepi.companion.assistant.AssistantProtocol
 import dev.phonepi.companion.log.ActivityLog
-import dev.phonepi.companion.textsend.PhoneUplink
-import java.util.UUID
 
 /**
- * INTEGRATION ADAPTER — cursor/phonepi-notif-actions
- *
- * Wire [submitPrompt] to that agent's inbound-prompt queue once
- * `get_inbound_prompts` and the phone-side store exist. Wire
- * [quietForMinutes] to its quiet/DND helper if it owns that path.
- *
- * Until then:
- * - [submitPrompt] sends a WebSocket frame `{"type":"inbound_prompt",...}`
- *   over the existing phone socket (already authenticated). The frame does
- *   not include the PhonePi token. If the socket is down, the frame is
- *   queued and flushed on the next connect.
- * - [quietForMinutes] uses [WearQuietController] (NotificationManager
- *   interruption filter) when Do Not Disturb access is granted.
+ * Watch → phone inbound actions. [submitPrompt] uses the same
+ * [AssistantEvents.emitPrompt] path as the Ask assistant tile so
+ * `get_inbound_prompts` and the wake hook see watch prompts. Source is
+ * always `watch_relay`. Quiet uses [WearQuietController] (DND access).
  *
  * The watch never receives PHONEPI_WS_TOKEN, TS_AUTHKEY, the send-gateway
  * token, or the bridge key. Do not log those values here.
  */
 class WearInboundActionsAdapter(
-    private val sendFrame: (String) -> Boolean,
-    private val enqueueFrame: (String) -> Unit,
+    private val emitPrompt: (text: String, source: String) -> WearActionResult,
     private val quiet: (Int) -> WearActionResult,
-    private val nowMs: () -> Long = { System.currentTimeMillis() },
-    private val newId: () -> String = { "wear-" + UUID.randomUUID() },
     private val log: (String, String) -> Unit = { detail, status ->
         ActivityLog.logWear(detail, status)
     },
@@ -37,19 +25,14 @@ class WearInboundActionsAdapter(
     override suspend fun submitPrompt(text: String, source: String): WearActionResult {
         val clean = WearProtocol.sanitizePrompt(text)
             ?: return WearActionResult(false, "empty prompt")
-        val frame = WearProtocol.inboundPromptFrame(
-            id = newId(),
-            text = clean,
-            source = WearProtocol.normalizeSource(source),
-            createdAt = nowMs(),
-        )
-        val handedOff = sendFrame(frame)
-        if (!handedOff) enqueueFrame(frame)
-        val preview = clean.take(LOG_PREVIEW)
-        val status = if (handedOff) "success" else "info"
-        val where = if (handedOff) "forwarded" else "queued"
-        log("Watch prompt $where (${clean.length} chars): $preview", status)
-        return WearActionResult(true, where)
+        val clipped = AssistantProtocol.clipPrompt(clean)
+            ?: return WearActionResult(false, "empty prompt")
+        val mapped = toAssistantSource(source)
+        val result = emitPrompt(clipped, mapped)
+        val preview = clipped.take(LOG_PREVIEW)
+        val status = if (result.ok) "success" else "error"
+        log("Watch prompt ${result.message} (${clipped.length} chars): $preview", status)
+        return result
     }
 
     override suspend fun quietForMinutes(minutes: Int): WearActionResult {
@@ -61,11 +44,20 @@ class WearInboundActionsAdapter(
     companion object {
         private const val LOG_PREVIEW = 120
 
+        /** Watch origins all land as this allowlisted assistant source. */
+        const val ASSISTANT_SOURCE = "watch_relay"
+
+        fun toAssistantSource(@Suppress("UNUSED_PARAMETER") source: String): String =
+            ASSISTANT_SOURCE
+
         fun create(context: Context): WearInboundActionsAdapter {
             val app = context.applicationContext
             return WearInboundActionsAdapter(
-                sendFrame = { frame -> PhoneUplink.send?.invoke(frame) == true },
-                enqueueFrame = { frame -> WearPromptOutbox.enqueue(app, frame) },
+                emitPrompt = { text, source ->
+                    val id = AssistantEvents.emitPrompt(app, text, source)
+                    if (id == null) WearActionResult(false, "empty prompt")
+                    else WearActionResult(true, "queued")
+                },
                 quiet = { minutes -> WearQuietController.quietFor(app, minutes) },
             )
         }

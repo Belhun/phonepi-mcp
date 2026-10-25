@@ -130,7 +130,7 @@ No extra Maps API key.
 
 ## Location history
 
-**Location history** on the connect screen is off until you turn it on. Grant:
+**Location history** on the connect screen starts **on**. Grant:
 
 1. Precise location (`ACCESS_FINE_LOCATION`) and approximate location (`ACCESS_COARSE_LOCATION`). The first prompt asks for both.
 2. **Allow all the time** (`ACCESS_BACKGROUND_LOCATION`). Without it, PhonePi only records while the app is open.
@@ -195,7 +195,7 @@ Companion **0.3.4** (versionCode 16). This does not change phone settings.
 - **Quick Settings:** shade → edit tiles → add **Ask assistant**.
 - **Home shortcut:** long-press the PhonePi icon → drag **Ask assistant**.
 - **Pixel Quick Tap:** Settings → System → Gestures → Quick Tap → turn on Use Quick Tap → Open app → **Ask assistant** (the extra launcher entry). Some Pixels list it as PhonePi → Ask assistant.
-- Watch: no watch app. `send_notification` cards mirror automatically. Tap a button or use Reply.
+- Watch: sideload `:phonepi-wear` over wireless debugging. Ask assistant on the watch sends `watch_relay` prompts through the phone. `send_notification` cards still mirror; tap a button or use Reply.
 
 Speak or type, then Send. Bots read `get_inbound_prompts`. Bot-posted cards: `send_notification` / `get_notification_replies`. See [docs/assistant-notifications.md](../docs/assistant-notifications.md).
 

@@ -10,7 +10,7 @@ This module does not embed the wear APK in the phone APK. Sideload it onto the w
 
 - A tile with **Ask assistant**, **Next alarm**, **Quiet 1h**, **I'm OK**
 - An Ask assistant screen (voice or keyboard) that sends text to the phone
-- A complication that shows the next alarm from `AlarmManager.getNextAlarmClock()` (the Clock app on `cursor/phonepi-clock-p1` publishes through that system API) plus a presence label if the phone has pushed one (stub until `cursor/phonepi-presence`)
+- A complication that shows the next alarm from `AlarmManager.getNextAlarmClock()` plus the current presence place label from the phone (hidden when presence is off or paused)
 
 Watch Face Push is not used. This is a tile + complication data source, not a watch face.
 

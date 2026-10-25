@@ -92,7 +92,7 @@ Saved places known: `Home` = 338 E Fallbrook St #A, Fallbrook CA 92028 (confirm 
 
 ### c) Location history (box copy, works offline)
 
-PhonePi's own log. Google Timeline cannot be pulled by an app. Alex turns **Location history** on in PhonePi (off by default) and grants location. The phone records visits (dwell of at least 8 minutes) and drives, reverse-geocodes visits on the device, and syncs to `~/.phonepi/location/YYYY-MM.jsonl`. Default retention is 12 months (`PHONEPI_LOCATION_RETENTION_MONTHS`).
+PhonePi's own log. Google Timeline cannot be pulled by an app. **Location history** starts on. Alex still grants location **Allow all the time**. The phone records visits (dwell of at least 8 minutes) and drives, reverse-geocodes visits on the device, and syncs to `~/.phonepi/location/YYYY-MM.jsonl`. Default retention is 12 months (`PHONEPI_LOCATION_RETENTION_MONTHS`).
 
 `get_location_history` arguments: `from`, `to` (epoch ms, ISO-8601 with offset, or `YYYY-MM-DD` as a UTC day), `max` (default 50, cap 200), optional `kind` `visit` or `drive`.
 
@@ -118,7 +118,7 @@ Pause and delete are token commands, not `/api/tool`. The phone also has **Pause
 
 These two reads do not need `phoneConnected:true`. `activityLogged` is false when the phone was offline, so Recent activity could not record that read.
 
-### c3) Presence (box copy, works offline)
+### c1) Presence (box copy, works offline)
 
 `get_presence` is the live "where is Alex" read. It is not location history. Response: `place` (saved presence place or `away`), `minutesAtPlace`, `driving` / `moving` / `activity`, `dnd`, `latitude` / `longitude` / `accuracyMeters` (Alex approved raw coordinates for his allowlisted bots), `capturedAtMs` / `ageMs`, `expected_place` / `matches_expected`.
 
@@ -132,7 +132,8 @@ curl -s -X POST http://127.0.0.1:11043/api/tool -H 'Content-Type: application/js
 If `place` is `work` (or the mapped work name) and `matches_expected` is true, he is where the schedule says. If `expected_place` is `work` and `place` is `away`, he is not at work. If `ageMs` is large, say the snapshot is stale.
 
 Needs the in-app **Presence** switch (on by default), location **Allow all the time**, and saved places marked presence. Details: [presence.md](presence.md).
-### c1) Screen time (box copy, works offline)
+
+### c2) Screen time (box copy, works offline)
 
 Daily totals. Companion **0.3.4**. `queryUsageStats` for per-app minutes. `queryEvents` for screen-on, unlocks, and last-used. Android only keeps events a few days, so the phone stores a daily rollup and syncs it to `~/.phonepi/usage/YYYY-MM-DD.json` (dir 700, files 600). Default retention is 90 days (`PHONEPI_USAGE_RETENTION_DAYS`). Totals only: no event timeline, no notification contents.
 
@@ -147,7 +148,7 @@ The master switch is on by default. Alex still has to grant **Usage access** (Se
 
 These reads do not need `phoneConnected:true`. `activityLogged` is false when the phone was offline.
 
-### c2) Notification log (box copy, works offline)
+### c3) Notification log (box copy, works offline)
 
 The box polls the phone's notifications about once a minute while it is connected (and backfills on reconnect) into `~/.phonepi/notifications/`. Keeps 30 days. Prefer this over `get_notifications` for context: it survives phone disconnects and app restarts, dedupes, and folds identical re-posts (Clock "Upcoming alarm", ongoing media/VPN notifications) into one entry with `repeatCount`.
 
@@ -166,7 +167,7 @@ Entry: `package`, `appName`, `title`, `text`, `postedAtIso`, `capturedAtIso`, `r
 
 Limit: anything posted and then replaced or cleared while the phone was disconnected is caught only if the phone still returns it on reconnect.
 
-### c3) Sleep and health (box copy, works offline)
+### c4) Sleep and health (box copy, works offline)
 
 Health Connect on the Pixel. Galaxy Watch 7 data arrives through Samsung Health. PhonePi does not use the Samsung Health Data SDK.
 
@@ -362,14 +363,14 @@ When `PHONEPI_WAKE_HOOK_URL` is set, the box POSTs `{event, id, ts}` immediately
 - Contacts / Call log / Phone permissions for those read tools.
 - **Photos** (`READ_MEDIA_IMAGES` on Android 13+, `READ_EXTERNAL_STORAGE` on older releases) plus the **Share recent photos** switch. Off until Alex turns it on. Android 14 "Select photos" counts as a grant for the photos he picked.
 - **Install unknown apps**: for self-update.
-- **Location history** (off until Alex turns it on): `ACCESS_FINE_LOCATION` and `ACCESS_COARSE_LOCATION`, then **Allow all the time** (`ACCESS_BACKGROUND_LOCATION`) so logging continues in the background, and **Physical activity** (`ACTIVITY_RECOGNITION`) so drives are recognized. While-in-use location still logs only while PhonePi is open.
+- **Location history** (on by default): `ACCESS_FINE_LOCATION` and `ACCESS_COARSE_LOCATION`, then **Allow all the time** (`ACCESS_BACKGROUND_LOCATION`) so logging continues in the background, and **Physical activity** (`ACTIVITY_RECOGNITION`) so drives are recognized. While-in-use location still logs only while PhonePi is open. Pause and delete stay on the phone.
 - **Presence** (on by default): same location **Allow all the time** plus marked saved places. DND state uses `ACCESS_NOTIFICATION_POLICY` (already in the manifest). PhonePi does not change Do Not Disturb. Urgent messages use the **PhonePi urgent messages** channel; Alex can allow that channel through DND himself.
 - **Sleep and health** (on by default): Health Connect read permissions for sleep, steps, heart rate, resting heart rate, exercise, blood oxygen, plus background access. Samsung Health must write those types into Health Connect first. See [health.md](health.md).
 - **Clock**: `SET_ALARM` is granted at install. Google Clock (or another app that handles the Clock intents) must be installed. **Display over other apps** is what lets `set_alarm` / `set_timer` / dismiss run without a tap. There is no permission that lets PhonePi edit someone else's alarms.
 - **Texts**: **Allow bots to request texts** (off by default) plus SMS, contacts, and notifications. Microphone for spoken confirm. Physical activity and nearby Bluetooth devices help detect driving. **Allow assistant-signed texts without confirm** is a second switch, also off. Details in section 3d.
 - **Usage access** (`PACKAGE_USAGE_STATS`): for `get_screen_time`. Settings → Usage access. The in-app switch is on by default; this grant is still required.
 
-## 5. What PhonePi can and cannot do (as of companion 0.3.4)
+## 5. What PhonePi can and cannot do (as of companion 0.3.5)
 Can (via HTTP, any bot): navigation to anything Maps can search, saved places, volumes (read/set/max all), battery, contacts (read/search), recent calls, allowlisted notifications, snippets, recent photo metadata (`get_recent_photos`), one recompressed photo at a time (`get_photo`, shared token), `list_alarms`, Clock `set_alarm` / `set_timer` / `dismiss_alarm` / `dismiss_timer` (those four need the shared token), `request_send_text` / `get_send_status` (token, phone confirm, switches off by default), location history (`get_location_history`, `search_places`), presence (`get_presence`), screen time (`get_screen_time`), sleep and health (`get_health_summary`), and the notification log (`get_notification_log`) from the box copy even when the phone is offline, `send_notification` (token; watch-actionable buttons + Reply), `get_notification_replies` and `get_inbound_prompts` (box copy, work offline).
 On-phone only: "Max volumes at midnight" toggle, reconnect-on-boot, reconnect after update, the Location history switch, pause, delete, and Timeline JSON import, the Presence switch (on by default), presence pause/clear, marking saved places as presence, work hours on the box config file, the Screen time switch / Usage access row / pause / delete, Sleep and health switch / Health Connect grant / pause / delete, and Ask assistant (tile, shortcut, Quick Tap).
 

@@ -65,8 +65,8 @@ android {
         applicationId = "dev.phonepi.companion"
         minSdk = 26
         targetSdk = 36
-        versionCode = 16
-        versionName = "0.3.4"
+        versionCode = 17
+        versionName = "0.3.5"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "PINNED_RELEASE_CERT_SHA256", "\"$pinnedReleaseCert\"")
         buildConfigField("boolean", "REQUIRE_RELEASE_CERT_PIN", "false")
@@ -152,8 +152,8 @@ dependencies {
     implementation(libs.play.services.location)
     implementation(libs.androidx.health.connect)
     implementation(libs.androidx.work.runtime.ktx)
-    implementation("com.google.android.gms:play-services-wearable:19.0.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.11.0")
+    implementation(libs.play.services.wearable)
+    implementation(libs.kotlinx.coroutines.play.services)
 
     testImplementation("junit:junit:4.13.2")
 }

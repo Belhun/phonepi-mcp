@@ -1,6 +1,6 @@
 # Presence (`get_presence`)
 
-Bots can ask where Alex is before messaging him. Presence is a live snapshot, not the visit/drive log. Location history stays a separate opt-in.
+Bots can ask where Alex is before messaging him. Presence is a live snapshot, not the visit/drive log. Location history is a separate switch; both start on.
 
 ## What `get_presence` returns
 

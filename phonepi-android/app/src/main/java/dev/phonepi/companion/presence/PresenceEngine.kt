@@ -4,6 +4,7 @@ import android.content.Context
 import dev.phonepi.companion.data.PhonePiDatabase
 import dev.phonepi.companion.log.ActivityLog
 import dev.phonepi.companion.volume.VolumeController
+import dev.phonepi.companion.wear.WearStatePublisher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -131,5 +132,6 @@ object PresenceEngine {
             source = source,
         )
         PresenceSync.push(context, snapshot)
+        WearStatePublisher.publish(context)
     }
 }

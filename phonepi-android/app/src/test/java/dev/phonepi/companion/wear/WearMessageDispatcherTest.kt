@@ -99,36 +99,48 @@ class WearMessageDispatcherTest {
     }
 
     @Test
-    fun adapterQueuesWhenSocketDown() = runBlocking {
-        val queued = mutableListOf<String>()
+    fun adapterMapsWatchSourceToWatchRelay() = runBlocking {
+        val calls = mutableListOf<Pair<String, String>>()
         val adapter = WearInboundActionsAdapter(
-            sendFrame = { false },
-            enqueueFrame = { queued += it },
+            emitPrompt = { text, source ->
+                calls += text to source
+                WearActionResult(true, "queued")
+            },
             quiet = { WearActionResult(true, "quiet") },
             log = { _, _ -> },
         )
         val result = adapter.submitPrompt("from the watch", "keyboard")
         assertTrue(result.ok)
         assertEquals("queued", result.message)
-        assertEquals(1, queued.size)
-        assertTrue(queued.single().contains("inbound_prompt"))
-        assertFalse(queued.single().contains("token"))
-        assertTrue(queued.single().contains("from the watch"))
+        assertEquals(listOf("from the watch" to WearInboundActionsAdapter.ASSISTANT_SOURCE), calls)
+        assertEquals("watch_relay", WearInboundActionsAdapter.toAssistantSource("ask"))
+        assertEquals("watch_relay", WearInboundActionsAdapter.toAssistantSource("voice"))
+        assertEquals("watch_relay", WearInboundActionsAdapter.toAssistantSource("im_ok"))
     }
 
     @Test
-    fun adapterForwardsWhenSocketUp() = runBlocking {
-        val sent = mutableListOf<String>()
+    fun adapterRejectsBlankPromptWithoutEmitting() = runBlocking {
+        var emitted = false
         val adapter = WearInboundActionsAdapter(
-            sendFrame = { sent += it; true },
-            enqueueFrame = { error("should not queue") },
+            emitPrompt = { _, _ ->
+                emitted = true
+                WearActionResult(true, "queued")
+            },
             quiet = { WearActionResult(true, "quiet") },
             log = { _, _ -> },
         )
-        val result = adapter.submitPrompt("ping", "ask")
-        assertEquals("forwarded", result.message)
-        assertEquals(1, sent.size)
-        assertTrue(sent.single().contains("\"source\":\"ask\""))
+        val result = adapter.submitPrompt("   ", "ask")
+        assertFalse(result.ok)
+        assertFalse(emitted)
+    }
+
+    @Test
+    fun presenceWatchLabelHidesWhenOffOrPaused() {
+        assertEquals("home", PresenceWatchLabel.label(true, false, "home"))
+        assertEquals(null, PresenceWatchLabel.label(false, false, "home"))
+        assertEquals(null, PresenceWatchLabel.label(true, true, "home"))
+        assertEquals(null, PresenceWatchLabel.label(true, false, "  "))
+        assertEquals("away", PresenceWatchLabel.label(true, false, "away"))
     }
 
     @Test

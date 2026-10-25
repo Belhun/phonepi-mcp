@@ -5,6 +5,7 @@ import android.util.Log
 import com.google.android.gms.wearable.MessageEvent
 import com.google.android.gms.wearable.Wearable
 import com.google.android.gms.wearable.WearableListenerService
+import dev.phonepi.companion.presence.PresencePrefs
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -58,6 +59,15 @@ object WearBridge {
         val app = context.applicationContext
         runCatching {
             Wearable.getCapabilityClient(app).addLocalCapability(WearPaths.PHONE_CAPABILITY)
+        }
+        if (presence === PresenceLabelSource.Stub) {
+            presence = PresenceLabelSource {
+                PresenceWatchLabel.label(
+                    enabled = PresencePrefs.enabled(app),
+                    paused = PresencePrefs.paused(app),
+                    placeName = PresencePrefs.memory(app).placeName,
+                )
+            }
         }
         WearStatePublisher.publish(app)
     }

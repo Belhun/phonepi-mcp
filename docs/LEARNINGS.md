@@ -2,7 +2,7 @@
 
 Standing log for this PR branch (`cursor/phone-navigate-locations-1ceb`). Update this file in the same change as every future PhonePi feature, bugfix, or device lesson. Do not merge this branch from this log. Never commit secrets (`PHONEPI_WS_TOKEN`, command tokens, hostnames with tokens in the URL, APK signing keystores, or personal MagicDNS names that are not already public in the repo).
 
-Current companion: **0.3.4** (versionCode **16**). 0.3.3 / versionCode 15 is the server-list failover release. 0.3.2 / versionCode 14 is the safe-text release.
+Current companion: **0.3.5** (versionCode **17**). Feature PRs used 0.3.4 / 16. 0.3.3 / 15 is the server-list failover release. Wear app stays **0.1.0** / 1.
 
 Bot-facing skill: [BOT-SKILL.md](BOT-SKILL.md).
 
@@ -167,6 +167,7 @@ Work hours live in `~/.phonepi/presence/config.json`, written on first start if 
 Urgent channel: `phonepi_urgent_messages` / **PhonePi urgent messages**, HIGH. PhonePi does not change DND. Alex can allow that channel through DND himself.
 
 versionCode stays **15** so sibling feature branches (usage, notif-actions, health, wear) can merge without a version fight.
+
 ### 0.3.4 — screen time and app usage
 
 Read (`POST /api/tool`, no token, 30/min): `get_screen_time`. Daily screen-on minutes, unlock count, top apps by foreground minutes, and last time the phone was used. Totals only. No event timeline. No notification contents.
@@ -218,7 +219,7 @@ Android-only (do not assume iOS equivalents):
 - `AudioManager` streams, Do Not Disturb policy access, and `AlarmManager` exact midnight alarms. iOS volume APIs and Focus modes differ; a nightly max would be a local notification or BG task, not `BOOT_COMPLETED`.
 - `MediaStore.Images`, `READ_MEDIA_IMAGES`, `READ_MEDIA_VISUAL_USER_SELECTED`, and `READ_EXTERNAL_STORAGE`. iOS uses `PHPhotoLibrary` authorization. Keep the tool names, the default-off share switch, the token gate on image bytes, and recompress-before-send so GPS EXIF does not ride along.
 - `AlarmClock` intents (`SET_ALARM`, `SET_TIMER`, `DISMISS_ALARM`, `DISMISS_TIMER`), `SET_ALARM` permission, and `AlarmManager.getNextAlarmClock()`. iOS has no public API for another app to create or dismiss Clock alarms. Keep the tool names and the honest "not confirmed" status; an iPhone companion would have to say the action is unsupported.
-- `FusedLocationProvider`, `ACCESS_BACKGROUND_LOCATION`, `ACTIVITY_RECOGNITION`, activity-transition PendingIntents, geofences, `Sensor.TYPE_SIGNIFICANT_MOTION`, and `Geocoder`. iOS would use Core Location visits and `CLGeocoder`. Keep the tool names, the opt-in default off, the JSONL copy on the box, and the rule that a Timeline export is a file the person shares. Google's Settings path for Timeline export is Android-only.
+- `FusedLocationProvider`, `ACCESS_BACKGROUND_LOCATION`, `ACTIVITY_RECOGNITION`, activity-transition PendingIntents, geofences, `Sensor.TYPE_SIGNIFICANT_MOTION`, and `Geocoder`. iOS would use Core Location visits and `CLGeocoder`. Keep the tool names, the on-by-default switch that still needs an OS grant, the JSONL copy on the box, and the rule that a Timeline export is a file the person shares. Google's Settings path for Timeline export is Android-only.
 - `SmsManager`, `SEND_SMS`, notification actions, `TextToSpeech`, `SpeechRecognizer`, `ACTIVITY_RECOGNITION`, and Bluetooth device class. Keep the command names, the two modes, the phone-added prefix, the default-off switches, and "HTTP 200 is not sent". iOS cannot send SMS from a third-party app without the system composer, which the user can edit. An iPhone companion would have to say direct send is unsupported.
 - `UsageStatsManager`, `PACKAGE_USAGE_STATS`, and Settings → Usage access. iOS Screen Time is not a third-party API. Keep the tool name, daily totals only, the box JSON copy, the stale flag, and the on-by-default switch that still needs an OS grant.
 - Health Connect (`androidx.health.connect`), `READ_SLEEP` / `READ_STEPS` / `READ_HEART_RATE` / `READ_RESTING_HEART_RATE` / `READ_EXERCISE` / `READ_OXYGEN_SATURATION`, `READ_HEALTH_DATA_IN_BACKGROUND`, `READ_HEALTH_DATA_HISTORY`, WorkManager hourly reads, and the Health Connect rationale activity. iOS would use HealthKit. Keep the tool name `get_health_summary`, daily totals only, the on-by-default switch that still needs an OS grant, box files under `~/.phonepi/health`, and the rule that a watch app is not this feature.
@@ -236,14 +237,14 @@ iPhone notification reading sketch (not implemented): without an Apple entitleme
 - Keep the PhonePi connection notification if the OS otherwise kills the socket when Maps comes to the front.
 - Tailscale Serve terminates TLS on the PC; the phone still needs MagicDNS (or a literal tailnet IP) and the WS token.
 - Sideload **0.3.1** (or in-app update from a 0.3.0 release build). Debug → release is still a one-time uninstall. Later APKs go in `~/.phonepi/updates` and must be signed with `scripts/sign-update-manifest.sh`.
-- Location history stays off until Alex turns it on and grants precise location plus **Allow all the time**. **Physical activity** improves drives. Pause and Delete all history are on the phone. A Timeline backfill is a file he exports himself and shares into PhonePi.
+- Location history starts on. Alex still grants precise location plus **Allow all the time**. **Physical activity** improves drives. Pause and Delete all history are on the phone. A Timeline backfill is a file he exports himself and shares into PhonePi.
 - Clock alarms need Google Clock (or another app that handles the intents) and, for a silent background set, **Display over other apps**. `SET_ALARM` is granted at install. Dismiss can fail when the Clock app has no dismiss activity; the tool says so.
 - Recent photos stay off until Alex turns on **Share recent photos** and grants Photos. `get_photo` needs the shared token. The bytes are recompressed, so GPS EXIF is not in the payload.
 - Texts stay off until Alex turns on **Allow bots to request texts** and grants SMS, contacts, and notifications. Assistant-signed texts stay off until the second switch. Spoken confirm needs the microphone. Car detection also wants physical activity and nearby Bluetooth devices. Sideload **0.3.2** (versionCode 14).
-- Screen time stays empty until Alex grants **Usage access** (Settings → Usage access). The in-app switch is on by default. Sideload **0.3.4** (versionCode 16).
-- Sleep and health: Galaxy Watch 7 data is in Samsung Health first. Samsung Health → Settings → Health Connect must write sleep/steps/heart rate/exercise/blood oxygen. Then PhonePi grants those Health Connect reads. The PhonePi switch starts on. Sideload **0.3.4** (versionCode 16).
-- Texts stay off until Alex turns on **Allow bots to request texts** and grants SMS, contacts, and notifications. Assistant-signed texts stay off until the second switch. Spoken confirm needs the microphone. Car detection also wants physical activity and nearby Bluetooth devices. Sideload **0.3.2** (versionCode 14) or newer.
-- Ask assistant and watch-actionable notifications: sideload **0.3.4** (versionCode 16). Add the Quick Settings tile and optionally Pixel Quick Tap → Open app → Ask assistant. No extra watch app. Notifications posting is the same Connect grant.
+- Screen time stays empty until Alex grants **Usage access** (Settings → Usage access). The in-app switch is on by default.
+- Sleep and health: Galaxy Watch 7 data is in Samsung Health first. Samsung Health → Settings → Health Connect must write sleep/steps/heart rate/exercise/blood oxygen. Then PhonePi grants those Health Connect reads. The PhonePi switch starts on.
+- Ask assistant and watch-actionable notifications: add the Quick Settings tile and optionally Pixel Quick Tap → Open app → Ask assistant. Sideload `:phonepi-wear` for Ask assistant on the watch (`watch_relay`). Notifications posting is the same Connect grant.
+- Combined install: companion **0.3.5** (versionCode 17) plus Wear **0.1.0**. Checklist: [ALEX-CHECKLIST.md](ALEX-CHECKLIST.md).
 
 ## Box refresh recovery (2026-10-18)
 
@@ -287,7 +288,8 @@ Hourly WorkManager plus a read on connect. The phone sends `health_sync` / `heal
 Read (no token, 30/min, works offline): `get_health_summary`. Daily totals: last night's sleep (start, end, total, stages), `lastNightSleepEndMs` / `lastNightSleepEndIso` (for later Clock bedtime/wake; this change does not touch phonepi-clock), steps today and 7-day, resting and average heart rate, recent workouts. No raw heart-rate streams. `stale` is true when the phone is offline. `syncedAtIso` is the last Health Connect read; Samsung Health can lag minutes to hours (`sourceLagNote`). Writes (token): `pause_health_sync` (`paused` boolean, 10/min) and `clear_health_cache` (`confirm` `"delete"`, 4/min). Invalid args are HTTP 400 and do not call the phone.
 
 Alex's phone steps: Samsung Health → Settings → Health Connect → allow Samsung Health to write sleep, steps, heart rate, exercise, blood oxygen; then PhonePi → Sleep and health → Privacy policy → Grant Health Connect. Details: [health.md](health.md).
-## 0.3.4 (versionCode 16): watch-actionable notifications and Ask assistant
+
+### 0.3.4 (versionCode 16): watch-actionable notifications and Ask assistant
 
 Alex answers the assistant from the Pixel or Galaxy Watch 7 with no watch app. Phone notifications already mirror to Wear OS.
 
@@ -298,10 +300,15 @@ Alex answers the assistant from the Pixel or Galaxy Watch 7 with no watch app. P
 - This feature does not change DND, volumes, or other phone settings. `POST_NOTIFICATIONS` is the same grant Connect already asks for.
 
 Pixel Quick Tap steps: Settings → System → Gestures → Quick Tap → Use Quick Tap on → Open app → Ask assistant.
+
 ### Wear OS watch app (module `phonepi-wear`, not a companion version bump)
 
 Galaxy Watch 7 / future Pixel Watch. New Gradle module `phonepi-android/phonepi-wear`. Same `applicationId` `dev.phonepi.companion` and the same release key as the companion (Data Layer pairing). The watch never stores `PHONEPI_WS_TOKEN`, `TS_AUTHKEY`, the send-gateway token, or the bridge key. MessageClient paths under `/phonepi/` (`prompt`, `quiet`, `im-ok`, `next-alarm`, `ack`). DataClient `/phonepi/state` carries next-alarm epoch and an optional presence label.
 
-Phone-side `WearListenerService` dispatches to `WearInboundActions`. `WearInboundActionsAdapter` is the integration seam for `cursor/phonepi-notif-actions`: today `submitPrompt` sends a WebSocket frame `type=inbound_prompt` (no token in the frame; queued if the socket is down) and `quietForMinutes` uses `NotificationManager` interruption filter when DND access is granted. Presence is `PresenceLabelSource.Stub` until `cursor/phonepi-presence`. Next alarm on the watch is `AlarmManager.getNextAlarmClock()` (Clock on `cursor/phonepi-clock-p1` publishes through that system API). Watch Face Push is not used; the complication is a `ComplicationDataSourceService`.
+Phone-side `WearListenerService` dispatches to `WearInboundActions`. `WearInboundActionsAdapter.submitPrompt` calls `AssistantEvents.emitPrompt(..., "watch_relay")` so Ask assistant on the watch uses the same queue, `get_inbound_prompts`, and wake hook as the phone tile. Quiet uses `WearQuietController` (DND access). Presence complication label reads `PresencePrefs` through `PresenceWatchLabel` (hidden when presence is off or paused) and refreshes from `PresenceEngine` via `WearStatePublisher`. Next alarm on the watch is `AlarmManager.getNextAlarmClock()`. Watch Face Push is not used; the complication is a `ComplicationDataSourceService`.
 
-Sideload is a one-time Linux `adb pair` / `adb connect` over the watch's wireless debugging. Do not bake the debug port into a script; it changes when Wi-Fi changes. Build: `./gradlew :phonepi-wear:assembleRelease`. This change does not bump companion 0.3.3 / versionCode 15.
+Sideload is a one-time Linux `adb pair` / `adb connect` over the watch's wireless debugging. Do not bake the debug port into a script; it changes when Wi-Fi changes. Build: `./gradlew :phonepi-wear:assembleDebug`. Wear stays **0.1.0** / 1.
+
+### 0.3.5 (versionCode 17) — integration
+
+One companion APK with presence, screen time, Health Connect, watch-actionable notifications, Ask assistant, and the Wear module. Location history default is now **on** (same as presence and usage). Docs index: [README.md](README.md). Combined setup: [ALEX-CHECKLIST.md](ALEX-CHECKLIST.md).
