@@ -217,6 +217,12 @@ cd phonepi-android
 .\gradlew.bat test
 ```
 
+## Wear OS (Galaxy Watch 7 / Pixel Watch)
+
+Watch APK is Gradle module `:phonepi-wear`. Same `applicationId` (`dev.phonepi.companion`) and the same release key as this companion. The watch never stores the PhonePi token. It talks to the phone over the Wear OS Data Layer; the phone forwards prompts over the existing WebSocket.
+
+Build and the one-time Wi-Fi debugging sideload (Linux `adb pair` / `adb connect`): [phonepi-wear/README.md](phonepi-wear/README.md). This repo does not install onto a watch.
+
 ## Adding a tool
 
 1. Create `tools/YourTool.kt` implementing `ToolHandler`.

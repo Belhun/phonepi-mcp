@@ -66,6 +66,8 @@ import dev.phonepi.companion.textsend.GetSendStatusTool
 import dev.phonepi.companion.textsend.PhoneUplink
 import dev.phonepi.companion.textsend.RequestSendTextTool
 import dev.phonepi.companion.textsend.SendLogOutbox
+import dev.phonepi.companion.wear.WearPromptOutbox
+import dev.phonepi.companion.wear.WearStatePublisher
 import dev.phonepi.companion.tools.UpdateContactTool
 import dev.phonepi.companion.tools.UpdateSnippetTool
 import dev.phonepi.companion.util.NotificationHelper
@@ -154,7 +156,11 @@ class ConnectionService : Service() {
             permissionPayload = {
                 PhonePermissionReport.toJson(PhonePermissionSnapshot.capture(applicationContext))
             },
-            onReady = { SendLogOutbox.flush(applicationContext) },
+            onReady = {
+                SendLogOutbox.flush(applicationContext)
+                WearPromptOutbox.flush(applicationContext)
+                WearStatePublisher.publish(applicationContext)
+            },
         )
         PhoneUplink.attach { text -> manager.sendFrame(text) }
         createChannel()

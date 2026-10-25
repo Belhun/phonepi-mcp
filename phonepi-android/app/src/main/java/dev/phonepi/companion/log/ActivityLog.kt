@@ -218,4 +218,8 @@ object ActivityLog {
     fun logRemoteAction(title: String, detail: String, status: String) {
         write(category = "tool", title = title, detail = detail, status = status)
     }
+
+    fun logWear(detail: String, status: String = "info") {
+        write(category = "wear", title = "watch", detail = detail, status = status)
+    }
 }

@@ -383,6 +383,31 @@
 
         </receiver>
 
+        <!-- Wear OS Data Layer. Same applicationId as phonepi-wear. -->
+        <service
+            android:name=".wear.WearListenerService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
+                <data
+                    android:host="*"
+                    android:pathPrefix="/phonepi"
+                    android:scheme="wear" />
+            </intent-filter>
+        </service>
+
+        <receiver
+            android:name=".wear.WearQuietRestoreReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".wear.WearNextAlarmReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.app.action.NEXT_ALARM_CLOCK_CHANGED" />
+            </intent-filter>
+        </receiver>
+
     </application>
 
 </manifest>

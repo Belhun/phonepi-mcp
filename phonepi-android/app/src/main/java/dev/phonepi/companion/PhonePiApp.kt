@@ -6,6 +6,7 @@ import dev.phonepi.companion.log.ActivityLog
 import dev.phonepi.companion.notify.NotificationShare
 import dev.phonepi.companion.textsend.SendTextController
 import dev.phonepi.companion.volume.MidnightVolume
+import dev.phonepi.companion.wear.WearBridge
 
 @Suppress("unused") // Referenced from AndroidManifest.xml
 class PhonePiApp : Application() {
@@ -17,5 +18,6 @@ class PhonePiApp : Application() {
         MidnightVolume.rescheduleIfEnabled(this)
         LocationCapture.refresh(this)
         SendTextController.rearm(this)
+        WearBridge.ensure(this)
     }
 }

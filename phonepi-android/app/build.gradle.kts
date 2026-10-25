@@ -150,6 +150,8 @@ dependencies {
 
     implementation(libs.eddsa)
     implementation(libs.play.services.location)
+    implementation("com.google.android.gms:play-services-wearable:19.0.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.11.0")
 
     testImplementation("junit:junit:4.13.2")
 }
