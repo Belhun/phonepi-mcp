@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import dev.phonepi.companion.connection.SavedConnectionReconnect
 import dev.phonepi.companion.history.LocationCapture
+import dev.phonepi.companion.presence.PresenceEngine
 import dev.phonepi.companion.volume.MidnightVolume
 
 /**
@@ -20,6 +21,7 @@ class BootReceiver : BroadcastReceiver() {
         SavedConnectionReconnect.startIfSaved(context, SavedConnectionReconnect.Trigger.BOOT)
         MidnightVolume.rescheduleIfEnabled(context)
         LocationCapture.refresh(context)
+        PresenceEngine.nudge(context)
     }
 
     companion object {

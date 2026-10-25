@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
 
 
@@ -44,7 +45,6 @@
     <!-- Safe text send. Off until Alex turns on Allow bots to request texts. -->
     <uses-permission android:name="android.permission.SEND_SMS" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
-    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
@@ -68,6 +68,19 @@
 
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
 
+    <!-- Screen time. Alex grants this in Settings → Usage access. Not a runtime dialog. -->
+    <uses-permission
+        android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
+    <!-- Health Connect reads. Samsung Health writes these; PhonePi only reads. -->
+    <uses-permission android:name="android.permission.health.READ_SLEEP" />
+    <uses-permission android:name="android.permission.health.READ_STEPS" />
+    <uses-permission android:name="android.permission.health.READ_HEART_RATE" />
+    <uses-permission android:name="android.permission.health.READ_RESTING_HEART_RATE" />
+    <uses-permission android:name="android.permission.health.READ_EXERCISE" />
+    <uses-permission android:name="android.permission.health.READ_OXYGEN_SATURATION" />
+    <uses-permission android:name="android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND" />
+
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
 
@@ -90,6 +103,8 @@
         </intent>
         <package android:name="com.google.android.deskclock" />
         <package android:name="com.google.android.apps.maps" />
+        <package android:name="com.google.android.apps.healthdata" />
+        <package android:name="com.sec.android.app.shealth" />
         <intent>
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="google.navigation" />
@@ -111,7 +126,9 @@
 
         android:name=".PhonePiApp"
 
-        android:allowBackup="true"
+        android:allowBackup="false"
+        android:fullBackupContent="@xml/full_backup_content"
+        android:dataExtractionRules="@xml/data_extraction_rules"
 
         android:icon="@drawable/ic_stat_link"
 
@@ -126,6 +143,26 @@
 
 
         <activity
+            android:name=".ui.HealthPrivacyActivity"
+            android:exported="true"
+            android:label="PhonePi health privacy">
+            <intent-filter>
+                <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
+            </intent-filter>
+        </activity>
+
+        <activity-alias
+            android:name="ViewPermissionUsageActivity"
+            android:exported="true"
+            android:targetActivity=".ui.HealthPrivacyActivity"
+            android:permission="android.permission.START_VIEW_PERMISSION_USAGE">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW_PERMISSION_USAGE" />
+                <category android:name="android.intent.category.HEALTH_PERMISSIONS" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity
             android:name=".ui.MainActivity"
             android:exported="true"
             android:launchMode="singleTop">
@@ -137,7 +174,9 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="phonepi" />
+                <data
+                    android:scheme="phonepi"
+                    android:host="setup" />
             </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
@@ -154,7 +193,55 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="text/plain" />
             </intent-filter>
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
         </activity>
+
+        <activity
+            android:name=".assistant.AskAssistantActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:label="@string/ask_assistant_short"
+            android:theme="@style/Theme.PhonePiCompanion">
+            <intent-filter>
+                <action android:name="dev.phonepi.companion.action.ASK_ASSISTANT" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="phonepi"
+                    android:host="ask" />
+            </intent-filter>
+        </activity>
+
+        <!-- Extra launcher entry so Pixel Quick Tap → Open app can pick Ask assistant. -->
+        <activity-alias
+            android:name=".AskAssistantLauncher"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@drawable/ic_stat_link"
+            android:label="@string/ask_assistant_short"
+            android:targetActivity=".assistant.AskAssistantActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <service
+            android:name=".assistant.AskAssistantTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_stat_link"
+            android:label="@string/ask_assistant_tile"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
 
 
 
@@ -350,6 +437,10 @@
             android:exported="false" />
 
         <receiver
+            android:name=".presence.PresenceReceiver"
+            android:exported="false" />
+
+        <receiver
 
             android:name=".receiver.BootReceiver"
 
@@ -381,6 +472,31 @@
 
             </intent-filter>
 
+        </receiver>
+
+        <!-- Wear OS Data Layer. Same applicationId as phonepi-wear. -->
+        <service
+            android:name=".wear.WearListenerService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
+                <data
+                    android:host="*"
+                    android:pathPrefix="/phonepi"
+                    android:scheme="wear" />
+            </intent-filter>
+        </service>
+
+        <receiver
+            android:name=".wear.WearQuietRestoreReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".wear.WearNextAlarmReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.app.action.NEXT_ALARM_CLOCK_CHANGED" />
+            </intent-filter>
         </receiver>
 
     </application>

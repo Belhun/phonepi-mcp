@@ -3,7 +3,9 @@ import {
   NOTIFICATION_LOG_DEFAULT_LIMIT,
   NOTIFICATION_LOG_MAX_LIMIT,
   NotificationLog,
+  type NotificationEntry,
 } from "./notification-log.js";
+import { wrapUntrusted, wrapUntrustedOrEmpty } from "./untrusted.js";
 
 export const NOTIFICATION_LOG_TOOL = "get_notification_log";
 export const NOTIFICATION_LOG_READS_PER_MINUTE = 60;
@@ -43,10 +45,14 @@ export function runNotificationLogRead(options: {
   limiter: CommandRateLimiter;
   args: Record<string, unknown>;
   capture?: () => Record<string, unknown>;
+  wrapUntrusted?: boolean;
+  callerId?: string;
 }): NotificationLogReadOutcome {
+  void options.wrapUntrusted;
   const parsed = parseArgs(options.args);
   if (!parsed.ok) return { status: 400, body: { text: parsed.error, isError: true } };
-  const budget = options.limiter.allow(NOTIFICATION_LOG_TOOL, NOTIFICATION_LOG_READS_PER_MINUTE);
+  const limitKey = `${options.callerId ?? "anon"}:${NOTIFICATION_LOG_TOOL}`;
+  const budget = options.limiter.allow(limitKey, NOTIFICATION_LOG_READS_PER_MINUTE);
   if (!budget.ok) {
     return {
       status: 429,
@@ -57,26 +63,36 @@ export function runNotificationLogRead(options: {
     };
   }
   const result = options.log.query(parsed.query);
+  const entries = result.entries.map(wrapNotificationEntry);
   return {
     status: 200,
     body: {
       text: JSON.stringify(
         {
           status: "success",
-          count: result.entries.length,
+          count: entries.length,
           hasMore: result.hasMore,
           nextSince: result.nextSince,
           nextSinceIso: result.nextSince != null ? new Date(result.nextSince).toISOString() : null,
           totalInLog: result.totalInLog,
           retentionDays: options.log.retentionDays,
           capture: options.capture?.() ?? null,
-          entries: result.entries,
+          entries,
         },
         null,
         2
       ),
       isError: false,
     },
+  };
+}
+
+function wrapNotificationEntry(entry: NotificationEntry) {
+  return {
+    ...entry,
+    title: wrapUntrustedOrEmpty(entry.title, `notification_log:${entry.id}:title`),
+    text: wrapUntrustedOrEmpty(entry.text, `notification_log:${entry.id}:text`),
+    appName: wrapUntrusted(entry.appName, `notification_log:${entry.id}:app`),
   };
 }
 

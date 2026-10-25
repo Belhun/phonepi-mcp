@@ -19,7 +19,7 @@ export const LOCATION_TOOL_SCHEMAS = [
   {
     name: "get_location_history",
     description:
-      "Read visits and drives from the box copy of PhonePi location history. Works when the phone is offline. from and to are epoch milliseconds or ISO-8601 (a YYYY-MM-DD value is a UTC day). max defaults to 50 and caps at 200. kind is visit or drive. Read-only. Location history stays on the phone and this box.",
+      "Read visits and drives from the box copy of PhonePi location history. Requires PHONEPI_READ_TOKEN. Place labels always; street address and raw coordinates only if this bot is scoped coords:true. Works when the phone is offline. from and to are epoch milliseconds or ISO-8601 (a YYYY-MM-DD value is a UTC day). max defaults to 50 and caps at 200. kind is visit or drive. Read-only. Location history stays on the phone and this box.",
     inputSchema: {
       type: "object",
       properties: {
@@ -44,7 +44,7 @@ export const LOCATION_TOOL_SCHEMAS = [
   {
     name: "search_places",
     description:
-      "Find visits whose place name or address contains every word in query. Returns the address and visit dates from the box copy, so it works when the phone is offline. Example: query \"pizza vista\". max defaults to 20 and caps at 50.",
+      "Find visits whose place name or address contains every word in query. Requires PHONEPI_READ_TOKEN. Place labels always; street address and raw coordinates only if this bot is scoped coords:true. Returns visit dates from the box copy, so it works when the phone is offline. Example: query \"pizza vista\". max defaults to 20 and caps at 50.",
     inputSchema: {
       type: "object",
       properties: {
@@ -73,11 +73,15 @@ export function runLocationRead(options: {
   tool: string;
   args: Record<string, unknown>;
   activityLogged: boolean;
+  includeCoords?: boolean;
+  callerId?: string;
 }): LocationReadOutcome {
+  const includeCoords = options.includeCoords === true;
+  const limitKey = `${options.callerId ?? "anon"}:${options.tool}`;
   if (options.tool === "get_location_history") {
     const parsed = parseHistoryArgs(options.args);
     if (!parsed.ok) return { status: 400, body: { text: parsed.error, isError: true } };
-    const budget = options.limiter.allow(options.tool, LOCATION_READ_PER_MINUTE);
+    const budget = options.limiter.allow(limitKey, LOCATION_READ_PER_MINUTE);
     if (!budget.ok) {
       return {
         status: 429,
@@ -87,7 +91,9 @@ export function runLocationRead(options: {
         },
       };
     }
-    const entries = options.log.query(parsed);
+    const entries = options.log.query(parsed).map((entry) =>
+      redactLocationEvent(entry, includeCoords)
+    );
     return {
       status: 200,
       body: {
@@ -98,6 +104,7 @@ export function runLocationRead(options: {
             to: parsed.toMs,
             count: entries.length,
             activityLogged: options.activityLogged,
+            coordsScoped: includeCoords,
             entries,
           },
           null,
@@ -110,7 +117,7 @@ export function runLocationRead(options: {
   if (options.tool === "search_places") {
     const parsed = parseSearchArgs(options.args);
     if (!parsed.ok) return { status: 400, body: { text: parsed.error, isError: true } };
-    const budget = options.limiter.allow(options.tool, LOCATION_READ_PER_MINUTE);
+    const budget = options.limiter.allow(limitKey, LOCATION_READ_PER_MINUTE);
     if (!budget.ok) {
       return {
         status: 429,
@@ -120,7 +127,9 @@ export function runLocationRead(options: {
         },
       };
     }
-    const places = options.log.search(parsed.query, parsed.max);
+    const places = options.log
+      .search(parsed.query, parsed.max)
+      .map((place) => redactPlace(place, includeCoords));
     return {
       status: 200,
       body: {
@@ -130,6 +139,7 @@ export function runLocationRead(options: {
             query: parsed.query,
             count: places.length,
             activityLogged: options.activityLogged,
+            coordsScoped: includeCoords,
             places,
           },
           null,
@@ -154,10 +164,13 @@ export function validateLocationAdminArgs(
   args: Record<string, unknown>
 ): ValidatedCommandArgs | null {
   if (name === "pause_location_logging") {
-    if (typeof args.paused !== "boolean") {
-      return { ok: false, error: "paused must be true or false" };
+    if (args.paused !== true) {
+      return {
+        ok: false,
+        error: "paused must be true; resume location on the phone",
+      };
     }
-    return { ok: true, args: { paused: args.paused } };
+    return { ok: true, args: { paused: true } };
   }
   if (name === "clear_location_history") {
     if (args.confirm !== "delete") {
@@ -166,6 +179,35 @@ export function validateLocationAdminArgs(
     return { ok: true, args: { confirm: "delete" } };
   }
   return null;
+}
+
+function redactLocationEvent(
+  event: {
+    latitude: number;
+    longitude: number;
+    endLatitude: number | null;
+    endLongitude: number | null;
+    address: string | null;
+  },
+  includeCoords: boolean
+) {
+  if (includeCoords) return event;
+  return {
+    ...event,
+    latitude: null,
+    longitude: null,
+    endLatitude: null,
+    endLongitude: null,
+    address: null,
+  };
+}
+
+function redactPlace(
+  place: { latitude: number; longitude: number; address: string | null },
+  includeCoords: boolean
+) {
+  if (includeCoords) return place;
+  return { ...place, latitude: null, longitude: null, address: null };
 }
 
 function parseHistoryArgs(args: Record<string, unknown>):

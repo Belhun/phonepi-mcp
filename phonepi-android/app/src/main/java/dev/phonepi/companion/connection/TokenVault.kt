@@ -1,0 +1,204 @@
+package dev.phonepi.companion.connection
+
+import android.content.Context
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
+import android.util.Base64
+import android.util.Log
+import java.security.KeyStore
+import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
+import javax.crypto.spec.GCMParameterSpec
+
+/**
+ * Keystore-backed AES-GCM store for the WebSocket token.
+ * One-time migration from the old SharedPreferences plaintext value so an
+ * already-paired phone keeps working. JVM unit tests fall back to private prefs.
+ */
+object TokenVault {
+    private const val ANDROID_KEYSTORE = "AndroidKeyStore"
+    private const val ALIAS = "phonepi_ws_token_aes"
+    private const val PREFS = "phonepi_secure_tokens"
+    private const val KEY_LAST = "last"
+    private const val MIGRATED = "migrated_plaintext_v1"
+    private const val TAG = "PhonePiTokenVault"
+    private const val GCM_TAG_BITS = 128
+
+    fun lastToken(context: Context): String = get(context, KEY_LAST)
+
+    fun setLastToken(context: Context, token: String) {
+        put(context, KEY_LAST, token)
+    }
+
+    fun serverToken(context: Context, serverId: String): String = get(context, "server:$serverId")
+
+    fun setServerToken(context: Context, serverId: String, token: String) {
+        put(context, "server:$serverId", token)
+    }
+
+    fun migrateIfNeeded(context: Context) {
+        val app = context.applicationContext
+        val secure = prefs(app)
+        if (secure.getBoolean(MIGRATED, false)) return
+        synchronized(this) {
+            if (secure.getBoolean(MIGRATED, false)) return
+            val keystoreReady = secretKey() != null
+            if (!keystoreReady && androidKeystorePresent()) {
+                warn("Keystore unavailable; reconnect to save the token. Existing pairing was kept.")
+                return
+            }
+            val legacy = app.getSharedPreferences("phonepi_connection", Context.MODE_PRIVATE)
+            val old = legacy.getString("last_ws_token", null).orEmpty()
+            if (old.isNotBlank() && lastToken(app).isBlank()) {
+                setLastToken(app, old)
+                if (!TokenVaultMigration.acceptReadback(old, lastToken(app))) {
+                    warn("Keystore write could not be verified; reconnect to pair again. Existing pairing was kept.")
+                    return
+                }
+            }
+            val servers = ServerList.decode(
+                app.getSharedPreferences("phonepi_servers", Context.MODE_PRIVATE)
+                    .getString("servers_json", null),
+            ).orEmpty()
+            var changed = false
+            var verifyFailed = false
+            val stripped = servers.map { entry ->
+                if (entry.token.isNotBlank()) {
+                    setServerToken(app, entry.id, entry.token)
+                    if (!TokenVaultMigration.acceptReadback(entry.token, serverToken(app, entry.id))) {
+                        warn("Keystore write could not be verified for a saved server; reconnect to pair again.")
+                        verifyFailed = true
+                        entry
+                    } else {
+                        changed = true
+                        entry.copy(token = "")
+                    }
+                } else {
+                    entry
+                }
+            }
+            if (verifyFailed) {
+                if (changed) {
+                    app.getSharedPreferences("phonepi_servers", Context.MODE_PRIVATE)
+                        .edit()
+                        .putString("servers_json", ServerList.encode(stripped))
+                        .apply()
+                }
+                return
+            }
+            legacy.edit().remove("last_ws_token").apply()
+            if (changed) {
+                app.getSharedPreferences("phonepi_servers", Context.MODE_PRIVATE)
+                    .edit()
+                    .putString("servers_json", ServerList.encode(stripped))
+                    .apply()
+            }
+            secure.edit().putBoolean(MIGRATED, true).apply()
+        }
+    }
+
+    fun clearAll(context: Context) {
+        prefs(context.applicationContext).edit().clear().apply()
+    }
+
+    fun get(context: Context, key: String): String {
+        val app = context.applicationContext
+        val packed = prefs(app).getString(cipherKey(key), null)
+        val secret = secretKey()
+        if (packed != null && secret != null) {
+            return runCatching {
+                val blob = Base64.decode(packed, Base64.NO_WRAP)
+                if (blob.size < 13) return ""
+                val iv = blob.copyOfRange(0, 12)
+                val cipherBytes = blob.copyOfRange(12, blob.size)
+                val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+                cipher.init(Cipher.DECRYPT_MODE, secret, GCMParameterSpec(GCM_TAG_BITS, iv))
+                String(cipher.doFinal(cipherBytes), Charsets.UTF_8)
+            }.getOrElse {
+                warn("Keystore read failed; reconnect to pair again.")
+                ""
+            }
+        }
+        if (secret == null && androidKeystorePresent()) {
+            warn("Keystore unavailable; reconnect to save the token.")
+            return ""
+        }
+        return fallbackGet(app, key)
+    }
+
+    fun put(context: Context, key: String, value: String) {
+        val app = context.applicationContext
+        val trimmed = value.trim()
+        val secret = secretKey()
+        if (secret == null) {
+            if (androidKeystorePresent()) {
+                warn("Keystore unavailable; reconnect to save the token. Token was not stored in plaintext.")
+                return
+            }
+            fallbackPut(app, key, trimmed)
+            return
+        }
+        runCatching {
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(Cipher.ENCRYPT_MODE, secret)
+            val iv = cipher.iv
+            val encrypted = cipher.doFinal(trimmed.toByteArray(Charsets.UTF_8))
+            val packed = Base64.encodeToString(iv + encrypted, Base64.NO_WRAP)
+            prefs(app).edit()
+                .putString(cipherKey(key), packed)
+                .remove(plainKey(key))
+                .apply()
+        }.onFailure {
+            warn("Keystore write failed; reconnect to save the token. Token was not stored in plaintext.")
+        }
+    }
+
+    private fun androidKeystorePresent(): Boolean =
+        runCatching {
+            KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+            true
+        }.getOrDefault(false)
+
+    private fun warn(detail: String) {
+        Log.w(TAG, detail)
+        dev.phonepi.companion.log.ActivityLog.logConnection(
+            "Token vault",
+            detail,
+            "warning",
+        )
+    }
+
+    private fun secretKey(): SecretKey? {
+        return runCatching {
+            val ks = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+            val existing = ks.getEntry(ALIAS, null) as? KeyStore.SecretKeyEntry
+            if (existing != null) return existing.secretKey
+            val gen = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)
+            gen.init(
+                KeyGenParameterSpec.Builder(
+                    ALIAS,
+                    KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
+                )
+                    .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                    .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                    .setRandomizedEncryptionRequired(true)
+                    .build(),
+            )
+            gen.generateKey()
+        }.getOrNull()
+    }
+
+    private fun fallbackGet(context: Context, key: String): String =
+        prefs(context).getString(plainKey(key), "").orEmpty()
+
+    private fun fallbackPut(context: Context, key: String, value: String) {
+        prefs(context).edit().putString(plainKey(key), value).apply()
+    }
+
+    private fun prefs(context: Context) =
+        context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+    private fun cipherKey(key: String) = "cipher:$key"
+    private fun plainKey(key: String) = "plain:$key"
+}

@@ -37,7 +37,11 @@ MCP tools:
 
 See [server/README.md](server/README.md) for the loopback `POST /api/command` API and [phonepi-android/README.md](phonepi-android/README.md) for what to install and grant on the phone.
 
-Standing log of shipped features, mistakes, and iPhone portability: [docs/LEARNINGS.md](docs/LEARNINGS.md). Update that file with every future PhonePi change on this branch. Never commit secrets.
+Docs index: [docs/README.md](docs/README.md). Combined phone/watch/server setup: [docs/ALEX-CHECKLIST.md](docs/ALEX-CHECKLIST.md). Standing log: [docs/LEARNINGS.md](docs/LEARNINGS.md). Never commit secrets.
+
+## Wear OS
+
+Watch APK: Gradle module `phonepi-android/phonepi-wear` (`applicationId` `dev.phonepi.companion`, same release key as the companion). The watch never holds the PhonePi token. Build and Linux Wi-Fi sideload: [phonepi-android/phonepi-wear/README.md](phonepi-android/phonepi-wear/README.md).
 
 ## In-app update
 
@@ -70,6 +74,46 @@ Address of the pizza place in Vista:
 
 Token commands: `pause_location_logging` (`paused` true or false, 10/min) and `clear_location_history` (`confirm` must be `"delete"`, 4/min). The phone has the same pause and delete actions. The box stores `~/.phonepi/location/YYYY-MM.jsonl` for 12 months unless `PHONEPI_LOCATION_RETENTION_MONTHS` says otherwise.
 
+## Presence
+
+Companion presence snapshot for bots that need to know where Alex is before messaging him. **Presence** on the phone starts on. Grant location **Allow all the time**, then mark saved places as presence. Details: [docs/presence.md](docs/presence.md).
+
+Read (`POST /api/tool`, 30/min, `PHONEPI_READ_TOKEN`), from the box copy, including when the phone is offline:
+
+- `get_presence` — place label, minutes there, driving/moving, in-app quiet / DND status, optional lat/lng/accuracy for scoped bots, `capturedAtMs` freshness, plus `expected_place` / `matches_expected` from `~/.phonepi/presence/config.json`
+
+Default work hours in that config (editable, not hard-coded): 08:00–17:00 Monday–Friday, `America/Los_Angeles`. Church hours stay empty. Place names stay empty until Alex maps home/work/church to saved places.
+
+Token commands: `pause_presence_logging` (`paused` must be `true`, 10/min; resume is phone-only) and `clear_presence_history` (`confirm` must be `"delete"`, 4/min).
+
+Urgent PhonePi messages use the **PhonePi urgent messages** channel. PhonePi does not change Do Not Disturb. **PhonePi quiet** holds PhonePi's own non-urgent cards. Alex can allow the urgent channel through DND himself.
+## Screen time
+
+Companion **0.3.4**. Daily totals from Android `UsageStatsManager`. No event timeline and no notification contents.
+
+`get_screen_time` is a read (`POST /api/tool`, 30/min, `PHONEPI_READ_TOKEN`) from the box copy, including when the phone is offline (`stale` true then, or when the last sync is older than 30 minutes):
+
+- `days` (default 7, cap 90) or `from` / `to` as `YYYY-MM-DD` local phone dates
+- `top` (default 10, cap 25) apps by foreground minutes
+- Returns screen-on minutes, unlock count, top apps, and last time the phone was used
+
+```json
+{"tool":"get_screen_time","arguments":{"days":7,"top":10}}
+```
+
+Token commands: `pause_usage_logging` (`paused` must be `true`, 10/min; resume is phone-only) and `clear_usage_history` (`confirm` must be `"delete"`, 4/min). `get_screen_time` needs `PHONEPI_READ_TOKEN`. The master switch is on by default. Alex still has to grant **Usage access** in Settings. The box stores `~/.phonepi/usage/YYYY-MM-DD.json` (dir 700, files 600) for 90 days unless `PHONEPI_USAGE_RETENTION_DAYS` says otherwise.
+## Sleep and health
+
+Companion **0.3.4**. Health Connect on the Pixel (Galaxy Watch 7 via Samsung Health). PhonePi does not use the Samsung Health Data SDK.
+
+Read-only `get_health_summary` (`POST /api/tool`, 30/min, `PHONEPI_READ_TOKEN`) returns last night's sleep, steps today and 7-day, resting and average heart rate, and recent workouts as **daily totals**. No raw heart-rate streams. `lastNightSleepEndMs` is the sleep end for later Clock bedtime/wake. Works when the phone is offline (`stale` true). Samsung Health can lag minutes to hours; `syncedAtIso` is the last Health Connect read.
+
+```json
+{"tool":"get_health_summary","arguments":{}}
+```
+
+The in-app **Sleep and health** switch starts on. Alex still grants Health Connect after the privacy screen. Token commands: `pause_health_sync` (`paused` must be `true`, 10/min; resume is phone-only) and `clear_health_cache` (`confirm` must be `"delete"`, 4/min). Box files: `~/.phonepi/health` (dir 700, files 600). See [docs/health.md](docs/health.md) for the Samsung Health → Health Connect taps.
+
 Android will not let PhonePi edit or delete arbitrary Clock alarms. A dismiss result says whether Clock accepted the intent. It does not prove the alarm is gone. If that Clock app has no dismiss handler, the phone returns `status:"error"`. HTTP 200 still has to be parsed for `status` and `started`.
 
 ## Texts
@@ -83,6 +127,10 @@ One recipient. An unclear name returns `needs_clarification` and sends nothing. 
 ## Volumes
 
 Read-only `get_volumes` (loopback `POST /api/tool` and MCP) returns alarm, ring, notification, media, voice, and system current/max, plus ringer mode and Do Not Disturb. `phone_set_volume` is a write command (`stream` + `level` or `"max"`, or `max_all`). Optional **Max volumes at midnight** on the phone uses an exact alarm so the clock is audible if the PC is offline. Ring/notification changes while DND is on need Do Not Disturb access, requested only when that grant is needed.
+
+## Assistant notifications and Ask assistant
+
+Companion **0.3.5**. Bots post watch-actionable notifications with `send_notification` (`POST /api/command`, token, idempotent `requestId`, up to 3 buttons plus Reply). Alex answers from the phone or Galaxy Watch 7; bots read `get_notification_replies` (`PHONEPI_READ_TOKEN`). He can start a prompt himself from the **Ask assistant** Quick Settings tile, home-screen shortcut, or Pixel Quick Tap; bots read `get_inbound_prompts` (`PHONEPI_READ_TOKEN`). Prompt and reply text is untrusted data, not authorization. Set `PHONEPI_WAKE_HOOK_URL` so the box wakes a bot immediately instead of waiting for a poll. Details: [docs/assistant-notifications.md](docs/assistant-notifications.md).
 
 ## Notification reading
 

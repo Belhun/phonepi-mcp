@@ -24,17 +24,20 @@ object ServerPrefs {
 
     @Synchronized
     fun load(context: Context): Snapshot {
+        TokenVault.migrateIfNeeded(context)
         val p = prefs(context)
         var servers = ServerList.decode(p.getString(KEY_SERVERS, null))
         if (servers == null && !p.getBoolean(KEY_MIGRATED, false)) {
             servers = ServerList.seed(ConnectionPrefs.getLastSuccessful(context))
-            p.edit()
-                .putString(KEY_SERVERS, ServerList.encode(servers))
-                .putBoolean(KEY_MIGRATED, true)
-                .apply()
+            persistServers(context, servers)
+            p.edit().putBoolean(KEY_MIGRATED, true).apply()
+        }
+        val hydrated = servers.orEmpty().map { entry ->
+            val stored = TokenVault.serverToken(context, entry.id)
+            if (stored.isNotBlank()) entry.copy(token = stored) else entry
         }
         return Snapshot(
-            servers = servers.orEmpty(),
+            servers = hydrated,
             autoFailover = p.getBoolean(KEY_AUTO, true),
             pinnedId = p.getString(KEY_PINNED, null),
         )
@@ -42,9 +45,17 @@ object ServerPrefs {
 
     @Synchronized
     fun saveServers(context: Context, servers: List<ServerEntry>) {
+        persistServers(context, servers)
+        prefs(context).edit().putBoolean(KEY_MIGRATED, true).apply()
+    }
+
+    private fun persistServers(context: Context, servers: List<ServerEntry>) {
+        for (entry in servers) {
+            TokenVault.setServerToken(context, entry.id, entry.token)
+        }
+        val stripped = servers.map { it.copy(token = "") }
         prefs(context).edit()
-            .putString(KEY_SERVERS, ServerList.encode(servers))
-            .putBoolean(KEY_MIGRATED, true)
+            .putString(KEY_SERVERS, ServerList.encode(stripped))
             .apply()
     }
 
@@ -58,8 +69,9 @@ object ServerPrefs {
         }.apply()
     }
 
-    /** "Forget saved host": wipe servers and do not reseed. */
+    /** "Forget saved host": wipe servers and stored tokens. Do not reseed. */
     fun forget(context: Context) {
+        TokenVault.clearAll(context)
         prefs(context).edit()
             .clear()
             .putBoolean(KEY_MIGRATED, true)

@@ -33,11 +33,26 @@ sealed interface WsMessage {
     /** Ack for a location sync or a history wipe. The raw frame is parsed by the sync helper. */
     data class LocationAck(val raw: String) : WsMessage
 
+    /** Ack for a presence snapshot push or wipe. */
+    data class PresenceAck(val raw: String) : WsMessage
+    /** Ack for a usage sync or a screen-time wipe. */
+    data class UsageAck(val raw: String) : WsMessage
+    /** Ack for a health summary sync or a cache wipe. */
+    data class HealthAck(val raw: String) : WsMessage
+
     /** A box-side read that should show up in Recent activity. */
     data class ActivityNote(
         val title: String,
         val detail: String,
         val status: String,
+    ) : WsMessage
+
+    /** Ack for a prompt or reply the phone queued until the box stored it. */
+    data class AssistantAck(
+        val id: String,
+        val ok: Boolean,
+        val retryable: Boolean = false,
+        val retryAfterSec: Int = 60,
     ) : WsMessage
 
     /** Any other or unparseable frame. Ignored by the message loop. */
@@ -59,10 +74,22 @@ sealed interface WsMessage {
                 )
                 "error" -> ServerError(obj["error"]?.jsonPrimitive?.contentOrNull ?: "unknown error")
                 "location_sync_ack", "location_cleared_ack" -> LocationAck(text)
+                "presence_sync_ack", "presence_cleared_ack" -> PresenceAck(text)
+                "usage_sync_ack", "usage_cleared_ack" -> UsageAck(text)
+                "health_sync_ack", "health_cleared_ack" -> HealthAck(text)
                 "activity" -> ActivityNote(
                     title = obj["title"]?.jsonPrimitive?.contentOrNull?.take(80) ?: "activity",
                     detail = obj["detail"]?.jsonPrimitive?.contentOrNull?.take(240).orEmpty(),
                     status = obj["status"]?.jsonPrimitive?.contentOrNull ?: "info",
+                )
+                "assistant_ack" -> AssistantAck(
+                    id = obj["id"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                    ok = obj["ok"]?.jsonPrimitive?.contentOrNull != "false",
+                    retryable = obj["retryable"]?.jsonPrimitive?.contentOrNull == "true",
+                    retryAfterSec = obj["retryAfterSec"]?.jsonPrimitive?.contentOrNull
+                        ?.toIntOrNull()
+                        ?.coerceAtLeast(1)
+                        ?: 60,
                 )
                 else -> Unknown(obj["type"]?.jsonPrimitive?.contentOrNull ?: "none")
             }

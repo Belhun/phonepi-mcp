@@ -15,13 +15,40 @@ import { isReadOnlyHttpTool } from "./read-only-tools.js";
 import { LocationLog, openLocationLog } from "./location-log.js";
 import { CommandRateLimiter, commandRateLimiter } from "./command-rate-limit.js";
 import { isLocationReadTool, runLocationRead } from "./location-tools.js";
+import { HealthLog, openHealthLog } from "./health-log.js";
+import { isHealthReadTool, runHealthRead } from "./health-tools.js";
 import { NotificationLog, openNotificationLog } from "./notification-log.js";
 import { isNotificationLogTool, runNotificationLogRead } from "./notification-log-tools.js";
+import { UsageLog, openUsageLog } from "./usage-log.js";
+import { isUsageReadTool, runUsageRead } from "./usage-tools.js";
+import {
+  PresenceConfig,
+  PresenceConfigData,
+  openPresenceConfig,
+} from "./presence-config.js";
+import { PresenceLog, openPresenceLog } from "./presence-log.js";
+import { isPresenceReadTool, runPresenceRead } from "./presence-tools.js";
+import { AssistantStore, openAssistantStore } from "./assistant-events.js";
+import { isAssistantReadTool, runAssistantRead } from "./assistant-tools.js";
+import type { WakeHookStatus } from "./wake-hook.js";
 import {
   authorizeCommandToken,
   tokenFromHttpRequest,
   wsTokenFromEnv,
 } from "./ws-token.js";
+import {
+  authorizeSensitiveRead,
+  isSensitiveReadTool,
+  loadReadAuth,
+  logSensitiveRead,
+  matchReadBot,
+  readTokenFromHttpRequest,
+  type ReadAuthState,
+} from "./read-auth.js";
+import {
+  guardLoopbackRequest,
+  parseHttpHostAllowlist,
+} from "./http-guard.js";
 
 export const DEFAULT_HTTP_PORT = 11043;
 const LOOPBACK_HOST = "127.0.0.1";
@@ -31,7 +58,9 @@ export interface PhoneHttpBridge {
   isPhoneConnected(): boolean;
   callPhoneTool(
     name: string,
-    args: Record<string, unknown>
+    args: Record<string, unknown>,
+    callerId?: string,
+    options?: { skipRateLimit?: boolean }
   ): Promise<unknown>;
   /** Optional. Health copies only the known fields; it never spreads extras. */
   healthDetails?: () => PhoneHealthDetails;
@@ -60,6 +89,24 @@ export interface StartLoopbackHttpOptions {
   /** Box copy of captured notifications. Reads do not need the phone. */
   notificationLog?: NotificationLog;
   notificationCaptureStatus?: () => Record<string, unknown>;
+  /** Box copy of the latest presence snapshot. Reads do not need the phone. */
+  presenceLog?: PresenceLog;
+  presenceConfig?: PresenceConfig | PresenceConfigData;
+  presenceNow?: () => number;
+  /** Box copy of daily screen time. Reads do not need the phone. */
+  usageLog?: UsageLog;
+  /** Box copy of health summaries. Reads do not need the phone. */
+  healthLog?: HealthLog;
+  /** Box copy of notification replies and inbound prompts. */
+  assistantStore?: AssistantStore;
+  /** Wake hook counters for GET /api/health. Never includes the URL or secret. */
+  wakeHookStatus?: () => WakeHookStatus;
+  /** Sensitive-read tokens. Defaults to PHONEPI_READ_TOKEN / read-bots.json. */
+  readAuth?: ReadAuthState;
+  /** Host allowlist. Defaults to 127.0.0.1, localhost, [::1] plus PHONEPI_HTTP_HOSTS. */
+  httpHosts?: string[];
+  /** Env for PHONEPI_REQUIRE_READ_TOKEN_ALL and related flags. Defaults to process.env. */
+  env?: NodeJS.ProcessEnv;
 }
 
 type ToolBody = {
@@ -166,12 +213,25 @@ async function handleRequest(
   options: StartLoopbackHttpOptions
 ): Promise<void> {
   const path = requestPath(req);
+  const bound = boundPort(server, options.port);
+  const guard = guardLoopbackRequest(req, bound, {
+    allowlist: options.httpHosts ?? parseHttpHostAllowlist(),
+    requireJson: path !== "/api/health",
+  });
+  if (!guard.ok) {
+    sendJson(res, guard.status, { text: guard.text, isError: true });
+    return;
+  }
   if (path === "/api/health") {
     if (req.method !== "GET") {
       sendJson(res, 405, { text: "Method not allowed", isError: true });
       return;
     }
     const details = healthDetailsFrom(options.bridge);
+    const wake = options.wakeHookStatus?.() ?? {
+      wakeHookEnabled: false,
+      hookFailed: 0,
+    };
     sendJson(res, 200, {
       ok: true,
       phoneConnected: options.bridge.isPhoneConnected(),
@@ -184,6 +244,11 @@ async function handleRequest(
       lastPongAt: details.lastPongAt,
       phonePermissions: details.phonePermissions,
       missingPermissions: details.missingPermissions,
+      wakeHookEnabled: wake.wakeHookEnabled === true,
+      hookFailed:
+        typeof wake.hookFailed === "number" && Number.isFinite(wake.hookFailed)
+          ? wake.hookFailed
+          : 0,
     });
     return;
   }
@@ -257,6 +322,11 @@ async function handleTool(
   }
 
   const args = (body.arguments ?? {}) as Record<string, unknown>;
+  const sensitive = gateSensitiveRead(req, body.tool, options, "http");
+  if (!sensitive.ok) {
+    sendJson(res, sensitive.status, { text: sensitive.text, isError: true });
+    return;
+  }
   if (isLocationReadTool(body.tool)) {
     const log = options.locationLog ?? openLocationLog();
     const limiter = options.locationReadLimiter ?? commandRateLimiter;
@@ -266,6 +336,8 @@ async function handleTool(
       tool: body.tool,
       args,
       activityLogged: false,
+      includeCoords: sensitive.coords,
+      callerId: sensitive.callerId,
     });
     if (outcome.status === 200) {
       const logged =
@@ -292,7 +364,124 @@ async function handleTool(
       limiter: options.locationReadLimiter ?? commandRateLimiter,
       args,
       capture: options.notificationCaptureStatus,
+      wrapUntrusted: true,
+      callerId: sensitive.callerId,
     });
+    sendJson(res, outcome.status, outcome.body);
+    return;
+  }
+  if (isPresenceReadTool(body.tool)) {
+    const outcome = runPresenceRead({
+      log: options.presenceLog ?? openPresenceLog(),
+      config: options.presenceConfig ?? openPresenceConfig(),
+      limiter: options.locationReadLimiter ?? commandRateLimiter,
+      tool: body.tool,
+      nowMs: options.presenceNow?.(),
+      activityLogged: false,
+      includeCoords: sensitive.coords,
+      callerId: sensitive.callerId,
+    });
+    if (outcome.status === 200) {
+      const logged =
+        bridge.noteActivity?.({
+          title: body.tool,
+          detail: `read by ${sensitive.callerId}`,
+        }) ?? false;
+      if (logged) {
+        try {
+          const payload = JSON.parse(String(outcome.body.text));
+          payload.activityLogged = true;
+          outcome.body.text = JSON.stringify(payload, null, 2);
+        } catch {
+          // The text is already a success payload. Leave activityLogged false.
+        }
+      }
+    }
+    sendJson(res, outcome.status, outcome.body);
+    return;
+  }
+  if (isUsageReadTool(body.tool)) {
+    const log = options.usageLog ?? openUsageLog();
+    const limiter = options.locationReadLimiter ?? commandRateLimiter;
+    const outcome = runUsageRead({
+      log,
+      limiter,
+      args,
+      phoneConnected: bridge.isPhoneConnected(),
+      activityLogged: false,
+      callerId: sensitive.callerId,
+    });
+    if (outcome.status === 200) {
+      const logged =
+        bridge.noteActivity?.({
+          title: body.tool,
+          detail: `read by ${sensitive.callerId}`,
+        }) ?? false;
+      if (logged) {
+        try {
+          const payload = JSON.parse(String(outcome.body.text));
+          payload.activityLogged = true;
+          outcome.body.text = JSON.stringify(payload, null, 2);
+        } catch {
+          // The text is already a success payload. Leave activityLogged false.
+        }
+      }
+    }
+    sendJson(res, outcome.status, outcome.body);
+    return;
+  }
+  if (isHealthReadTool(body.tool)) {
+    const outcome = runHealthRead({
+      log: options.healthLog ?? openHealthLog(),
+      limiter: options.locationReadLimiter ?? commandRateLimiter,
+      phoneConnected: bridge.isPhoneConnected(),
+      activityLogged: false,
+      callerId: sensitive.callerId,
+    });
+    if (outcome.status === 200) {
+      const logged =
+        bridge.noteActivity?.({
+          title: body.tool,
+          detail: `read by ${sensitive.callerId}`,
+        }) ?? false;
+      if (logged) {
+        try {
+          const payload = JSON.parse(String(outcome.body.text));
+          payload.activityLogged = true;
+          outcome.body.text = JSON.stringify(payload, null, 2);
+        } catch {
+          // The text is already a success payload. Leave activityLogged false.
+        }
+      }
+    }
+    sendJson(res, outcome.status, outcome.body);
+    return;
+  }
+  if (isAssistantReadTool(body.tool)) {
+    const outcome = runAssistantRead({
+      store: options.assistantStore ?? openAssistantStore(),
+      limiter: options.locationReadLimiter ?? commandRateLimiter,
+      tool: body.tool,
+      args,
+      activityLogged: false,
+      callerId: sensitive.callerId,
+    });
+    if (outcome.status === 200) {
+      const logged =
+        bridge.noteActivity?.({
+          title: body.tool,
+          detail: `read by ${sensitive.callerId}`,
+        }) ?? false;
+      if (logged) {
+        try {
+          const payload = JSON.parse(String(outcome.body.text));
+          payload.activityLogged = true;
+          outcome.body.text = JSON.stringify(payload, null, 2);
+        } catch {
+          // Leave activityLogged false.
+        }
+      }
+    }
     sendJson(res, outcome.status, outcome.body);
     return;
   }
@@ -310,7 +499,11 @@ async function handleTool(
   }
 
   try {
-    const result = await bridge.callPhoneTool(body.tool, args);
+    const result = await bridge.callPhoneTool(
+      body.tool,
+      args,
+      sensitive.callerId
+    );
     sendJson(res, 200, {
       text: JSON.stringify(result, null, 2),
       isError: false,
@@ -400,6 +593,53 @@ async function handleCommand(
   }
 
   const args = (body.arguments ?? {}) as Record<string, unknown>;
+  const callerId = commandCallerId(req, options);
+  if (commandName === "clear_assistant_events") {
+    const validated = validatePhoneCommandArgs(commandName, args);
+    if (!validated.ok) {
+      sendJson(res, 400, { text: validated.error, isError: true });
+      return;
+    }
+    const spec = getPhoneCommand(commandName);
+    if (spec) {
+      const limiter = options.locationReadLimiter ?? commandRateLimiter;
+      const budget = limiter.allow(
+        `${callerId}:${spec.name}`,
+        spec.maxPerMinute
+      );
+      if (!budget.ok) {
+        sendJson(res, 429, {
+          text: `Rate limited: ${spec.name}. Try again in ${budget.retryAfterSec}s`,
+          isError: true,
+        });
+        return;
+      }
+    }
+    (options.assistantStore ?? openAssistantStore()).clear();
+    let phoneCleared = false;
+    if (options.bridge.isPhoneConnected()) {
+      try {
+        await options.bridge.callPhoneTool(
+          commandName,
+          validated.args,
+          callerId,
+          { skipRateLimit: true }
+        );
+        phoneCleared = true;
+      } catch {
+        phoneCleared = false;
+      }
+    }
+    sendJson(res, 200, {
+      text: JSON.stringify(
+        { status: "success", cleared: true, phoneCleared },
+        null,
+        2
+      ),
+      isError: false,
+    });
+    return;
+  }
   const validated = validatePhoneCommandArgs(commandName, args);
   if (!validated.ok) {
     if (commandName === "request_send_text") {
@@ -418,7 +658,8 @@ async function handleCommand(
   try {
     const result = await options.bridge.callPhoneTool(
       spec?.phoneTool ?? commandName,
-      validated.args
+      validated.args,
+      callerId
     );
     sendJson(res, 200, {
       text: JSON.stringify(result, null, 2),
@@ -529,6 +770,51 @@ function isoOrNull(value: unknown): string | null {
   const parsed = Date.parse(value);
   if (Number.isNaN(parsed)) return null;
   return new Date(parsed).toISOString();
+}
+
+function gateSensitiveRead(
+  req: IncomingMessage,
+  tool: string,
+  options: StartLoopbackHttpOptions,
+  source: "http" | "mcp"
+): { ok: true; callerId: string; coords: boolean } | { ok: false; status: number; text: string } {
+  const env = options.env ?? process.env;
+  const state = options.readAuth ?? loadReadAuth(env);
+  const provided = readTokenFromHttpRequest(req);
+  if (!isSensitiveReadTool(tool, env)) {
+    const bot = matchReadBot(state, provided);
+    return {
+      ok: true,
+      callerId: bot?.id ?? "public",
+      coords: bot?.coords === true,
+    };
+  }
+  const auth = authorizeSensitiveRead({
+    state,
+    tool,
+    provided,
+    source,
+    env,
+  });
+  if (!auth.ok) return auth;
+  logSensitiveRead({
+    callerId: auth.callerId,
+    tool,
+    source,
+    log: options.log,
+  });
+  return auth;
+}
+
+function commandCallerId(
+  req: IncomingMessage,
+  options: StartLoopbackHttpOptions
+): string {
+  const env = options.env ?? process.env;
+  const state = options.readAuth ?? loadReadAuth(env);
+  const provided = readTokenFromHttpRequest(req);
+  const bot = matchReadBot(state, provided);
+  return bot?.id ?? "command";
 }
 
 function sendJson(res: ServerResponse, status: number, body: ToolBody | Record<string, unknown>) {

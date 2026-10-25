@@ -37,6 +37,17 @@ cd phonepi-android
 
 Output: `phonepi-android/app/build/outputs/apk/release/app-release.apk`
 
+Install **release-signed** APKs only (phone and watch). Before sideload, print the certs and compare SHA-256 (phone and watch must match; same release key):
+
+```bash
+apksigner verify --print-certs app-release.apk
+apksigner verify --print-certs phonepi-wear-release.apk
+# SHA-1 of the current release cert (second check):
+# 49:B1:AB:F2:98:F5:D4:9A:B3:8B:A2:30:6F:E9:E3:2E:E4:89:48:9D
+```
+
+The SHA-256 is not checked into this repo; print it from the APK. Debug watch APKs are for box tests, not the watch.
+
 ## One-time debug → release reinstall
 
 Android will **not** update a debug-signed PhonePi with a release-signed APK (different signing cert). In-app update / `phone_push_update` cannot cross that gap.

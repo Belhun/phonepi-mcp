@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">PhonePi</string>
+    <string name="tile_label">PhonePi</string>
+    <string name="complication_label">Next alarm</string>
+    <string-array name="android_wear_capabilities">
+        <item>phonepi_wear</item>
+    </string-array>
+</resources>

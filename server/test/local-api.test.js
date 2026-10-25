@@ -43,6 +43,12 @@ const FORBIDDEN = [
   "get_photo",
   "pause_location_logging",
   "clear_location_history",
+  "pause_presence_logging",
+  "clear_presence_history",
+  "pause_usage_logging",
+  "clear_usage_history",
+  "pause_health_sync",
+  "clear_health_cache",
   "not_a_real_tool",
 ];
 
@@ -121,10 +127,15 @@ test("read-only allowlist is exactly the phone read tools", () => {
       "get_battery_level",
       "get_contact_by_id",
       "get_contacts",
+      "get_health_summary",
+      "get_inbound_prompts",
       "get_location_history",
+      "get_notification_replies",
       "get_notifications",
+      "get_presence",
       "get_recent_calls",
       "get_recent_photos",
+      "get_screen_time",
       "get_snippet_by_id",
       "get_snippets_by_type",
       "get_volumes",
@@ -212,7 +223,17 @@ test("each allowlisted tool can be called when the phone answers", async () => {
     },
     async ({ port }) => {
       for (const tool of READ_ONLY_HTTP_TOOLS) {
-        if (tool === "get_location_history" || tool === "search_places") continue;
+        if (
+          tool === "get_location_history" ||
+          tool === "search_places" ||
+          tool === "get_presence" ||
+          tool === "get_screen_time" ||
+          tool === "get_health_summary" ||
+          tool === "get_notification_replies" ||
+          tool === "get_inbound_prompts"
+        ) {
+          continue;
+        }
         const res = await postTool(port, { tool, arguments: { query: "x" } });
         assert.equal(res.status, 200, tool);
         assert.equal(res.json.isError, false, tool);
@@ -252,6 +273,7 @@ test("GET /api/health reports ports, phone state, and empty history", async () =
       const res = await getHealth(port);
       assert.equal(res.status, 200);
       assert.deepEqual(Object.keys(res.json).sort(), [
+        "hookFailed",
         "httpPort",
         "lastConnectedAt",
         "lastDisconnectCode",
@@ -262,8 +284,11 @@ test("GET /api/health reports ports, phone state, and empty history", async () =
         "ok",
         "phoneConnected",
         "phonePermissions",
+        "wakeHookEnabled",
         "wsPort",
       ]);
+      assert.equal(res.json.wakeHookEnabled, false);
+      assert.equal(res.json.hookFailed, 0);
       assert.equal(res.json.ok, true);
       assert.equal(res.json.phoneConnected, false);
       assert.equal(res.json.wsPort, 11041);

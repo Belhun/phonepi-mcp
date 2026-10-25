@@ -10,6 +10,8 @@ import dev.phonepi.companion.nav.NavigationQuery
 import dev.phonepi.companion.nav.SavedLocationDraft
 import dev.phonepi.companion.nav.SavedLocationRecord
 import dev.phonepi.companion.nav.SavedLocationRules
+import dev.phonepi.companion.presence.PresenceEngine
+import dev.phonepi.companion.presence.PresencePrefs
 import dev.phonepi.companion.nav.LocationValidation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -17,22 +19,27 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
 class ListLocationsTool(context: Context) : ToolHandler {
+    private val app = context.applicationContext
     private val dao = PhonePiDatabase.get(context).savedLocationDao()
     override val name = "phone_list_locations"
 
     override suspend fun handle(params: JsonObject): JsonObject {
         val items = dao.getAll()
+        val marks = PresencePrefs.marks(app)
         return success {
             put("count", items.size)
-            put("locations", locationsArray(items))
+            put("locations", locationsArray(items, marks))
         }
     }
 }
 
 class AddLocationTool(context: Context) : ToolHandler {
+    private val app = context.applicationContext
     private val dao = PhonePiDatabase.get(context).savedLocationDao()
     override val name = "phone_add_location"
 
@@ -61,14 +68,18 @@ class AddLocationTool(context: Context) : ToolHandler {
                 updatedAt = now,
             ),
         )
+        val presence = params["presence"]?.jsonPrimitive?.booleanOrNull
+        if (presence != null) PresencePrefs.setMarked(app, record.nameKey, presence)
+        PresenceEngine.nudge(app)
         return success {
-            put("location", record.toJson())
+            put("location", record.toJson(PresencePrefs.isMarked(app, record.nameKey)))
             put("updated", existing != null)
         }
     }
 }
 
 class RemoveLocationTool(context: Context) : ToolHandler {
+    private val app = context.applicationContext
     private val dao = PhonePiDatabase.get(context).savedLocationDao()
     override val name = "phone_remove_location"
 
@@ -77,6 +88,8 @@ class RemoveLocationTool(context: Context) : ToolHandler {
         val key = SavedLocationRules.nameKey(name)
         val existing = dao.getByKey(key) ?: return toolError("No saved location named \"$name\"")
         dao.deleteByKey(key)
+        PresencePrefs.setMarked(app, key, false)
+        PresenceEngine.nudge(app)
         return success {
             put("removed", existing.name)
         }
@@ -176,16 +189,17 @@ private fun SavedLocationEntity.toRecord(): SavedLocationRecord =
         mapsUrl = mapsUrl,
     )
 
-private fun SavedLocationRecord.toJson(): JsonObject = buildJsonObject {
+private fun SavedLocationRecord.toJson(presence: Boolean = false): JsonObject = buildJsonObject {
     put("name", name)
     address?.let { put("address", it) }
     latitude?.let { put("latitude", it) }
     longitude?.let { put("longitude", it) }
     mapsUrl?.let { put("mapsUrl", it) }
+    put("presence", presence)
 }
 
-private fun SavedLocationEntity.toJson(): JsonObject = toRecord().toJson()
+private fun SavedLocationEntity.toJson(presence: Boolean): JsonObject = toRecord().toJson(presence)
 
-private fun locationsArray(items: List<SavedLocationEntity>): JsonArray = buildJsonArray {
-    items.forEach { add(it.toJson()) }
+private fun locationsArray(items: List<SavedLocationEntity>, marks: Set<String>): JsonArray = buildJsonArray {
+    items.forEach { add(it.toJson(it.nameKey in marks)) }
 }

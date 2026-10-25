@@ -38,9 +38,17 @@ import dev.phonepi.companion.tools.GetVolumesTool
 import dev.phonepi.companion.tools.SetVolumeTool
 import dev.phonepi.companion.tools.ListLocationsTool
 import dev.phonepi.companion.tools.ListNotificationAppsTool
+import dev.phonepi.companion.assistant.ClearAssistantEventsTool
+import dev.phonepi.companion.assistant.AssistantOutbox
+import dev.phonepi.companion.health.ClearHealthCacheTool
+import dev.phonepi.companion.health.PauseHealthSyncTool
 import dev.phonepi.companion.tools.ClearLocationHistoryTool
+import dev.phonepi.companion.tools.ClearPresenceHistoryTool
+import dev.phonepi.companion.tools.ClearUsageHistoryTool
 import dev.phonepi.companion.tools.NavigateTool
+import dev.phonepi.companion.tools.PauseUsageLoggingTool
 import dev.phonepi.companion.tools.PauseLocationLoggingTool
+import dev.phonepi.companion.tools.PausePresenceLoggingTool
 import dev.phonepi.companion.tools.PushUpdateTool
 import dev.phonepi.companion.tools.RemoveLocationTool
 import dev.phonepi.companion.tools.GetMessageResponseTool
@@ -66,6 +74,8 @@ import dev.phonepi.companion.textsend.GetSendStatusTool
 import dev.phonepi.companion.textsend.PhoneUplink
 import dev.phonepi.companion.textsend.RequestSendTextTool
 import dev.phonepi.companion.textsend.SendLogOutbox
+import dev.phonepi.companion.wear.WearPromptOutbox
+import dev.phonepi.companion.wear.WearStatePublisher
 import dev.phonepi.companion.tools.UpdateContactTool
 import dev.phonepi.companion.tools.UpdateSnippetTool
 import dev.phonepi.companion.util.NotificationHelper
@@ -140,6 +150,13 @@ class ConnectionService : Service() {
                 DeleteContactTool(ctx),
                 PauseLocationLoggingTool(ctx),
                 ClearLocationHistoryTool(ctx),
+                PausePresenceLoggingTool(ctx),
+                ClearPresenceHistoryTool(ctx),
+                PauseUsageLoggingTool(ctx),
+                ClearUsageHistoryTool(ctx),
+                PauseHealthSyncTool(ctx),
+                ClearHealthCacheTool(ctx),
+                ClearAssistantEventsTool(ctx),
                 RequestSendTextTool(ctx),
                 GetSendStatusTool(ctx),
             ),
@@ -154,14 +171,19 @@ class ConnectionService : Service() {
             permissionPayload = {
                 PhonePermissionReport.toJson(PhonePermissionSnapshot.capture(applicationContext))
             },
-            onReady = { SendLogOutbox.flush(applicationContext) },
+            onReady = {
+                SendLogOutbox.flush(applicationContext)
+                WearPromptOutbox.flush(applicationContext)
+                AssistantOutbox.flush(applicationContext)
+                WearStatePublisher.publish(applicationContext)
+            },
         )
         PhoneUplink.attach { text -> manager.sendFrame(text) }
         createChannel()
         registerNetworkCallback()
         scope.launch {
             ConnectionController.state.collect { state ->
-                updateForeground(state.statusLabel())
+                updateForeground(foregroundLine(state.statusLabel()))
             }
         }
         scope.launch {
@@ -181,7 +203,9 @@ class ConnectionService : Service() {
             return START_NOT_STICKY
         }
         if (intent?.action == ACTION_NUDGE) {
-            startForegroundNotification(ConnectionController.state.value.statusLabel())
+            startForegroundNotification(
+                foregroundLine(ConnectionController.state.value.statusLabel()),
+            )
             manager.nudge("app foreground")
             manager.publishPermissions(force = true)
             return START_STICKY
@@ -212,7 +236,12 @@ class ConnectionService : Service() {
 
     override fun onBind(intent: Intent?) = null
 
-    private fun startForegroundNotification(text: String = "Phone link active") {
+    private fun foregroundLine(status: String): String {
+        val sharing = dev.phonepi.companion.privacy.SharingMaster.notificationLine(this)
+        return "$status · $sharing"
+    }
+
+    private fun startForegroundNotification(text: String = foregroundLine("Phone link active")) {
         updateForeground(text)
     }
 

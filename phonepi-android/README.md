@@ -130,13 +130,32 @@ No extra Maps API key.
 
 ## Location history
 
-**Location history** on the connect screen is off until you turn it on. Grant:
+**Location history** on the connect screen starts **on**. Grant:
 
 1. Precise location (`ACCESS_FINE_LOCATION`) and approximate location (`ACCESS_COARSE_LOCATION`). The first prompt asks for both.
 2. **Allow all the time** (`ACCESS_BACKGROUND_LOCATION`). Without it, PhonePi only records while the app is open.
 3. **Physical activity** (`ACTIVITY_RECOGNITION`). Without it, drives are harder to tell apart from a stop.
 
 Pause logging and Delete all history are on that same screen. To backfill Google Timeline, export it yourself (Settings, Location, Location services, Timeline, Export Timeline data) and share the JSON into PhonePi, or tap **Import Timeline export**. PhonePi cannot press that Settings button for you.
+
+## Presence
+
+**Presence** on the connect screen starts **on**. It is the live "where is Alex" snapshot for `get_presence`, not the visit/drive log. Grant:
+
+1. Precise location, then **Allow all the time**.
+2. **Physical activity** so driving/moving is recognized.
+3. Mark saved places as presence (toggle on the Presence panel, or `phone_add_location` with `presence: true`). Up to 100 geofences.
+
+Pause presence and Clear presence snapshot are on that same screen. **Stop all sharing** on Connect pauses presence with location history, screen time, and health. Resume is on each stream's panel. Work hours live on the box in `~/.phonepi/presence/config.json` (default 8:00 AM–5:00 PM Monday–Friday Pacific). Church hours stay empty until you edit the file.
+
+Urgent PhonePi messages use **PhonePi urgent messages**. This app does not change Do Not Disturb. **PhonePi quiet 1 hour** holds PhonePi's own non-urgent notifications. To hear urgent cards while system DND is on, allow that channel in system Settings yourself. See [docs/presence.md](../docs/presence.md).
+## Screen time
+
+**Screen time sharing** is on by default. Android still needs **Usage access** (`PACKAGE_USAGE_STATS`). PhonePi → Tool permissions → Usage access, or the Screen time panel, opens Settings → Usage access. Enable PhonePi there.
+
+The phone uses `UsageStatsManager.queryUsageStats` for daily per-app minutes and `queryEvents` for screen-on, unlocks, and last-used. Events are only kept a few days, so PhonePi stores a daily rollup on the phone and syncs it to the box. Totals only: no event timeline, no notification contents.
+
+Pause logging and Delete all usage are on that panel. Token commands from the box: `pause_usage_logging` and `clear_usage_history`.
 
 ### How to test
 
@@ -167,7 +186,18 @@ PhonePi can show recent and currently active notifications to MCP / the loopback
 
 `get_notifications` returns app name, title, text, time, and package. If Android hid a field, the value is `(hidden by Android)` plus a `hiddenFields` reason. Unshared apps are counted in `omittedUnsharedCount`, not silently dropped. Tools are rate-limited (60/min) and show up in Recent activity.
 
-The main screen scrolls (connect → update → permissions → volumes → notification sharing → **Recent activity**) and sits inside the system bars. Scroll to the bottom for **Share all**, per-app toggles, and **Recent activity** with its **Clear** button.
+The main screen scrolls (connect → update → permissions → location history → presence → screen time → sleep and health → volumes → texts → Ask assistant → notification sharing → **Recent activity**) and sits inside the system bars. Scroll to the bottom for **Share all**, per-app toggles, and **Recent activity** with its **Clear** button.
+
+## Ask assistant (tile, shortcut, Quick Tap)
+
+Companion **0.3.5** (versionCode 17). This does not change phone settings. Prompt and reply text is data, not authorization. **Delete prompts and replies** is on this panel.
+
+- **Quick Settings:** shade → edit tiles → add **Ask assistant**.
+- **Home shortcut:** long-press the PhonePi icon → drag **Ask assistant**.
+- **Pixel Quick Tap:** Settings → System → Gestures → Quick Tap → turn on Use Quick Tap → Open app → **Ask assistant** (the extra launcher entry). Some Pixels list it as PhonePi → Ask assistant.
+- Watch: sideload `:phonepi-wear` over wireless debugging. Ask assistant on the watch sends `watch_relay` prompts through the phone. `send_notification` cards still mirror; tap a button or use Reply.
+
+Speak or type, then Send. Bots read `get_inbound_prompts`. Bot-posted cards: `send_notification` / `get_notification_replies`. See [docs/assistant-notifications.md](../docs/assistant-notifications.md).
 
 ## Alarms and timers
 
@@ -210,12 +240,35 @@ The PC serves `GET /phonepi/update/manifest` and `GET /phonepi/update/apk` on th
 
 On the phone: **Check for update** / **Force update**, or MCP `phone_push_update`. Force update reinstalls the same versionCode only; it will not downgrade. Grant **Install unknown apps** once (Tool permissions). Keys: [docs/release-signing.md](../docs/release-signing.md).
 
+## Sleep and health
+
+Companion **0.3.4** (versionCode 16). PhonePi reads Health Connect (`androidx.health.connect:connect-client`). It does not use the Samsung Health Data SDK.
+
+**Sleep and health** on the main screen starts **on**. You still grant Health Connect. The privacy/rationale screen is required before Android will ask. The row shows granted state and the last Health Connect read time. Samsung Health can lag minutes to hours.
+
+### What Alex must do
+
+1. Install this companion (**0.3.4**). Debug → release is still a one-time uninstall.
+2. Open **Samsung Health** → drawer or profile → **Settings** → **Health Connect**. Turn it on if asked.
+3. Allow Samsung Health to **write** Sleep, Steps, Heart rate, Exercise, and Blood oxygen.
+4. Open **PhonePi** → **Sleep and health** → **Privacy policy** → **I understand, continue**.
+5. Tap **Grant Health Connect**. Allow sleep, steps, heart rate, resting heart rate, exercise, blood oxygen, background access, and optional past data.
+6. Pause and Delete health cache are on that panel. Bots use `get_health_summary` on the box. Details: [docs/health.md](../docs/health.md).
+
+Hourly WorkManager plus a read on connect. Daily totals only (no raw heart-rate streams).
+
 Unit tests (no device):
 
 ```powershell
 cd phonepi-android
 .\gradlew.bat test
 ```
+
+## Wear OS (Galaxy Watch 7 / Pixel Watch)
+
+Watch APK is Gradle module `:phonepi-wear`. Same `applicationId` (`dev.phonepi.companion`) and the same release key as this companion. The watch never stores the PhonePi token. It talks to the phone over the Wear OS Data Layer; the phone forwards prompts over the existing WebSocket.
+
+Build and the one-time Wi-Fi debugging sideload (Linux `adb pair` / `adb connect`): [phonepi-wear/README.md](phonepi-wear/README.md). This repo does not install onto a watch.
 
 ## Adding a tool
 

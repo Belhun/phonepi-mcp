@@ -3,27 +3,30 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
   CallToolRequestSchema,
-  ErrorCode,
   ListToolsRequestSchema,
-  McpError,
 } from "@modelcontextprotocol/sdk/types.js";
 import { WebSocket, WebSocketServer } from "ws";
 import {
   GM_TOOL_SCHEMAS,
   ensureGmessagesSidecar,
   gmessagesClient,
-  isGmTool,
   stopGmessagesSidecar,
 } from "./gmessages/index.js";
 import { commandRateLimiter } from "./command-rate-limit.js";
 import { openLocationLog } from "./location-log.js";
-import { isLocationReadTool, LOCATION_TOOL_SCHEMAS, runLocationRead } from "./location-tools.js";
+import { LOCATION_TOOL_SCHEMAS } from "./location-tools.js";
+import { openPresenceConfig } from "./presence-config.js";
+import { openPresenceLog } from "./presence-log.js";
+import { PRESENCE_TOOL_SCHEMAS } from "./presence-tools.js";
+import { openUsageLog } from "./usage-log.js";
+import { USAGE_TOOL_SCHEMAS } from "./usage-tools.js";
+import { openHealthLog } from "./health-log.js";
+import { HEALTH_TOOL_SCHEMAS } from "./health-tools.js";
 import { openNotificationLog } from "./notification-log.js";
-import {
-  NOTIFICATION_LOG_TOOL_SCHEMAS,
-  isNotificationLogTool,
-  runNotificationLogRead,
-} from "./notification-log-tools.js";
+import { NOTIFICATION_LOG_TOOL_SCHEMAS } from "./notification-log-tools.js";
+import { openAssistantStore } from "./assistant-events.js";
+import { ASSISTANT_TOOL_SCHEMAS } from "./assistant-tools.js";
+import { WakeHook } from "./wake-hook.js";
 import {
   NotificationPoller,
   captureEnabledFromEnv,
@@ -60,6 +63,25 @@ import { requestPhoneTool } from "./phone-request.js";
 import { PhoneSession, bindPhoneConnection } from "./phone-session.js";
 import { createPhoneWebSocketServer } from "./phone-ws.js";
 import { createPhoneVerifyClient } from "./ws-token.js";
+import { loadReadAuth } from "./read-auth.js";
+import {
+  GET_LOCATION_SCHEMA,
+  handleMcpToolCall,
+  mcpSchemasWithTokenArg,
+} from "./mcp-call.js";
+import { allowIngest } from "./ingest-limit.js";
+
+function redactWsDebug(message: Record<string, unknown>): Record<string, unknown> {
+  const copy: Record<string, unknown> = { ...message };
+  for (const key of ["text", "replyText", "token", "secret", "password"]) {
+    if (key in copy) {
+      const value = copy[key];
+      copy[key] =
+        typeof value === "string" ? `<redacted ${value.length} chars>` : "<redacted>";
+    }
+  }
+  return copy;
+}
 
 installTimestampedConsole();
 
@@ -96,8 +118,15 @@ class PhonePiMCPServer {
   private _pingIntervalId: NodeJS.Timeout | null = null;
   private httpApi: Promise<LoopbackHttpHandle | null> | null = null;
   private locationLog = openLocationLog();
+  private presenceLog = openPresenceLog();
+  private presenceConfig = openPresenceConfig();
+  private usageLog = openUsageLog();
+  private healthLog = openHealthLog();
   private notificationLog = openNotificationLog();
   private notificationPoller: NotificationPoller | null = null;
+  private assistantStore = openAssistantStore();
+  private wakeHook = new WakeHook();
+  private readAuth = loadReadAuth();
 
   constructor(
     private serverPort: number = 11041,
@@ -155,14 +184,22 @@ class PhonePiMCPServer {
       wsPort: this.serverPort,
       bridge: {
         isPhoneConnected: () => this.isPhoneOpen(),
-        callPhoneTool: (name, args) => this.callPhoneTool(name, args),
+        callPhoneTool: (name, args, callerId, options) =>
+          this.callPhoneTool(name, args, callerId ?? "public", options),
         healthDetails: () => this.session.healthDetails(),
         noteActivity: (entry) => this.notePhoneActivity(entry),
       },
       locationLog: this.locationLog,
       locationReadLimiter: commandRateLimiter,
+      presenceLog: this.presenceLog,
+      presenceConfig: this.presenceConfig,
+      usageLog: this.usageLog,
+      healthLog: this.healthLog,
       notificationLog: this.notificationLog,
       notificationCaptureStatus: () => this.notificationCaptureStatus(),
+      assistantStore: this.assistantStore,
+      wakeHookStatus: () => this.wakeHook.status(),
+      readAuth: this.readAuth,
     });
   }
 
@@ -192,6 +229,119 @@ class PhonePiMCPServer {
     }
   }
 
+  private handlePresenceFrame(
+    ws: WebSocket,
+    message: { type?: string; snapshot?: unknown }
+  ): void {
+    if (!this.session.isCurrent(ws)) {
+      console.error("[WebSocket] Ignored presence frame from a stale socket");
+      return;
+    }
+    if (message.type === "presence_cleared") {
+      this.presenceLog.clear();
+      try {
+        ws.send(JSON.stringify({ type: "presence_cleared_ack" }));
+      } catch (err) {
+        console.error("[WebSocket] Failed to ack presence clear");
+      }
+      return;
+    }
+    const budget = allowIngest("presence");
+    if (!budget.ok) {
+      console.error("[WebSocket] presence snapshot rate limited");
+      try {
+        ws.send(
+          JSON.stringify({
+            type: "presence_sync_ack",
+            ok: false,
+            error: "rate limited",
+          })
+        );
+      } catch (err) {
+        console.error("[WebSocket] Failed to ack presence sync");
+      }
+      return;
+    }
+    const result = this.presenceLog.ingest(message.snapshot);
+    if (result.ok) {
+      console.error("[WebSocket] presence snapshot stored");
+    } else {
+      console.error("[WebSocket] presence snapshot rejected");
+    }
+    try {
+      ws.send(
+        JSON.stringify({
+          type: "presence_sync_ack",
+          ok: result.ok,
+          error: result.ok ? undefined : result.error,
+        })
+      );
+    } catch (err) {
+      console.error("[WebSocket] Failed to ack presence sync");
+    }
+  }
+
+  private handleAssistantClear(ws: WebSocket): void {
+    if (!this.session.isCurrent(ws)) {
+      console.error("[WebSocket] Ignored assistant clear from a stale socket");
+      return;
+    }
+    this.assistantStore.clear();
+    try {
+      ws.send(JSON.stringify({ type: "assistant_cleared_ack" }));
+    } catch (err) {
+      console.error("[WebSocket] Failed to ack assistant clear");
+    }
+  }
+
+  private handleAssistantFrame(
+    ws: WebSocket,
+    message: Record<string, unknown>
+  ): void {
+    if (!this.session.isCurrent(ws)) {
+      console.error("[WebSocket] Ignored assistant frame from a stale socket");
+      return;
+    }
+    const kind = message.type;
+    const result =
+      kind === "notification_reply"
+        ? this.assistantStore.ingestReply(message)
+        : this.assistantStore.ingestPrompt(message);
+    const id =
+      result.accepted[0] ||
+      (typeof message.id === "string" ? message.id : "");
+    const ok = result.rejected.length === 0;
+    if (result.rejected.length > 0) {
+      console.error(
+        `[WebSocket] assistant ${String(kind)} rejected=${result.rejected.length}`
+      );
+    } else {
+      console.error(
+        `[WebSocket] assistant ${String(kind)} accepted=${result.accepted.length} duplicate=${result.duplicate}`
+      );
+    }
+    try {
+      ws.send(
+        JSON.stringify({
+          type: "assistant_ack",
+          id,
+          ok,
+          retryable: result.rejected.some((row) => row.retryable === true),
+          retryAfterSec: result.rejected.find((row) => row.retryAfterSec != null)
+            ?.retryAfterSec,
+        })
+      );
+    } catch (err) {
+      console.error("[WebSocket] Failed to ack assistant event");
+    }
+    if (!ok || result.duplicate) return;
+    if (!id) return;
+    const ts = typeof message.ts === "number" ? message.ts : Date.now();
+    const event =
+      kind === "notification_reply" ? "notification_reply" : "inbound_prompt";
+    this.wakeHook.notify(event, id, ts);
+  }
+
   private handleLocationFrame(ws: WebSocket, message: { type?: string; events?: unknown }): void {
     if (!this.session.isCurrent(ws)) {
       console.error("[WebSocket] Ignored location frame from a stale socket");
@@ -203,6 +353,22 @@ class PhonePiMCPServer {
         ws.send(JSON.stringify({ type: "location_cleared_ack" }));
       } catch (err) {
         console.error("[WebSocket] Failed to ack location clear");
+      }
+      return;
+    }
+    const locationBudget = allowIngest("location");
+    if (!locationBudget.ok) {
+      console.error("[WebSocket] location sync rate limited");
+      try {
+        ws.send(
+          JSON.stringify({
+            type: "location_sync_ack",
+            accepted: [],
+            rejected: [{ id: "", error: "rate limited" }],
+          })
+        );
+      } catch (err) {
+        console.error("[WebSocket] Failed to ack location sync");
       }
       return;
     }
@@ -226,9 +392,111 @@ class PhonePiMCPServer {
     }
   }
 
+  private handleUsageFrame(
+    ws: WebSocket,
+    message: { type?: string; days?: unknown; meta?: unknown }
+  ): void {
+    if (!this.session.isCurrent(ws)) {
+      console.error("[WebSocket] Ignored usage frame from a stale socket");
+      return;
+    }
+    if (message.type === "usage_cleared") {
+      this.usageLog.clear();
+      try {
+        ws.send(JSON.stringify({ type: "usage_cleared_ack" }));
+      } catch (err) {
+        console.error("[WebSocket] Failed to ack usage clear");
+      }
+      return;
+    }
+    const usageBudget = allowIngest("usage");
+    if (!usageBudget.ok) {
+      console.error("[WebSocket] usage sync rate limited");
+      try {
+        ws.send(
+          JSON.stringify({
+            type: "usage_sync_ack",
+            accepted: [],
+            rejected: [{ id: "", error: "rate limited" }],
+          })
+        );
+      } catch (err) {
+        console.error("[WebSocket] Failed to ack usage sync");
+      }
+      return;
+    }
+    const result = this.usageLog.ingest(message.days, message.meta);
+    console.error(
+      `[WebSocket] usage sync accepted=${result.accepted.length} rejected=${result.rejected.length}`
+    );
+    try {
+      ws.send(
+        JSON.stringify({
+          type: "usage_sync_ack",
+          accepted: result.accepted,
+          rejected: result.rejected.map((item) => ({
+            id: item.id,
+            error: item.error,
+          })),
+        })
+      );
+    } catch (err) {
+      console.error("[WebSocket] Failed to ack usage sync");
+    }
+  }
+
+  private handleHealthFrame(ws: WebSocket, message: { type?: string; summary?: unknown }): void {
+    if (!this.session.isCurrent(ws)) {
+      console.error("[WebSocket] Ignored health frame from a stale socket");
+      return;
+    }
+    if (message.type === "health_cleared") {
+      this.healthLog.clear();
+      try {
+        ws.send(JSON.stringify({ type: "health_cleared_ack" }));
+      } catch (err) {
+        console.error("[WebSocket] Failed to ack health clear");
+      }
+      return;
+    }
+    const healthBudget = allowIngest("health");
+    if (!healthBudget.ok) {
+      console.error("[WebSocket] health sync rate limited");
+      try {
+        ws.send(
+          JSON.stringify({
+            type: "health_sync_ack",
+            ok: false,
+            error: "rate limited",
+          })
+        );
+      } catch (err) {
+        console.error("[WebSocket] Failed to ack health sync");
+      }
+      return;
+    }
+    const result = this.healthLog.ingest(message.summary);
+    console.error(
+      `[WebSocket] health sync ${result.ok ? "accepted" : "rejected"}`
+    );
+    try {
+      ws.send(
+        JSON.stringify({
+          type: "health_sync_ack",
+          ok: result.ok,
+          error: result.ok ? undefined : result.error,
+        })
+      );
+    } catch (err) {
+      console.error("[WebSocket] Failed to ack health sync");
+    }
+  }
+
   private callPhoneTool(
     name: string,
-    args: Record<string, unknown>
+    args: Record<string, unknown>,
+    callerId = "shared",
+    options?: { skipRateLimit?: boolean }
   ): Promise<unknown> {
     const validated = validatePhoneCommandArgs(name, args);
     if (!validated.ok) {
@@ -254,20 +522,26 @@ class PhonePiMCPServer {
         );
       }
     }
-    if (isPhoneCommand(name)) {
+    if (!options?.skipRateLimit && isPhoneCommand(name)) {
       const spec = getPhoneCommand(name);
       if (spec) {
-        const budget = commandRateLimiter.allow(spec.name, spec.maxPerMinute);
+        const budget = commandRateLimiter.allow(
+          `${callerId}:${spec.name}`,
+          spec.maxPerMinute
+        );
         if (!budget.ok) {
           return Promise.reject(
             new RateLimitError(spec.name, budget.retryAfterSec)
           );
         }
       }
-    } else {
+    } else if (!options?.skipRateLimit) {
       const maxPerMinute = readOnlyToolRateLimit(name);
       if (maxPerMinute != null) {
-        const budget = commandRateLimiter.allow(name, maxPerMinute);
+        const budget = commandRateLimiter.allow(
+          `${callerId}:${name}`,
+          maxPerMinute
+        );
         if (!budget.ok) {
           return Promise.reject(
             new RateLimitError(name, budget.retryAfterSec)
@@ -477,8 +751,31 @@ class PhonePiMCPServer {
         this.handleLocationFrame(ws, message);
         return;
       }
+      if (
+        message &&
+        (message.type === "presence_sync" || message.type === "presence_cleared")
+      ) {
+        this.handlePresenceFrame(ws, message);
+        return;
+      }
+      if (
+        message &&
+        (message.type === "usage_sync" || message.type === "usage_cleared")
+      ) {
+        this.handleUsageFrame(ws, message);
+        return;
+      }
+      if (
+        message &&
+        (message.type === "health_sync" || message.type === "health_cleared")
+      ) {
+        this.handleHealthFrame(ws, message);
+        return;
+      }
       if(DEBUG_WEBSOCKET) {
-        console.error(`[WebSocket] Parsed message: ${JSON.stringify(message)}`);
+        console.error(
+          `[WebSocket] Parsed message: ${JSON.stringify(redactWsDebug(message))}`
+        );
       }
       // Process different message types
       if (message.type === "pong") {
@@ -492,6 +789,13 @@ class PhonePiMCPServer {
         }
         const entry = sendLogFromPhone(message as Record<string, unknown>);
         if (entry) appendSendLog(entry);
+      } else if (message.type === "assistant_cleared") {
+        this.handleAssistantClear(ws);
+      } else if (
+        message.type === "notification_reply" ||
+        message.type === "inbound_prompt"
+      ) {
+        this.handleAssistantFrame(ws, message as Record<string, unknown>);
       } else if (message.type === "permissions") {
         if (!this.session.notePermissions(ws, message)) {
           console.error("[WebSocket] Ignored permissions from a stale socket");
@@ -779,7 +1083,7 @@ class PhonePiMCPServer {
   private setupMcpHandlers() {
     // List available tools
     this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
-      tools: [
+      tools: mcpSchemasWithTokenArg([
         {
           name: "get_battery_level",
           description: "Get the current battery level of the phone",
@@ -789,6 +1093,7 @@ class PhonePiMCPServer {
             required: [],
           },
         },
+        GET_LOCATION_SCHEMA,
         // {
         //   name: 'take_photo',
         //   description: 'Take a photo using the phone camera',
@@ -1488,217 +1793,47 @@ class PhonePiMCPServer {
             required: ["messageId"],
           },
         },
-        {
-          name: "send_notification",
-          description: "Send a notification to the phone",
-          inputSchema: {
-            type: "object",
-            properties: {
-              title: {
-                type: "string",
-                description: "Title of the notification",
-              },
-              body: {
-                type: "string",
-                description: "Content of the notification",
-              },
-              priority: {
-                type: "string",
-                enum: ["default", "high"],
-                description: "Priority level of the notification",
-                default: "default",
-              },
-              data: {
-                type: "object",
-                description: "Additional data to include with the notification",
-              },
-            },
-            required: ["title", "body"],
-          },
-        },
         ...NOTIFICATION_TOOL_SCHEMAS,
         ...PHOTO_TOOL_SCHEMAS,
         ...VOLUME_TOOL_SCHEMAS,
         ...ALARM_TOOL_SCHEMAS,
         ...LOCATION_TOOL_SCHEMAS,
+        ...PRESENCE_TOOL_SCHEMAS,
+        ...USAGE_TOOL_SCHEMAS,
+        ...HEALTH_TOOL_SCHEMAS,
         ...NOTIFICATION_LOG_TOOL_SCHEMAS,
+        ...ASSISTANT_TOOL_SCHEMAS,
         ...PHONE_COMMAND_SCHEMAS,
         ...GM_TOOL_SCHEMAS,
-      ],
+      ]),
     }));
 
-    // Handle tool calls
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
-      if (isLocationReadTool(request.params.name)) {
-        const args = (request.params.arguments || {}) as Record<string, unknown>;
-        const outcome = runLocationRead({
-          log: this.locationLog,
+      return handleMcpToolCall(
+        {
+          params: {
+            name: request.params.name,
+            arguments: (request.params.arguments || {}) as Record<string, unknown>,
+          },
+        },
+        {
+          readAuth: this.readAuth,
           limiter: commandRateLimiter,
-          tool: request.params.name,
-          args,
-          activityLogged: false,
-        });
-        if (outcome.status === 400) {
-          throw new McpError(ErrorCode.InvalidParams, String(outcome.body.text));
+          locationLog: this.locationLog,
+          presenceLog: this.presenceLog,
+          presenceConfig: this.presenceConfig,
+          usageLog: this.usageLog,
+          healthLog: this.healthLog,
+          notificationLog: this.notificationLog,
+          assistantStore: this.assistantStore,
+          isPhoneOpen: () => this.isPhoneOpen(),
+          callPhoneTool: (name, args, callerId, options) =>
+            this.callPhoneTool(name, args, callerId ?? "mcp", options),
+          notePhoneActivity: (entry) => this.notePhoneActivity(entry),
+          notificationCaptureStatus: () => this.notificationCaptureStatus(),
+          callGmTool: (name, args) => gmessagesClient.callTool(name, args),
         }
-        if (outcome.status === 429) {
-          throw new McpError(ErrorCode.InvalidRequest, String(outcome.body.text));
-        }
-        let text = String(outcome.body.text);
-        if (
-          this.notePhoneActivity({
-            title: request.params.name,
-            detail: "read box location history",
-          })
-        ) {
-          try {
-            const payload = JSON.parse(text);
-            payload.activityLogged = true;
-            text = JSON.stringify(payload, null, 2);
-          } catch {
-            // Keep the original success text.
-          }
-        }
-        return { content: [{ type: "text", text }] };
-      }
-
-      if (isNotificationLogTool(request.params.name)) {
-        const outcome = runNotificationLogRead({
-          log: this.notificationLog,
-          limiter: commandRateLimiter,
-          args: (request.params.arguments || {}) as Record<string, unknown>,
-          capture: () => this.notificationCaptureStatus(),
-        });
-        if (outcome.status === 400) {
-          throw new McpError(ErrorCode.InvalidParams, outcome.body.text);
-        }
-        if (outcome.status === 429) {
-          throw new McpError(ErrorCode.InvalidRequest, outcome.body.text);
-        }
-        return { content: [{ type: "text", text: outcome.body.text }] };
-      }
-
-      if (isGmTool(request.params.name)) {
-        try {
-          const result = await gmessagesClient.callTool(
-            request.params.name,
-            (request.params.arguments || {}) as Record<string, unknown>
-          );
-          if (result.isError) {
-            throw new McpError(ErrorCode.InternalError, result.text);
-          }
-          return {
-            content: [{ type: "text", text: result.text }],
-          };
-        } catch (error: unknown) {
-          throw new McpError(
-            ErrorCode.InternalError,
-            error instanceof Error ? error.message : "Google Messages tool failed"
-          );
-        }
-      }
-
-      const phone = this.session.currentSocket();
-      if (!phone) {
-        throw new McpError(
-          ErrorCode.InvalidParams,
-          "Phone not connected - please ensure the phone app is running and connected"
-        );
-      }
-
-      if (phone.readyState !== WebSocket.OPEN) {
-        throw new McpError(
-          ErrorCode.InvalidParams,
-          "Phone connection is not open"
-        );
-      }
-
-      try {
-        const response = await this.callPhoneTool(
-          request.params.name,
-          (request.params.arguments || {}) as Record<string, unknown>
-        );
-
-        // Check if this is a photo response with image data
-        if (
-          request.params.name === "take_photo" &&
-          typeof response === "string"
-        ) {
-          try {
-            const parsedResponse = JSON.parse(response);
-            if (
-              parsedResponse.imageData &&
-              parsedResponse.imageData.startsWith("data:image/")
-            ) {
-              // Extract the base64 data and content type from the data URL
-              const matches = parsedResponse.imageData.match(
-                /^data:([^;]+);base64,(.+)$/
-              );
-              if (matches && matches.length === 3) {
-                const contentType = matches[1]; // e.g., "image/jpeg"
-                const base64Data = matches[2];
-
-                // Return both the image and the text response with a portion of the image data for analysis
-                // Include the first 10000 characters of the base64 data, which should be enough for basic analysis
-                // without making the response too large
-                const analysisData =
-                  base64Data.length > 10000
-                    ? base64Data.substring(0, 10000) + "..."
-                    : base64Data;
-
-                return {
-                  content: [
-                    {
-                      type: "image",
-                      mimeType: contentType,
-                      data: base64Data,
-                    },
-                    {
-                      type: "text",
-                      text: JSON.stringify(
-                        {
-                          ...parsedResponse,
-                          // Include a portion of the image data for analysis
-                          imageData: `[${contentType} image data]`,
-                          imageDataForAnalysis: `data:${contentType};base64,${analysisData}`,
-                        },
-                        null,
-                        2
-                      ),
-                    },
-                  ],
-                };
-              }
-            }
-          } catch (e) {
-            console.error("Error parsing photo response:", e);
-            // Fall back to default handling if parsing fails
-          }
-        }
-
-        // Default handling for non-image responses
-        return {
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(response, null, 2),
-            },
-          ],
-        };
-      } catch (error: unknown) {
-        if (error instanceof RateLimitError) {
-          throw new McpError(ErrorCode.InvalidRequest, error.message);
-        }
-        if (error instanceof CommandValidationError) {
-          throw new McpError(ErrorCode.InvalidParams, error.message);
-        }
-        throw new McpError(
-          ErrorCode.InternalError,
-          `Failed to execute ${request.params.name}: ${
-            error instanceof Error ? error.message : "Unknown error"
-          }`
-        );
-      }
+      );
     });
   }
 

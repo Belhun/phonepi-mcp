@@ -15,11 +15,14 @@ object ConnectionPrefs {
     data class Endpoint(val host: String, val port: Int, val wsToken: String = "")
 
     fun getLastSuccessful(context: Context): Endpoint? {
+        TokenVault.migrateIfNeeded(context)
         val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val host = prefs.getString(KEY_HOST, null)?.trim().orEmpty()
         if (host.isEmpty()) return null
         val port = prefs.getInt(KEY_PORT, DEFAULT_PORT)
-        val wsToken = prefs.getString(KEY_WS_TOKEN, null).orEmpty()
+        val wsToken = TokenVault.lastToken(context).ifBlank {
+            prefs.getString(KEY_WS_TOKEN, null).orEmpty()
+        }
         return Endpoint(host, port, wsToken)
     }
 
@@ -30,11 +33,12 @@ object ConnectionPrefs {
     fun saveEndpoint(context: Context, host: String, port: Int, wsToken: String = "") {
         val trimmed = host.trim()
         if (trimmed.isEmpty()) return
+        TokenVault.setLastToken(context, wsToken.trim())
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
             .putString(KEY_HOST, trimmed)
             .putInt(KEY_PORT, port)
-            .putString(KEY_WS_TOKEN, wsToken.trim())
+            .remove(KEY_WS_TOKEN)
             .apply()
     }
 

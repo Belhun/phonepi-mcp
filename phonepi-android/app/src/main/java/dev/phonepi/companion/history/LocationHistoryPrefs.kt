@@ -15,7 +15,7 @@ object LocationHistoryPrefs {
     fun enabled(context: Context): Boolean =
         context.applicationContext
             .getSharedPreferences(FILE, Context.MODE_PRIVATE)
-            .getBoolean(ENABLED, false)
+            .getBoolean(ENABLED, true)
 
     fun setEnabled(context: Context, value: Boolean) {
         edit(context) { putBoolean(ENABLED, value) }

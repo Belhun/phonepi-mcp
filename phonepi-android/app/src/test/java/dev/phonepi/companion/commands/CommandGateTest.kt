@@ -10,11 +10,18 @@ class CommandGateTest {
     fun allowlistIsExactlyThePhoneCommands() {
         assertEquals(
             setOf(
+                "clear_assistant_events",
+                "clear_health_cache",
                 "clear_location_history",
+                "clear_presence_history",
+                "clear_usage_history",
                 "dismiss_alarm",
                 "dismiss_timer",
                 "get_photo",
+                "pause_health_sync",
                 "pause_location_logging",
+                "pause_presence_logging",
+                "pause_usage_logging",
                 "phone_add_location",
                 "phone_list_locations",
                 "phone_navigate",
@@ -23,6 +30,7 @@ class CommandGateTest {
                 "phone_set_volume",
                 "get_send_status",
                 "request_send_text",
+                "send_notification",
                 "set_alarm",
                 "set_timer",
             ),
@@ -31,6 +39,7 @@ class CommandGateTest {
         assertEquals(PhoneCommandSpec.Kind.READ, PhoneCommands.byName.getValue("get_photo").kind)
         assertEquals(12, PhoneCommands.byName.getValue("get_photo").maxPerMinute)
         assertFalse(PhoneCommands.isAllowlisted("get_recent_photos"))
+        assertFalse(PhoneCommands.isAllowlisted("get_screen_time"))
         assertFalse(PhoneCommands.isAllowlisted("make_call"))
         assertFalse(PhoneCommands.isAllowlisted("am"))
         assertFalse(PhoneCommands.isAllowlisted("shell"))
@@ -49,6 +58,8 @@ class CommandGateTest {
         assertFalse(PhoneCommands.isAllowlisted("list_alarms"))
         assertEquals(10, PhoneCommands.byName.getValue("set_alarm").maxPerMinute)
         assertEquals(PhoneCommandSpec.Kind.ACTION, PhoneCommands.byName.getValue("set_timer").kind)
+        assertEquals(PhoneCommandSpec.Kind.ACTION, PhoneCommands.byName.getValue("send_notification").kind)
+        assertEquals(20, PhoneCommands.byName.getValue("send_notification").maxPerMinute)
         assertFalse(PhoneCommands.isAllowlisted("get_recent_photos"))
         var now = 10_000L
         val limiter = CommandRateLimiter(windowMs = 60_000L, now = { now })

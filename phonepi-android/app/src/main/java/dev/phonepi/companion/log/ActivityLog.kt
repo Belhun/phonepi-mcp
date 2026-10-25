@@ -9,6 +9,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 
@@ -106,7 +107,12 @@ object ActivityLog {
             val count = (data["phonePiAlarms"] as? kotlinx.serialization.json.JsonArray)?.size
             "next=$hasNext phonePi=${count ?: "?"}"
         }
-        "send_notification" -> "Posted notification"
+        "send_notification" -> {
+            val id = data["messageId"]?.jsonPrimitive?.contentOrNull ?: ""
+            val dup = data["duplicate"]?.jsonPrimitive
+            val isDup = dup?.booleanOrNull == true || dup?.contentOrNull == "true"
+            if (isDup) "Notification $id already posted" else "Posted notification $id"
+        }
         "find_phone" -> {
             val maps = data["mapsUrl"]?.jsonPrimitive?.contentOrNull
             val suffix = if (maps != null) " @ $maps" else ""
@@ -184,6 +190,15 @@ object ActivityLog {
         "pause_location_logging" ->
             "paused=${data["paused"]?.jsonPrimitive?.contentOrNull ?: "?"}"
         "clear_location_history" -> "Deleted location history"
+        "pause_presence_logging" ->
+            "paused=${data["paused"]?.jsonPrimitive?.contentOrNull ?: "?"}"
+        "clear_presence_history" -> "Deleted presence snapshot"
+        "pause_usage_logging" ->
+            "paused=${data["paused"]?.jsonPrimitive?.contentOrNull ?: "?"}"
+        "clear_usage_history" -> "Deleted screen time history"
+        "pause_health_sync" ->
+            "paused=${data["paused"]?.jsonPrimitive?.contentOrNull ?: "?"}"
+        "clear_health_cache" -> "Deleted health cache"
         "phone_set_volume" -> {
             val changed = data["changed"]?.jsonPrimitive?.contentOrNull ?: ""
             val skipped = data["skipped"]?.jsonPrimitive?.contentOrNull ?: ""
@@ -215,7 +230,23 @@ object ActivityLog {
         write(category = "location", title = "location history", detail = detail, status = status)
     }
 
+    fun logPresence(detail: String, status: String = "info") {
+        write(category = "presence", title = "presence", detail = detail, status = status)
+    }
+
+    fun logUsage(detail: String, status: String = "info") {
+        write(category = "usage", title = "screen time", detail = detail, status = status)
+    }
+
+    fun logHealth(detail: String, status: String = "info") {
+        write(category = "health", title = "sleep and health", detail = detail, status = status)
+    }
+
     fun logRemoteAction(title: String, detail: String, status: String) {
         write(category = "tool", title = title, detail = detail, status = status)
+    }
+
+    fun logWear(detail: String, status: String = "info") {
+        write(category = "wear", title = "watch", detail = detail, status = status)
     }
 }

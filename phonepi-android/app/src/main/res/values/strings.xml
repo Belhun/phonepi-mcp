@@ -3,4 +3,7 @@
     <string name="find_phone_notification_title">Find phone ringing</string>
     <string name="find_phone_notification_body">Tap Stop to silence the alarm.</string>
     <string name="find_phone_stop">Stop</string>
+    <string name="ask_assistant_short">Ask assistant</string>
+    <string name="ask_assistant_long">Ask the PhonePi assistant</string>
+    <string name="ask_assistant_tile">Ask assistant</string>
 </resources>

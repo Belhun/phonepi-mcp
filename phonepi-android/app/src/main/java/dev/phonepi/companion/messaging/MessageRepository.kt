@@ -1,6 +1,8 @@
 package dev.phonepi.companion.messaging
 
 import android.content.Context
+import dev.phonepi.companion.assistant.AssistantEvents
+import dev.phonepi.companion.assistant.AssistantProtocol
 import dev.phonepi.companion.data.MessageEntity
 import dev.phonepi.companion.data.PhonePiDatabase
 import dev.phonepi.companion.log.ActivityLog
@@ -35,6 +37,30 @@ object MessageRepository {
         )
         ActivityLog.logMessage("Message $messageId answered: $response", "success")
         MessageNotificationHelper.cancel(context, messageId)
+        AssistantEvents.emitReply(context, messageId, response, replyText = null)
+        return true
+    }
+
+    suspend fun recordReply(context: Context, messageId: String, text: String): Boolean {
+        val clipped = AssistantProtocol.clipPrompt(text) ?: return false
+        val row = dao(context).getById(messageId) ?: return false
+        if (row.state != "pending") return false
+        dao(context).update(
+            row.copy(
+                state = "responded",
+                response = clipped,
+                responseIndex = null,
+                respondedAt = System.currentTimeMillis(),
+            ),
+        )
+        ActivityLog.logMessage("Message $messageId reply", "success")
+        MessageNotificationHelper.cancel(context, messageId)
+        AssistantEvents.emitReply(
+            context,
+            messageId,
+            AssistantProtocol.ACTION_REPLY,
+            replyText = clipped,
+        )
         return true
     }
 

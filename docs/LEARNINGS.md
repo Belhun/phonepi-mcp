@@ -2,7 +2,7 @@
 
 Standing log for this PR branch (`cursor/phone-navigate-locations-1ceb`). Update this file in the same change as every future PhonePi feature, bugfix, or device lesson. Do not merge this branch from this log. Never commit secrets (`PHONEPI_WS_TOKEN`, command tokens, hostnames with tokens in the URL, APK signing keystores, or personal MagicDNS names that are not already public in the repo).
 
-Current companion: **0.3.2** (versionCode **14**). 0.3.1 / versionCode 13 is the location-history release.
+Current companion: **0.3.5** (versionCode **17**). Feature PRs used 0.3.4 / 16. 0.3.3 / 15 is the server-list failover release. Wear app stays **0.1.0** / 1.
 
 Bot-facing skill: [BOT-SKILL.md](BOT-SKILL.md).
 
@@ -158,6 +158,28 @@ Logs: Recent activity on the phone, and `~/.phonepi/sent-texts.jsonl` on the box
 
 Bots send only when Alex names the person and the message in that moment. Not on their own. Not as a reply. Not as an acknowledgement.
 
+### Presence (`get_presence`)
+
+Box copy of a live snapshot, not the visit/drive log. Phone geofences (up to 100) for saved places marked `presence`, re-applied on boot and app update, plus a 3-minute inexact check for lag. Master switch starts **on**. Pause/clear match location history (`pause_presence_logging`, `clear_presence_history`). Reads (no token, 30/min, work when the phone is offline): `get_presence`. Result includes place, minutes there, driving/moving, DND, lat/lng/accuracy (Alex approved raw coordinates for his allowlisted bots), `capturedAtMs` / `ageMs`, `expected_place` / `matches_expected`.
+
+Work hours live in `~/.phonepi/presence/config.json`, written on first start if missing. Default: 08:00–17:00 Monday–Friday, `America/Los_Angeles`. Church hours empty. Place-name mappings empty until Alex sets them. Matcher reads the file; hours are not hard-coded. `PHONEPI_PRESENCE_DIR` / `PHONEPI_PRESENCE_CONFIG` override the path. Snapshot file is `current.json` (dir 700, file 600). Secret fields are rejected. Server log is "presence snapshot stored", never coordinates or the token.
+
+Urgent channel: `phonepi_urgent_messages` / **PhonePi urgent messages**, HIGH. PhonePi does not change DND. Alex can allow that channel through DND himself.
+
+versionCode stays **15** so sibling feature branches (usage, notif-actions, health, wear) can merge without a version fight.
+
+### 0.3.4 — screen time and app usage
+
+Read (`POST /api/tool`, no token, 30/min): `get_screen_time`. Daily screen-on minutes, unlock count, top apps by foreground minutes, and last time the phone was used. Totals only. No event timeline. No notification contents.
+
+The phone uses `UsageStatsManager.queryUsageStats(INTERVAL_DAILY)` for per-app totals and `queryEvents` for `SCREEN_INTERACTIVE` / `SCREEN_NON_INTERACTIVE` (screen-on), `KEYGUARD_HIDDEN` (unlocks), and last-used (`ACTIVITY_RESUMED` / `SCREEN_INTERACTIVE`). Android only keeps events a few days, so the phone writes a daily rollup under app files (`usage/YYYY-MM-DD.json`) and syncs it over the existing WebSocket (`usage_sync` / `usage_sync_ack`). A wipe sends `usage_cleared` before any new days. Sessions that cross local midnight are split. Bucket dates use the phone's `ZoneId`, including DST.
+
+The box stores `~/.phonepi/usage/YYYY-MM-DD.json` plus `_meta.json` (directory 700, files 600). Retention defaults to 90 days (`PHONEPI_USAGE_RETENTION_DAYS`, 1 through 730). Same date with an older `updatedAtMs` does not overwrite. A day that carries `token` or another secret field is rejected and not written. The server log line for a sync is a count, not app names, and it never logs the token.
+
+`stale` is true when the phone is offline or the last sync is older than 30 minutes. `from`/`to` are `YYYY-MM-DD` local phone dates, not UTC days. `days` default 7, cap 90. `top` default 10, cap 25.
+
+Master switch **Screen time sharing** is on by default. Usage access still needs Alex's grant (`PACKAGE_USAGE_STATS`, Settings → Usage access). A settings row on Tool permissions and on the Screen time panel opens that screen and shows whether it is granted. Writes (token, `/api/command` only): `pause_usage_logging` (`paused` boolean, 10/min) and `clear_usage_history` (`confirm` must be `"delete"`, 4/min). Invalid args are HTTP 400 and do not call the phone.
+
 ## Mistakes and fixes
 
 | Symptom | Cause | Fix |
@@ -197,8 +219,12 @@ Android-only (do not assume iOS equivalents):
 - `AudioManager` streams, Do Not Disturb policy access, and `AlarmManager` exact midnight alarms. iOS volume APIs and Focus modes differ; a nightly max would be a local notification or BG task, not `BOOT_COMPLETED`.
 - `MediaStore.Images`, `READ_MEDIA_IMAGES`, `READ_MEDIA_VISUAL_USER_SELECTED`, and `READ_EXTERNAL_STORAGE`. iOS uses `PHPhotoLibrary` authorization. Keep the tool names, the default-off share switch, the token gate on image bytes, and recompress-before-send so GPS EXIF does not ride along.
 - `AlarmClock` intents (`SET_ALARM`, `SET_TIMER`, `DISMISS_ALARM`, `DISMISS_TIMER`), `SET_ALARM` permission, and `AlarmManager.getNextAlarmClock()`. iOS has no public API for another app to create or dismiss Clock alarms. Keep the tool names and the honest "not confirmed" status; an iPhone companion would have to say the action is unsupported.
-- `FusedLocationProvider`, `ACCESS_BACKGROUND_LOCATION`, `ACTIVITY_RECOGNITION`, activity-transition PendingIntents, geofences, `Sensor.TYPE_SIGNIFICANT_MOTION`, and `Geocoder`. iOS would use Core Location visits and `CLGeocoder`. Keep the tool names, the opt-in default off, the JSONL copy on the box, and the rule that a Timeline export is a file the person shares. Google's Settings path for Timeline export is Android-only.
+- `FusedLocationProvider`, `ACCESS_BACKGROUND_LOCATION`, `ACTIVITY_RECOGNITION`, activity-transition PendingIntents, geofences, `Sensor.TYPE_SIGNIFICANT_MOTION`, and `Geocoder`. iOS would use Core Location visits and `CLGeocoder`. Keep the tool names, the on-by-default switch that still needs an OS grant, the JSONL copy on the box, and the rule that a Timeline export is a file the person shares. Google's Settings path for Timeline export is Android-only.
 - `SmsManager`, `SEND_SMS`, notification actions, `TextToSpeech`, `SpeechRecognizer`, `ACTIVITY_RECOGNITION`, and Bluetooth device class. Keep the command names, the two modes, the phone-added prefix, the default-off switches, and "HTTP 200 is not sent". iOS cannot send SMS from a third-party app without the system composer, which the user can edit. An iPhone companion would have to say direct send is unsupported.
+- `UsageStatsManager`, `PACKAGE_USAGE_STATS`, and Settings → Usage access. iOS Screen Time is not a third-party API. Keep the tool name, daily totals only, the box JSON copy, the stale flag, and the on-by-default switch that still needs an OS grant.
+- Health Connect (`androidx.health.connect`), `READ_SLEEP` / `READ_STEPS` / `READ_HEART_RATE` / `READ_RESTING_HEART_RATE` / `READ_EXERCISE` / `READ_OXYGEN_SATURATION`, `READ_HEALTH_DATA_IN_BACKGROUND`, `READ_HEALTH_DATA_HISTORY`, WorkManager hourly reads, and the Health Connect rationale activity. iOS would use HealthKit. Keep the tool name `get_health_summary`, daily totals only, the on-by-default switch that still needs an OS grant, box files under `~/.phonepi/health`, and the rule that a watch app is not this feature.
+- Wear OS notification mirroring, `RemoteInput`, Quick Settings `TileService`, static shortcuts, and Pixel Quick Tap (a Pixel-only gesture). Keep the tool names, the box JSONL copy, and the wake hook. An iPhone companion would use Notification Content Extensions for actions and a Control Center control / App Intent for Ask assistant; Quick Tap has no iOS equivalent.
+- Wear OS Data Layer (`MessageClient` / `DataClient`), Tiles, and complication data sources. Same `applicationId` plus the same signing cert as the phone app. watchOS would use Watch Connectivity; keep the rule that the watch never holds the PhonePi token.
 - Forever reconnect with a capped exponential backoff is portable. `ConnectivityManager` callbacks and the foreground-service keepalive are Android-only. On iOS, retry when the app becomes active and when a path monitor reports a change. Do not show connected until the socket has had recent traffic.
 
 iPhone maps/nav sketch (not implemented): open an Apple Maps or Google Maps iOS URL when the companion is allowed to become foreground. Do not expect to start Maps from a background daemon the way overlay+FSI does on Android. A tap-to-open notification is the likely fallback.
@@ -211,10 +237,14 @@ iPhone notification reading sketch (not implemented): without an Apple entitleme
 - Keep the PhonePi connection notification if the OS otherwise kills the socket when Maps comes to the front.
 - Tailscale Serve terminates TLS on the PC; the phone still needs MagicDNS (or a literal tailnet IP) and the WS token.
 - Sideload **0.3.1** (or in-app update from a 0.3.0 release build). Debug → release is still a one-time uninstall. Later APKs go in `~/.phonepi/updates` and must be signed with `scripts/sign-update-manifest.sh`.
-- Location history stays off until Alex turns it on and grants precise location plus **Allow all the time**. **Physical activity** improves drives. Pause and Delete all history are on the phone. A Timeline backfill is a file he exports himself and shares into PhonePi.
+- Location history starts on. Alex still grants precise location plus **Allow all the time**. **Physical activity** improves drives. Pause and Delete all history are on the phone. A Timeline backfill is a file he exports himself and shares into PhonePi.
 - Clock alarms need Google Clock (or another app that handles the intents) and, for a silent background set, **Display over other apps**. `SET_ALARM` is granted at install. Dismiss can fail when the Clock app has no dismiss activity; the tool says so.
 - Recent photos stay off until Alex turns on **Share recent photos** and grants Photos. `get_photo` needs the shared token. The bytes are recompressed, so GPS EXIF is not in the payload.
 - Texts stay off until Alex turns on **Allow bots to request texts** and grants SMS, contacts, and notifications. Assistant-signed texts stay off until the second switch. Spoken confirm needs the microphone. Car detection also wants physical activity and nearby Bluetooth devices. Sideload **0.3.2** (versionCode 14).
+- Screen time stays empty until Alex grants **Usage access** (Settings → Usage access). The in-app switch is on by default.
+- Sleep and health: Galaxy Watch 7 data is in Samsung Health first. Samsung Health → Settings → Health Connect must write sleep/steps/heart rate/exercise/blood oxygen. Then PhonePi grants those Health Connect reads. The PhonePi switch starts on.
+- Ask assistant and watch-actionable notifications: add the Quick Settings tile and optionally Pixel Quick Tap → Open app → Ask assistant. Sideload `:phonepi-wear` for Ask assistant on the watch (`watch_relay`). Notifications posting is the same Connect grant.
+- Combined install: companion **0.3.5** (versionCode 17) plus Wear **0.1.0**. Checklist: [ALEX-CHECKLIST.md](ALEX-CHECKLIST.md).
 
 ## Box refresh recovery (2026-10-18)
 
@@ -246,3 +276,45 @@ Tailscale state does not survive a refresh, so login is needed every time: `sudo
 - **Setup link**: `phonepi://setup?host=&port=&token=&name=&primary=true`. A missing `token` keeps the saved one, and a new server borrows the shared token. `primary=true` makes it the primary and returns to Auto. Without `primary=true` the link adds or updates the server and pins it (the same "connect there" meaning as 0.3.2).
 - **Send retry**: `send_text_log` frames (the phone → server record of each text) carry a stable `requestId`, reused on every retry. If the first hand-off fails because there is no live socket, the app retries after **2 s, 5 s, 10 s** (17 s total, which covers the 15 s failover) through `PhoneUplink`, so a retry goes to whichever server is now active. After that it logs an error in Recent activity, and the line stays in the outbox for the next connect. A frame the socket accepted is never resent. Retry and outbox flush remove the line under one lock, so the phone sends each line at most once. The SMS itself is sent by the phone's carrier path and is never retried by this code. **Follow-up (server):** the server does not ack `send_text_log` or dedupe by `requestId` yet. Add both so retries can also cover "socket accepted, but the link died before the server read it".
 - Release flow: build → `~/.phonepi/updates-staging/0.3.3/` → `scripts/sign-update-manifest.sh --dir <staging> --apk phonepi-0.3.3-15.apk --min-version 8`. Copy the APK and manifest into `~/.phonepi/updates` (and the HP's update dir) only after the HP server is confirmed. Because of the migration, the first connect after install goes to the HP.
+
+### 0.3.4 — sleep and health (Health Connect)
+
+Galaxy Watch 7 + Pixel. PhonePi uses `androidx.health.connect:connect-client` only. It does not use the Samsung Health Data SDK (partner approval). Reads: sleep sessions with stages, steps, heart rate, resting heart rate, exercise sessions, oxygen saturation, `READ_HEALTH_DATA_IN_BACKGROUND` (last 7 days; no `READ_HEALTH_DATA_HISTORY`).
+
+The in-app **Sleep and health** switch starts **on**. Alex still grants Health Connect, and Android requires the privacy/rationale activity (`ACTION_SHOW_PERMISSIONS_RATIONALE` plus `VIEW_PERMISSION_USAGE` / `HEALTH_PERMISSIONS`) before that prompt. The settings row shows granted state, last Health Connect read time, pause, and delete.
+
+Hourly WorkManager plus a read on connect. The phone sends `health_sync` / `health_cleared` over the existing WebSocket. The box stores `~/.phonepi/health/` (dir 700, files 600, `PHONEPI_HEALTH_RETENTION_DAYS` default 30). Server log is accepted/rejected only, never BPM or sleep times, never the token.
+
+Read (no token, 30/min, works offline): `get_health_summary`. Daily totals: last night's sleep (start, end, total, stages), `lastNightSleepEndMs` / `lastNightSleepEndIso` (for later Clock bedtime/wake; this change does not touch phonepi-clock), steps today and 7-day, resting and average heart rate, recent workouts. No raw heart-rate streams. `stale` is true when the phone is offline. `syncedAtIso` is the last Health Connect read; Samsung Health can lag minutes to hours (`sourceLagNote`). Writes (token): `pause_health_sync` (`paused` boolean, 10/min) and `clear_health_cache` (`confirm` `"delete"`, 4/min). Invalid args are HTTP 400 and do not call the phone.
+
+Alex's phone steps: Samsung Health → Settings → Health Connect → allow Samsung Health to write sleep, steps, heart rate, exercise, blood oxygen; then PhonePi → Sleep and health → Privacy policy → Grant Health Connect. Details: [health.md](health.md).
+
+### 0.3.4 (versionCode 16): watch-actionable notifications and Ask assistant
+
+Alex answers the assistant from the Pixel or Galaxy Watch 7 with no watch app. Phone notifications already mirror to Wear OS.
+
+- Command `send_notification` (`POST /api/command`, 20/min): title, body, optional `requestId` (idempotent), up to 3 action labels, plus an inline `RemoteInput` Reply (voice or keyboard on the watch). Default priority `high` uses the existing PhonePi urgent channel. Same `requestId` does not post twice.
+- Phone sends `notification_reply` frames through `SendLogOutbox`. Box store `~/.phonepi/assistant/replies/` (dir 700, files 600). Read-only `get_notification_replies` (60/min, works offline).
+- Ask assistant: Quick Settings tile, static home shortcut, exported `AskAssistantActivity` (`dev.phonepi.companion.action.ASK_ASSISTANT`, `phonepi://ask`), and a LAUNCHER activity-alias labeled **Ask assistant** so Pixel Quick Tap → Open app can pick it. Frames: `inbound_prompt`. Read-only `get_inbound_prompts`.
+- Wake hook (`server/src/wake-hook.ts`): `PHONEPI_WAKE_HOOK_URL` plus optional `PHONEPI_WAKE_HOOK_SECRET`. POST `{event, id, ts}` only. Short timeout, 3 attempts, backoff, dedupe by id, non-blocking. `GET /api/health` has `wakeHookEnabled` and `hookFailed`. Unset URL disables it. Never log the URL or secret.
+- This feature does not change DND, volumes, or other phone settings. `POST_NOTIFICATIONS` is the same grant Connect already asks for.
+
+Pixel Quick Tap steps: Settings → System → Gestures → Quick Tap → Use Quick Tap on → Open app → Ask assistant.
+
+### Wear OS watch app (module `phonepi-wear`, not a companion version bump)
+
+Galaxy Watch 7 / future Pixel Watch. New Gradle module `phonepi-android/phonepi-wear`. Same `applicationId` `dev.phonepi.companion` and the same release key as the companion (Data Layer pairing). The watch never stores `PHONEPI_WS_TOKEN`, `TS_AUTHKEY`, the send-gateway token, or the bridge key. MessageClient paths under `/phonepi/` (`prompt`, `quiet`, `im-ok`, `next-alarm`, `ack`). DataClient `/phonepi/state` carries next-alarm epoch and an optional presence label.
+
+Phone-side `WearListenerService` dispatches to `WearInboundActions`. `WearInboundActionsAdapter.submitPrompt` calls `AssistantEvents.emitPrompt(..., "watch_relay")` so Ask assistant on the watch uses the same queue, `get_inbound_prompts`, and wake hook as the phone tile. Quiet uses `WearQuietController` / `PhonePiQuiet` (in-app; never system DND). Presence complication label reads `PresencePrefs` through `PresenceWatchLabel` (hidden when presence is off or paused) and refreshes from `PresenceEngine` via `WearStatePublisher`. Next alarm on the watch is `AlarmManager.getNextAlarmClock()`. Watch Face Push is not used; the complication is a `ComplicationDataSourceService`.
+
+Sideload is a one-time Linux `adb pair` / `adb connect` over the watch's wireless debugging. Do not bake the debug port into a script; it changes when Wi-Fi changes. Build: `./gradlew :phonepi-wear:assembleDebug`. Wear stays **0.1.0** / 1.
+
+### 0.3.5 (versionCode 17) — integration
+
+One companion APK with presence, screen time, Health Connect, watch-actionable notifications, Ask assistant, and the Wear module. Location history default is now **on** (same as presence and usage). Docs index: [README.md](README.md). Combined setup: [ALEX-CHECKLIST.md](ALEX-CHECKLIST.md).
+
+### Privacy / security pass (same 0.3.5)
+
+- Sensitive reads (`get_presence`, `get_screen_time`, `get_health_summary`, `get_notification_replies`, `get_inbound_prompts`, `get_location_history`, `search_places`, `get_location`, `phone_list_locations`) need a separate `PHONEPI_READ_TOKEN` (HTTP + MCP). MCP clients send `token` per call; no env fallback unless `PHONEPI_MCP_USE_ENV_READ_TOKEN=1`. MCP is default-deny for unlisted names. Optional per-bot scoped tokens (`tools` missing = deny-all). Default-deny. Default env bot is `coords: false` (no street address either). Caller id is logged, never the token. `PHONEPI_REQUIRE_READ_TOKEN_ALL=1` also gates the 10-minute poller reads. Same-user agents can read `~/.phonepi/env`; real isolation is separate OS users or containers.
+- Loopback HTTP: Host allowlist (`127.0.0.1` / `localhost` / `[::1]`, extra names via `PHONEPI_HTTP_HOSTS`), reject Origin and `Sec-Fetch-Site: cross-site`, POST `Content-Type: application/json`. Tailscale Serve still fronts WS 11041.
+- Prompt/reply `text` / `replyText` / `action` are `{untrusted:true, provenance, text}` objects (breaking for string parsers). Fence markers inside the payload are neutralized. Resume of paused location/presence/usage/health is phone-only. Coordinates null when off/paused/stale. `allowBackup=false` plus empty backup/transfer rules. WS token in Keystore (no plaintext fallback when Keystore is present). Wake hook https except loopback/tailnet; private LAN https is blocked. In-app PhonePi quiet holds cards and reports `pi_quiet` separately from system DND. **Stop all sharing** is on only when all four streams are paused and resumes with one tap. Wear tile activities are exported; confirm tap is mandatory. Release-signed APKs only (`apksigner verify --print-certs`; SHA-1 in [release-signing.md](release-signing.md)).
