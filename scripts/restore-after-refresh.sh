@@ -7,6 +7,8 @@
 #  3) If logged out and TS_AUTHKEY is set: tailscale up --hostname=grokbot-box with the key.
 #  4) tailscale serve --https=443 -> 127.0.0.1:11041.
 #  5) Rebuild server/dist if missing; start the watchdog if /api/health is not ok.
+#     Refuse to start if ~/.phonepi/env or PHONEPI_WS_TOKEN is missing.
+#     Health uses PHONEPI_HTTP_PORT (box 11045, HP default 11043).
 #  6) Start the read-only Google Messages bridge (127.0.0.1:11042) if it's down.
 set -uo pipefail
 umask 077
@@ -81,18 +83,34 @@ if [[ "$state" == "Running" ]]; then
 fi
 
 # 5) PhonePi server
+http_port=11043
+if [[ -f "$PP/env" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "$PP/env"
+  set +a
+  if [[ "${PHONEPI_HTTP_PORT:-}" =~ ^[0-9]+$ ]]; then
+    http_port="$PHONEPI_HTTP_PORT"
+  fi
+  unset PHONEPI_WS_TOKEN PHONEPI_READ_TOKEN PHONEPI_READ_BOTS || true
+fi
+health_url="http://127.0.0.1:${http_port}/api/health"
+
 if [[ ! -f "$REPO/server/dist/index.js" ]]; then
   log "building server/dist"
   (exec 9>&-; cd "$REPO/server" && npm ci --silent && npm run build --silent) >/tmp/phonepi-build.log 2>&1 || log "build failed (see /tmp/phonepi-build.log)"
 fi
-if ! curl -fsS -m 3 http://127.0.0.1:11043/api/health 2>/dev/null | grep -q '"ok":true'; then
+export PHONEPI_ENV_FILE="${PHONEPI_ENV_FILE:-$PP/env}"
+if ! "$REPO/scripts/phonepi-env-check.sh"; then
+  log "ALERT: PhonePi env/token missing; not starting the server open. Fix $PP/env and rerun restore."
+elif ! curl -fsS -m 3 "$health_url" 2>/dev/null | grep -q '"ok":true'; then
   if ! "$REPO/scripts/phonepi-watchdog.sh" status 2>/dev/null | grep -q "watchdog running"; then
     rm -f "$PP/watchdog.pid" "$PP/server.pid"
     "$REPO/scripts/phonepi-watchdog.sh" start >/dev/null 9>&-
   fi
-  for _ in $(seq 1 20); do curl -fsS -m 2 http://127.0.0.1:11043/api/health 2>/dev/null | grep -q '"ok":true' && break; sleep 1; done
+  for _ in $(seq 1 20); do curl -fsS -m 2 "$health_url" 2>/dev/null | grep -q '"ok":true' && break; sleep 1; done
 fi
-log "health: $(curl -fsS -m 3 http://127.0.0.1:11043/api/health 2>/dev/null | python3 -c 'import sys,json; h=json.load(sys.stdin); print("ok" if h.get("ok") else "NOT ok", "phoneConnected=%s" % h.get("phoneConnected"))' 2>/dev/null || echo DOWN)"
+log "health: $(curl -fsS -m 3 "$health_url" 2>/dev/null | python3 -c 'import sys,json; h=json.load(sys.stdin); print("ok" if h.get("ok") else "NOT ok", "phoneConnected=%s" % h.get("phoneConnected"))' 2>/dev/null || echo DOWN)"
 
 # 6) Google Messages bridge (read-only, loopback). Same launch as get-texts.sh -status.
 if [[ -x "$GM_DIR/get-texts.sh" ]] && ! (exec 3<>/dev/tcp/127.0.0.1/11042) 2>/dev/null; then
