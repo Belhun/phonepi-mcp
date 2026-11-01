@@ -14,4 +14,4 @@ Index of feature docs. The combined setup list for Alex is [ALEX-CHECKLIST.md](A
 | [location-timeline-feasibility.md](location-timeline-feasibility.md) | Why PhonePi cannot pull Google Timeline |
 | [LEARNINGS.md](LEARNINGS.md) | Standing notes for this repo |
 
-Companion **0.3.6** (versionCode **18**). Wear app **0.1.0** (versionCode **1**).
+Companion **0.3.7** (versionCode **19**). Wear app **0.1.0** (versionCode **1**). Network hardening: loopback bind, fail-closed WS token, header auth, strict reads on by default. See [ALEX-CHECKLIST.md](ALEX-CHECKLIST.md).

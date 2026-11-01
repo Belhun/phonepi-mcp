@@ -2,7 +2,7 @@
 
 Standing log for this PR branch (`cursor/phone-navigate-locations-1ceb`). Update this file in the same change as every future PhonePi feature, bugfix, or device lesson. Do not merge this branch from this log. Never commit secrets (`PHONEPI_WS_TOKEN`, command tokens, hostnames with tokens in the URL, APK signing keystores, or personal MagicDNS names that are not already public in the repo).
 
-Current companion: **0.3.6** (versionCode **18**). Feature PRs used 0.3.5 / 17, 0.3.4 / 16. 0.3.3 / 15 is the server-list failover release. Wear app stays **0.1.0** / 1.
+Current companion: **0.3.7** (versionCode **19**). Feature PRs used 0.3.6 / 18, 0.3.5 / 17, 0.3.4 / 16. 0.3.3 / 15 is the server-list failover release. Wear app stays **0.1.0** / 1.
 
 Bot-facing skill: [BOT-SKILL.md](BOT-SKILL.md).
 
@@ -15,8 +15,8 @@ Bot-facing skill: [BOT-SKILL.md](BOT-SKILL.md).
 ## Invariants that keep getting relearned
 
 - The PC never fires Android intents or shell. The phone runs allowlisted `ToolHandler`s. New write/action tools go in both `phonepi-android/.../PhoneCommands.kt` and `server/src/commands.ts`.
-- One phone WebSocket (`0.0.0.0:11041`, optional `/phonepi` upgrade). Loopback HTTP is `127.0.0.1:11043` and read-only except `POST /api/command` for allowlisted phone actions.
-- `PHONEPI_WS_TOKEN` is required for update HTTP and should be set for the phone socket. The server must not log the token value.
+- One phone WebSocket (`127.0.0.1:11041` by default, optional `/phonepi` upgrade). Loopback HTTP is `127.0.0.1:$PHONEPI_HTTP_PORT` (HP 11043, box 11045) and read-only except `POST /api/command` for allowlisted phone actions.
+- `PHONEPI_WS_TOKEN` is required (32+ chars) for the phone socket, update HTTP, and `/api/command`. Missing env/token refuses to start. The server must not log the token value. Header auth first; `?token=` is Phase A only.
 - Rate limits and the on-phone **Recent activity** log apply to tools and commands.
 - Background `startActivity` on Android 10+ can return success and still do nothing. Trust a start only if PhonePi is in the foreground or `Settings.canDrawOverlays` is true. Otherwise post a full-screen notification and report that method honestly.
 - Sideload/install is never silent. The user taps Install in the system UI.
@@ -319,6 +319,17 @@ One companion APK with presence, screen time, Health Connect, watch-actionable n
 - Live `get_notifications` `title`/`text`/`appName` are `{untrusted, provenance, text}` objects. `gm_*` reads keep string bodies and add `untrusted` plus `provenance` beside them so Phone & Texts still parses sends and reads. `get_photo` and `gm_*` stay off the `PHONEPI_REQUIRE_READ_TOKEN_ALL` strict tier (known trade-off; texting would break).
 - Read tokens under 32 characters, or containing `placeholder` / `choose-a-long` / `changeme`, are refused. Docs merge a poller bot into existing `read-bots.json` with `openssl rand -hex 32`.
 - Cloud-backup `<exclude>` entries use `path="."` on phone and wear. Assistant outbox scheduler map is synchronized; a retryable ack schedules one delayed retry. `clear_assistant_events` deletes `read-ids.json` and leftover `.next`/`.bak` swap dirs.
+
+### 0.3.7 (versionCode 19) — network hardening
+
+New APK required: the phone sends `Authorization: Bearer` on the WebSocket and update HTTP, and no longer appends `?token=` to URLs. Wear stays 0.1.0 / 1.
+
+- Default WS bind is `127.0.0.1` (`--host` / `PHONEPI_WS_HOST`). Loopback and Tailscale ranges are allowed; `0.0.0.0` / LAN needs `PHONEPI_ALLOW_WIDE_BIND=1`. Box Tailscale userspace-networking still delivers tailnet traffic to loopback, so the phone keeps using `wss://<node>.ts.net`.
+- Fail closed: missing/short `PHONEPI_WS_TOKEN` exits. `PHONEPI_INSECURE_NO_TOKEN=1` only with a loopback bind. The old tokenless `connectToExistingServer` fallback is gone.
+- Header token: Bearer, `X-PhonePi-Token`, optional `phonepi.v1` / `phonepi.token.<t>` subprotocol. Query token only while `PHONEPI_ALLOW_QUERY_TOKEN` is not `0`. Each query use logs `query token used (deprecated)` with a count, never the value.
+- Strict reads on by default. `PHONEPI_OPEN_READ_TOOLS` exemptions. Poller scoped token must exist before deploy or Home · Notifications 401s.
+- `restore-after-refresh.sh` / watchdog check the env file and refuse to start open. Health check uses `PHONEPI_HTTP_PORT` (box 11045).
+- MCP `gm_*` reads keep string bodies and add sibling `untrusted` / `provenance`. They do not wrap bodies as `{untrusted, provenance, text}` objects.
 
 ### Privacy / security pass (same 0.3.5)
 
