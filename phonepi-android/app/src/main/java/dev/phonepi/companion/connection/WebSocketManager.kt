@@ -239,13 +239,13 @@ class WebSocketManager(
         this.lastUrl = target.url
         Log.i(TAG, "opening ${safeUrl()} (sni=${target.host})")
         ActivityLog.logConnection("Connecting", safeUrl(), "info")
-        val request = Request.Builder().url(target.url).build()
+        val request = phonePiWsRequest(target)
         val created = client.newWebSocket(request, listener)
         socket = created
         armAttemptTimeout(created)
     }
 
-    /** URL without the ?token= query, for logs and Recent activity. */
+    /** URL without a query string, for logs and Recent activity. */
     private fun safeUrl(): String = lastUrl.substringBefore('?')
 
     private fun setTarget(server: ServerEntry) {

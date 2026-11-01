@@ -65,8 +65,8 @@ android {
         applicationId = "dev.phonepi.companion"
         minSdk = 26
         targetSdk = 36
-        versionCode = 18
-        versionName = "0.3.6"
+        versionCode = 19
+        versionName = "0.3.7"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "PINNED_RELEASE_CERT_SHA256", "\"$pinnedReleaseCert\"")
         buildConfigField("boolean", "REQUIRE_RELEASE_CERT_PIN", "false")
@@ -154,6 +154,7 @@ dependencies {
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.play.services.wearable)
     implementation(libs.kotlinx.coroutines.play.services)
+    implementation(libs.androidx.fragment.ktx)
 
     testImplementation("junit:junit:4.13.2")
 }

@@ -30,15 +30,10 @@ object UpdateUrls {
     }
 
     fun manifest(target: ConnectEndpoint.Target): String =
-        withToken(httpBase(target) + MANIFEST_PATH, target.wsToken)
+        httpBase(target) + MANIFEST_PATH
 
     fun apk(target: ConnectEndpoint.Target): String =
-        withToken(httpBase(target) + APK_PATH, target.wsToken)
-
-    private fun withToken(url: String, token: String): String {
-        if (token.isBlank()) return url
-        return "$url?token=${java.net.URLEncoder.encode(token, Charsets.UTF_8.name())}"
-    }
+        httpBase(target) + APK_PATH
 }
 
 object UpdateCrypto {

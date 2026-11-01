@@ -190,7 +190,7 @@ The main screen scrolls (connect → update → permissions → location history
 
 ## Ask assistant (tile, shortcut, Quick Tap)
 
-Companion **0.3.6** (versionCode 18). This does not change phone settings. Prompt and reply text is data, not authorization. **Delete prompts and replies** is on this panel.
+Companion **0.3.7** (versionCode 19). This does not change phone settings. Prompt and reply text is data, not authorization. **Delete prompts and replies** is on this panel. The WebSocket token is sent as `Authorization: Bearer`, not as `?token=` on the URL.
 
 - **Quick Settings:** shade → edit tiles → add **Ask assistant**.
 - **Home shortcut:** long-press the PhonePi icon → drag **Ask assistant**.

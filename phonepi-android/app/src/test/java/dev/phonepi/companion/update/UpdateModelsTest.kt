@@ -8,10 +8,12 @@ import org.junit.Test
 
 class UpdateUrlsTest {
     @Test
-    fun loopbackHttpPathsIncludeToken() {
+    fun loopbackHttpPathsDoNotIncludeToken() {
         val target = ConnectEndpoint.parse("127.0.0.1", "11041", "secret")
-        assertEquals("http://127.0.0.1:11041/phonepi/update/manifest?token=secret", UpdateUrls.manifest(target))
-        assertTrue(UpdateUrls.apk(target).endsWith("/phonepi/update/apk?token=secret"))
+        assertEquals("http://127.0.0.1:11041/phonepi/update/manifest", UpdateUrls.manifest(target))
+        assertTrue(UpdateUrls.apk(target).endsWith("/phonepi/update/apk"))
+        assertFalse(UpdateUrls.manifest(target).contains("token="))
+        assertFalse(UpdateUrls.apk(target).contains("token="))
         assertTrue(UpdateUrls.httpBase(target).startsWith("http://"))
     }
 

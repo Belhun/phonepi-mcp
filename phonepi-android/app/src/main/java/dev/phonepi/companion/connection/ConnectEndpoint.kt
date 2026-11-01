@@ -69,12 +69,7 @@ object ConnectEndpoint {
         }
         val tls = schemeHint == "wss" || port == 443 || (schemeHint == null && looksTls)
         val scheme = if (tls) "wss" else "ws"
-        val base = "$scheme://$host:$port$PHONEPI_PATH"
-        val url = if (wsToken.isBlank()) {
-            base
-        } else {
-            "$base?token=${java.net.URLEncoder.encode(wsToken, Charsets.UTF_8.name())}"
-        }
+        val url = "$scheme://$host:$port$PHONEPI_PATH"
         return Target(host = host, port = port, url = url, wsToken = wsToken)
     }
 }

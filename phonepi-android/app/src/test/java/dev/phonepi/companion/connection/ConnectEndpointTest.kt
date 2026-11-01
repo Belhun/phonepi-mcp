@@ -1,6 +1,7 @@
 package dev.phonepi.companion.connection
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -35,6 +36,15 @@ class ConnectEndpointTest {
         assertEquals("127.0.0.1", target.host)
         assertEquals(7000, target.port)
         assertEquals("ws://127.0.0.1:7000/phonepi", target.url)
+    }
+
+    @Test
+    fun tokenStaysOffTheUrl() {
+        val target = ConnectEndpoint.parse("dell-mini-pc.tailcbcc46.ts.net", "443", "secret-token")
+        assertEquals("wss://dell-mini-pc.tailcbcc46.ts.net:443/phonepi", target.url)
+        assertFalse(target.url.contains("token="))
+        assertFalse(target.url.contains("secret-token"))
+        assertEquals("secret-token", target.wsToken)
     }
 
     @Test
