@@ -58,6 +58,15 @@ test("evaluateHealth exit codes do not echo a token", () => {
   assert.match(down.line, /unreachable/);
 });
 
+test("resolveHealthUrl uses PHONEPI_HTTP_PORT when no explicit URL is set", () => {
+  const box = resolveHealthUrl(undefined, { PHONEPI_HTTP_PORT: "11045" });
+  assert.equal(box.port, "11045");
+  assert.equal(box.hostname, "127.0.0.1");
+  assert.equal(box.pathname, "/api/health");
+  const fallback = resolveHealthUrl(undefined, {});
+  assert.equal(fallback.port, "11043");
+});
+
 test("resolveHealthUrl refuses the command API, the websocket port path, and non-loopback hosts", () => {
   assert.equal(
     resolveHealthUrl("http://127.0.0.1:11043/api/health").pathname,

@@ -51,10 +51,15 @@ function request(port, method, requestPath, body) {
   });
 }
 
-function startServer({ wsPort, httpPort, token }) {
+function startServer({ wsPort, httpPort, token, extraEnv = {} }) {
   const env = { ...process.env };
-  if (token) env.PHONEPI_WS_TOKEN = token;
-  else delete env.PHONEPI_WS_TOKEN;
+  if (token) {
+    env.PHONEPI_WS_TOKEN = token;
+    delete env.PHONEPI_INSECURE_NO_TOKEN;
+  } else {
+    delete env.PHONEPI_WS_TOKEN;
+    env.PHONEPI_INSECURE_NO_TOKEN = "1";
+  }
 
   const child = spawn(
     process.execPath,
@@ -68,7 +73,7 @@ function startServer({ wsPort, httpPort, token }) {
     ],
     {
       cwd: serverDir,
-      env,
+      env: { ...env, ...extraEnv },
       stdio: ["pipe", "pipe", "pipe"],
     }
   );
@@ -235,6 +240,7 @@ test("running server exposes loopback HTTP, keeps stdout clean, and upgrades /ph
     const { stdout, stderr } = started.output();
     assert.equal(stdout, "");
     assert.match(stderr, /Local HTTP API listening/);
+    assert.match(stderr, /listening on 127\.0\.0\.1:/);
     assert.match(stderr, /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z /);
   } finally {
     await stopServer(started.child);
@@ -244,7 +250,7 @@ test("running server exposes loopback HTTP, keeps stdout clean, and upgrades /ph
 test("running server requires the phone token and does not log it", async () => {
   const wsPort = await freePort();
   const httpPort = await freePort();
-  const token = "phonepi-test-token-do-not-log";
+  const token = "phonepi-test-token-do-not-log-xx";
   const started = startServer({ wsPort, httpPort, token });
   try {
     await started.ready;
@@ -257,9 +263,9 @@ test("running server requires the phone token and does not log it", async () => 
     });
     assert.equal(status, 401);
 
-    const accepted = new WebSocket(
-      `ws://127.0.0.1:${wsPort}/phonepi?token=${encodeURIComponent(token)}`
-    );
+    const accepted = new WebSocket(`ws://127.0.0.1:${wsPort}/phonepi`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
     await new Promise((resolve, reject) => {
       accepted.once("open", resolve);
       accepted.once("unexpected-response", (_req, res) => {
@@ -273,6 +279,122 @@ test("running server requires the phone token and does not log it", async () => 
     assert.equal(stdout, "");
     assert.equal(stderr.includes(token), false);
     assert.match(stderr, /WebSocket connection rejected/);
+    assert.equal(stderr.includes("Bearer"), false);
+  } finally {
+    await stopServer(started.child);
+  }
+});
+
+test("server exits when PHONEPI_WS_TOKEN is missing", async () => {
+  const wsPort = await freePort();
+  const httpPort = await freePort();
+  const env = { ...process.env };
+  delete env.PHONEPI_WS_TOKEN;
+  delete env.PHONEPI_INSECURE_NO_TOKEN;
+  const child = spawn(
+    process.execPath,
+    [
+      "dist/index.js",
+      "--stdio",
+      "--port",
+      String(wsPort),
+      "--http-port",
+      String(httpPort),
+    ],
+    { cwd: serverDir, env, stdio: ["pipe", "pipe", "pipe"] }
+  );
+  let stderr = "";
+  child.stderr.setEncoding("utf8");
+  child.stderr.on("data", (chunk) => {
+    stderr += chunk;
+  });
+  const code = await new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      resolve("timeout");
+    }, 8000);
+    child.once("exit", (exitCode) => {
+      clearTimeout(timer);
+      resolve(exitCode);
+    });
+  });
+  assert.equal(code, 1);
+  assert.match(stderr, /PHONEPI_WS_TOKEN required/);
+  assert.equal(stderr.includes("token="), false);
+});
+
+test("server refuses 0.0.0.0 without PHONEPI_ALLOW_WIDE_BIND", async () => {
+  const wsPort = await freePort();
+  const httpPort = await freePort();
+  const env = { ...process.env };
+  env.PHONEPI_WS_TOKEN = "phonepi-test-token-do-not-log-xx";
+  env.PHONEPI_WS_HOST = "0.0.0.0";
+  delete env.PHONEPI_ALLOW_WIDE_BIND;
+  const child = spawn(
+    process.execPath,
+    [
+      "dist/index.js",
+      "--stdio",
+      "--port",
+      String(wsPort),
+      "--http-port",
+      String(httpPort),
+    ],
+    { cwd: serverDir, env, stdio: ["pipe", "pipe", "pipe"] }
+  );
+  let stderr = "";
+  child.stderr.setEncoding("utf8");
+  child.stderr.on("data", (chunk) => {
+    stderr += chunk;
+  });
+  const code = await new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      resolve("timeout");
+    }, 8000);
+    child.once("exit", (exitCode) => {
+      clearTimeout(timer);
+      resolve(exitCode);
+    });
+  });
+  assert.equal(code, 1);
+  assert.match(stderr, /PHONEPI_ALLOW_WIDE_BIND=1/);
+  assert.equal(stderr.includes(env.PHONEPI_WS_TOKEN), false);
+});
+
+test("loopback bind and a header-token WS upgrade returns 101", async () => {
+  const wsPort = await freePort();
+  const httpPort = await freePort();
+  const token = "phonepi-test-token-do-not-log-xx";
+  const started = startServer({ wsPort, httpPort, token });
+  try {
+    await started.ready;
+    const { stderr } = started.output();
+    assert.match(stderr, /listening on 127\.0\.0\.1:/);
+
+    const status = await new Promise((resolve, reject) => {
+      const req = http.request(
+        {
+          host: "127.0.0.1",
+          port: wsPort,
+          path: "/phonepi",
+          method: "GET",
+          headers: {
+            Connection: "Upgrade",
+            Upgrade: "websocket",
+            "Sec-WebSocket-Version": "13",
+            "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==",
+            Authorization: `Bearer ${token}`,
+          },
+        },
+        (res) => resolve(res.statusCode)
+      );
+      req.on("upgrade", (_res) => resolve(101));
+      req.on("error", reject);
+      req.end();
+    });
+    assert.equal(status, 101);
+    assert.equal(started.output().stderr.includes(token), false);
   } finally {
     await stopServer(started.child);
   }

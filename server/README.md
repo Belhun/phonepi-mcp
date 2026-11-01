@@ -55,10 +55,14 @@ Stdout stays the MCP channel. HTTP logs go to stderr. If port 11043 is already t
 
 | Name | Default | Override |
 | --- | --- | --- |
-| Phone WebSocket | `0.0.0.0:11041` | `--port` |
+| Phone WebSocket | `127.0.0.1:11041` | `--port`, `--host` / `PHONEPI_WS_HOST` |
 | Loopback HTTP | `127.0.0.1:11043` | `--http-port` or `PHONEPI_HTTP_PORT` |
-| Phone WebSocket token | off | `PHONEPI_WS_TOKEN` |
-| Sensitive-read token | off (default-deny) | `PHONEPI_READ_TOKEN` |
+| Phone WebSocket token | required (32+ chars) | `PHONEPI_WS_TOKEN` |
+| Query-string WS/update token | allowed (Phase A) | `PHONEPI_ALLOW_QUERY_TOKEN` (`0` to refuse) |
+| Wide bind (`0.0.0.0` / LAN) | refused | `PHONEPI_ALLOW_WIDE_BIND=1` |
+| Insecure no-token (loopback only) | off | `PHONEPI_INSECURE_NO_TOKEN=1` |
+| Sensitive-read token | required (default-deny) | `PHONEPI_READ_TOKEN` |
+| Strict reads (notifications, calls, contacts, photos) | on | `PHONEPI_REQUIRE_READ_TOKEN_ALL=0` to open; `PHONEPI_OPEN_READ_TOOLS` comma list |
 | Per-bot read tokens | off | `PHONEPI_READ_BOTS` or `~/.phonepi/read-bots.json` |
 | Loopback HTTP Host allowlist | `127.0.0.1,localhost,[::1]` | `PHONEPI_HTTP_HOSTS` |
 | Wake hook URL | off | `PHONEPI_WAKE_HOOK_URL` |
@@ -73,7 +77,8 @@ node dist/index.js --stdio --http-port 11043
 
 ```powershell
 $env:PHONEPI_HTTP_PORT = "11043"
-$env:PHONEPI_WS_TOKEN = "choose-a-long-secret"
+$env:PHONEPI_WS_HOST = "127.0.0.1"
+$env:PHONEPI_WS_TOKEN = "choose-a-long-secret-at-least-32-chars"
 ```
 
 Do not commit the WS token, the read token, the wake-hook URL, or the wake-hook secret. The server never logs those values. Sensitive reads (`get_presence`, `get_screen_time`, `get_health_summary`, `get_notification_replies`, `get_inbound_prompts`) need `PHONEPI_READ_TOKEN` as `Authorization: Bearer` or `X-PhonePi-Read-Token` on HTTP. MCP may use the process env token. HTTP never treats the env token as implicit. Optional bots in `PHONEPI_READ_BOTS` / `~/.phonepi/read-bots.json` are `{id, token, tools?, coords?}`. Default-deny: no token is HTTP 401. Loopback POST requires `Content-Type: application/json`. `Host` must be on the allowlist with the bound port. Any `Origin` or `Sec-Fetch-Site: cross-site` is 403. Tailscale Serve still fronts WebSocket 11041, not this HTTP port.
@@ -137,7 +142,7 @@ scripts/phonepi-watchdog.sh uninstall
 
 ### Offline check
 
-`scripts/phonepi-health-check.sh` only GETs `http://127.0.0.1:11043/api/health`.
+`scripts/phonepi-health-check.sh` only GETs `http://127.0.0.1:<PHONEPI_HTTP_PORT>/api/health` (default 11043; the box uses 11045).
 
 | Exit | Meaning |
 | --- | --- |
@@ -226,7 +231,6 @@ curl -s -X POST http://127.0.0.1:11043/api/tool -H 'Content-Type: application/js
 Limits: the phone keeps only the latest version of each notification key in memory (cap 200) and clears it when the companion restarts, so a notification posted and replaced or cleared while the box could not poll is only captured if the phone still returns it. Each poll is one `get_notifications` call, so the phone's Recent activity shows a line per poll and the poll shares the 60/min `get_notifications` budget.
 
 Everything else is rejected with 403 and is not sent to the phone. That includes `make_call`, `find_phone`, `set_alarm`, `set_timer`, `dismiss_alarm`, `dismiss_timer`, `copy_to_clipboard`, `send_message`, `send_notification`, snippet or contact add/update/delete, `share_snippet`, and every `gm_*` Google Messages tool. Clock writes, location admin, and health pause/clear use `POST /api/command`.
-Everything else is rejected with 403 and is not sent to the phone. That includes `make_call`, `find_phone`, `set_alarm`, `set_timer`, `dismiss_alarm`, `dismiss_timer`, `copy_to_clipboard`, `send_message`, snippet or contact add/update/delete, `share_snippet`, and every `gm_*` Google Messages tool. Clock writes, `send_notification`, and other phone actions use `POST /api/command`.
 
 ```powershell
 Invoke-RestMethod http://127.0.0.1:11043/api/health
@@ -356,7 +360,11 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:11043/api/command `
 
 ### Phone WebSocket token
 
-If `PHONEPI_WS_TOKEN` is unset or empty, the phone socket accepts every client (same as before). If it is set, the upgrade must include a matching `token` query parameter. The comparison is constant-time. The Android app already appends `?token=` when a token is configured.
+`PHONEPI_WS_TOKEN` is required (32+ characters). The server refuses to start if it is missing, empty, or too short. The only escape is `PHONEPI_INSECURE_NO_TOKEN=1`, and that only works with a loopback bind.
+
+The upgrade accepts, in order: `Authorization: Bearer`, `X-PhonePi-Token`, `Sec-WebSocket-Protocol: phonepi.v1, phonepi.token.<t>` (the server echoes only `phonepi.v1`), then `?token=` while `PHONEPI_ALLOW_QUERY_TOKEN` is not `0`. Query-token use is counted and logged as `query token used (deprecated)` with no value. The comparison is constant-time. The Android app (0.3.7+) sends `Authorization: Bearer` and does not put the token in the URL.
+
+Default bind is `127.0.0.1`. Loopback and Tailscale addresses (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`) are allowed. `0.0.0.0` / LAN requires `PHONEPI_ALLOW_WIDE_BIND=1`. On the box, Tailscale userspace-networking still delivers tailnet traffic to a loopback bind, so the phone keeps working through Serve (`wss://<node>.ts.net`).
 
 ### Tailscale Serve
 
@@ -375,7 +383,7 @@ In the phone app, set the host to the machine's MagicDNS name (`<machine>.<tailn
 
 Do not point Serve at port 11043. That HTTP API is for processes on this PC. It shares the phone socket the MCP server already holds.
 
-The phone listener still binds `0.0.0.0:11041` so existing LAN and `adb reverse` setups keep working. If you want the phone to arrive only through Serve, block inbound 11041 on other interfaces in the firewall. Serve itself connects to `127.0.0.1`.
+The phone listener binds `127.0.0.1:11041` by default. Serve itself connects to `127.0.0.1`. Release APKs allow cleartext only to loopback, so the phone uses `wss://<node>.ts.net`. Do not point clients at `host:11041` on the LAN.
 
 # MCP server management cli (Optional)
 

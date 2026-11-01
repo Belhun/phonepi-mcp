@@ -484,34 +484,34 @@ test("location tools need a read token; coords only when scoped", async () => {
   );
 });
 
-test("strict mode gates legacy reads; default mode leaves them open", async () => {
-  assert.equal(isSensitiveReadTool("get_notifications"), false);
+test("strict mode gates legacy reads; PHONEPI_REQUIRE_READ_TOKEN_ALL=0 leaves them open", async () => {
+  assert.equal(isSensitiveReadTool("get_notifications"), true);
   assert.equal(
-    isSensitiveReadTool("get_notifications", { [REQUIRE_READ_TOKEN_ALL_ENV]: "1" }),
-    true
+    isSensitiveReadTool("get_notifications", { [REQUIRE_READ_TOKEN_ALL_ENV]: "0" }),
+    false
   );
   await withApi({}, async ({ port }) => {
-    const open = await post(port, "/api/tool", {
+    const denied = await post(port, "/api/tool", {
       tool: "get_notifications",
       arguments: {},
     });
-    assert.equal(open.status, 503);
+    assert.equal(denied.status, 401);
+    const ok = await post(
+      port,
+      "/api/tool",
+      { tool: "get_notifications", arguments: {} },
+      readHeaders()
+    );
+    assert.equal(ok.status, 503);
   });
   await withApi(
-    { env: { [REQUIRE_READ_TOKEN_ALL_ENV]: "1" } },
+    { env: { [REQUIRE_READ_TOKEN_ALL_ENV]: "0" } },
     async ({ port }) => {
-      const denied = await post(port, "/api/tool", {
+      const open = await post(port, "/api/tool", {
         tool: "get_notifications",
         arguments: {},
       });
-      assert.equal(denied.status, 401);
-      const ok = await post(
-        port,
-        "/api/tool",
-        { tool: "get_notifications", arguments: {} },
-        readHeaders()
-      );
-      assert.equal(ok.status, 503);
+      assert.equal(open.status, 503);
     }
   );
 });

@@ -34,7 +34,7 @@ export async function handleUpdateRequest(
 
   const env = options.env ?? process.env;
   const expected = wsTokenFromEnv(env);
-  const provided = tokenFromHttpRequest(req);
+  const provided = tokenFromHttpRequest(req, env);
   if (expected == null) {
     sendJson(res, 401, { error: "PHONEPI_WS_TOKEN is required for updates" });
     return true;

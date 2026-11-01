@@ -177,10 +177,10 @@ test("MCP request handler requires a read token for live location and saved plac
 test("MCP request handler still forwards non-sensitive bot tools without a read token", async () => {
   const ctx = stubCtx();
   const result = await handleMcpToolCall(
-    { params: { name: "get_notifications", arguments: { limit: 5 } } },
+    { params: { name: "get_battery_level", arguments: {} } },
     ctx
   );
-  assert.equal(ctx.phoneCalls[0].name, "get_notifications");
+  assert.equal(ctx.phoneCalls[0].name, "get_battery_level");
   assert.equal(JSON.parse(result.content[0].text).status, "success");
 });
 
@@ -265,7 +265,12 @@ test("MCP live notifications wrap text; gm reads keep string bodies", async () =
     },
   });
   const notes = await handleMcpToolCall(
-    { params: { name: "get_notifications", arguments: { limit: 5 } } },
+    {
+      params: {
+        name: "get_notifications",
+        arguments: { limit: 5, token: "mcp-read-token-32-chars-minimum-x" },
+      },
+    },
     ctx
   );
   const body = JSON.parse(notes.content[0].text);

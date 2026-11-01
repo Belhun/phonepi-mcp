@@ -527,11 +527,12 @@ async function handleCommand(
   res: ServerResponse,
   options: StartLoopbackHttpOptions
 ): Promise<void> {
+  const env = options.env ?? process.env;
   const expected =
     options.commandToken !== undefined
       ? options.commandToken
-      : wsTokenFromEnv();
-  const auth = authorizeCommandToken(tokenFromHttpRequest(req), expected);
+      : wsTokenFromEnv(env);
+  const auth = authorizeCommandToken(tokenFromHttpRequest(req, env), expected);
   if (!auth.ok) {
     sendJson(res, auth.status, { text: auth.text, isError: true });
     return;
