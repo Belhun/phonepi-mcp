@@ -60,7 +60,7 @@ class UpdateEngine(context: Context) {
     fun endpoint(): ConnectEndpoint.Target? {
         val saved = ConnectionPrefs.getLastSuccessful(app) ?: return null
         val target = ConnectEndpoint.parse(saved.host, saved.port.toString(), saved.wsToken)
-        if (!AllowedHost.isAllowed(target.host)) return null
+        if (!AllowedHost.mayConnect(target.host, target.wsToken)) return null
         return target
     }
 

@@ -71,8 +71,10 @@ object ServerList {
      * Add or update a server from a setup link or the Connect form.
      * A blank [token] keeps the existing token for that host. [borrowSharedToken]
      * (Connect form only) may copy a token from another saved server. Deep links
-     * must pass false so a new host never inherits the saved secret. Hosts outside
-     * the Tailscale/loopback allowlist are rejected. [makePrimary] demotes the others.
+     * must pass false so a new host never inherits the saved secret. A link token
+     * on a new host is refused unless that host is on the pinned tailnet.
+     * Hosts outside this tailnet / Tailscale IPs / loopback are rejected.
+     * [makePrimary] demotes the others.
      */
     fun upsert(
         servers: List<ServerEntry>,
@@ -84,7 +86,8 @@ object ServerList {
         borrowSharedToken: Boolean = false,
     ): Pair<List<ServerEntry>, ServerEntry> {
         val cleanHost = TailscaleNet.canonicalHost(host)
-        if (!AllowedHost.isAllowed(cleanHost)) {
+        val savedHosts = servers.map { it.host }
+        if (!AllowedHost.isAllowed(cleanHost, savedHosts = savedHosts)) {
             throw DisallowedPhonePiHostException(cleanHost)
         }
         val existing = servers.firstOrNull { sameHost(it.host, cleanHost) }
@@ -92,6 +95,11 @@ object ServerList {
             if (borrowSharedToken) servers.firstOrNull { it.token.isNotBlank() }?.token.orEmpty()
             else ""
         val newToken = token?.trim().orEmpty()
+        if (!borrowSharedToken && existing == null && newToken.isNotEmpty() &&
+            !AllowedHost.isOnPinnedTailnet(cleanHost, savedHosts = savedHosts)
+        ) {
+            throw LinkTokenNotOnTailnetException(cleanHost)
+        }
         val entry = if (existing != null) {
             existing.copy(
                 name = name?.trim()?.takeIf { it.isNotEmpty() } ?: existing.name,

@@ -38,4 +38,12 @@ class PhonePiWsRequestTest {
         assertFalse(request.url.toString().contains("token="))
         assertFalse(request.url.toString().contains("secret-token"))
     }
+
+    @Test
+    fun otherTailnetOmitsAuthorization() {
+        val target = ConnectEndpoint.parse("x.attacker.ts.net", "443", "secret-token")
+        val request = phonePiWsRequest(target)
+        assertNull(request.header("Authorization"))
+        assertFalse(request.url.toString().contains("secret-token"))
+    }
 }

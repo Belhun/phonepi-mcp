@@ -237,9 +237,11 @@ class WebSocketManager(
         this.host = target.host
         this.port = target.port
         this.lastUrl = target.url
-        if (!AllowedHost.isAllowed(target.host)) {
-            Log.w(TAG, "refusing connect to non-allowlisted host")
-            ActivityLog.logConnection("Connect refused", target.host, "warn")
+        val savedHosts = machine?.servers?.map { it.host }.orEmpty()
+        if (!AllowedHost.mayConnect(target.host, target.wsToken, savedHosts = savedHosts)) {
+            val why = if (target.wsToken.isBlank()) "missing token" else "host not on this tailnet"
+            Log.w(TAG, "refusing connect ($why)")
+            ActivityLog.logConnection("Connect refused", "${target.host} ($why)", "warn")
             ConnectionController.update(ConnectionState.Disconnected)
             return
         }

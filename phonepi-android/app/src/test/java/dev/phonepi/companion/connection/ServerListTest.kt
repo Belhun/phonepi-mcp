@@ -124,6 +124,58 @@ class ServerListTest {
     }
 
     @Test
+    fun deepLinkOtherTailnetIsRejected() {
+        val list = ServerList.seed(ConnectionPrefs.Endpoint("grokbot-box.tailcbcc46.ts.net", 443, "keep-secret"))
+        try {
+            ServerList.upsert(
+                list,
+                null,
+                "x.attacker.ts.net",
+                443,
+                "attacker-token",
+                makePrimary = true,
+            )
+            throw AssertionError("expected DisallowedPhonePiHostException")
+        } catch (e: DisallowedPhonePiHostException) {
+            assertEquals("x.attacker.ts.net", e.host)
+        }
+    }
+
+    @Test
+    fun deepLinkTokenOnNewLoopbackHostIsRefused() {
+        val list = ServerList.seed(ConnectionPrefs.Endpoint("grokbot-box.tailcbcc46.ts.net", 443, "keep-secret"))
+        try {
+            ServerList.upsert(
+                list,
+                null,
+                "127.0.0.1",
+                7000,
+                "attacker-token",
+                makePrimary = false,
+                borrowSharedToken = false,
+            )
+            throw AssertionError("expected LinkTokenNotOnTailnetException")
+        } catch (e: LinkTokenNotOnTailnetException) {
+            assertEquals("127.0.0.1", e.host)
+        }
+    }
+
+    @Test
+    fun deepLinkTokenOnThisTailnetIsKept() {
+        val (_, entry) = ServerList.upsert(
+            emptyList(),
+            "HP",
+            "hp1.tailcbcc46.ts.net",
+            443,
+            "from-qr",
+            makePrimary = true,
+            borrowSharedToken = false,
+        )
+        assertEquals("from-qr", entry.token)
+        assertEquals("hp1.tailcbcc46.ts.net", entry.host)
+    }
+
+    @Test
     fun setupLinkReadsNameAndPrimary() {
         val req = SetupLink.parseRequest(
             "phonepi://setup?host=hp1.tailcbcc46.ts.net&port=443&name=HP&primary=true",

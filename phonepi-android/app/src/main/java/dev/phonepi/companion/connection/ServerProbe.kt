@@ -27,7 +27,7 @@ object ServerProbe {
 
     /** Blocking. Call from Dispatchers.IO. */
     fun probe(server: ServerEntry): Boolean {
-        if (!AllowedHost.isAllowed(server.host)) return false
+        if (!AllowedHost.mayConnect(server.host, server.token)) return false
         val target = ConnectEndpoint.parse(server.host, server.port.toString())
         if (!AllowedHost.isAllowed(target.host)) return false
         val scheme = if (target.url.startsWith("wss://")) "https" else "http"

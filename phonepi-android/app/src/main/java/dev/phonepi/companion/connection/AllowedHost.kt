@@ -3,21 +3,77 @@ package dev.phonepi.companion.connection
 import dev.phonepi.companion.BuildConfig
 
 /**
- * Hosts that may receive the PhonePi token. Release: `*.ts.net`, Tailscale
- * CGNAT `100.64.0.0/10`, Tailscale IPv6 `fd7a:115c:a1e0::/48`, and loopback.
+ * Hosts that may receive the PhonePi token. Release: this tailnet's MagicDNS
+ * (`PHONEPI_TAILNET_SUFFIX`, default `tailcbcc46.ts.net`), Tailscale CGNAT
+ * `100.64.0.0/10`, Tailscale IPv6 `fd7a:115c:a1e0::/48`, and loopback.
+ * A blank suffix falls back to MagicDNS suffixes of already-saved servers.
  * Debug builds also allow RFC1918 LAN addresses for local testing.
  */
 object AllowedHost {
-    fun isAllowed(host: String, debug: Boolean = BuildConfig.DEBUG): Boolean {
+    fun configuredSuffix(): String =
+        BuildConfig.PHONEPI_TAILNET_SUFFIX.trim().trimStart('.').lowercase()
+
+    fun isAllowed(
+        host: String,
+        debug: Boolean = BuildConfig.DEBUG,
+        suffix: String = configuredSuffix(),
+        savedHosts: List<String> = emptyList(),
+    ): Boolean {
         val clean = normalize(host)
         if (clean.isEmpty()) return false
-        if (isAllowlisted(clean)) return true
+        if (isAllowlisted(clean, suffix = suffix, savedHosts = savedHosts)) return true
         return debug && isPrivateLan(clean)
     }
 
-    fun isAllowlisted(host: String): Boolean {
+    fun isAllowlisted(
+        host: String,
+        suffix: String = configuredSuffix(),
+        savedHosts: List<String> = emptyList(),
+    ): Boolean {
         val clean = normalize(host)
-        return isLoopback(clean) || isTsNet(clean) || isTailscaleV4(clean) || isTailscaleV6(clean)
+        return isLoopback(clean) ||
+            isOnPinnedTailnet(clean, suffix = suffix, savedHosts = savedHosts) ||
+            isTailscaleV4(clean) ||
+            isTailscaleV6(clean)
+    }
+
+    /**
+     * MagicDNS name on the pinned tailnet. `hp1.tailcbcc46.ts.net` matches
+     * suffix `tailcbcc46.ts.net`. `x.attacker.ts.net` does not.
+     */
+    fun isOnPinnedTailnet(
+        host: String,
+        suffix: String = configuredSuffix(),
+        savedHosts: List<String> = emptyList(),
+    ): Boolean {
+        val clean = normalize(host).lowercase()
+        val suffixes = effectiveSuffixes(suffix, savedHosts)
+        return suffixes.any { s -> clean == s || clean.endsWith(".$s") }
+    }
+
+    /** Release builds refuse a blank token. Debug still allows loopback/LAN without one. */
+    fun mayConnect(
+        host: String,
+        token: String,
+        debug: Boolean = BuildConfig.DEBUG,
+        suffix: String = configuredSuffix(),
+        savedHosts: List<String> = emptyList(),
+    ): Boolean {
+        if (!isAllowed(host, debug = debug, suffix = suffix, savedHosts = savedHosts)) return false
+        if (token.isBlank() && !debug) return false
+        return true
+    }
+
+    fun suffixesFromSaved(hosts: List<String>): List<String> {
+        val out = linkedSetOf<String>()
+        for (host in hosts) {
+            val lower = normalize(host).lowercase()
+            if (!lower.endsWith(".ts.net")) continue
+            val firstDot = lower.indexOf('.')
+            if (firstDot <= 0 || firstDot == lower.length - 1) continue
+            out.add(lower.substring(firstDot + 1))
+        }
+        return out.toList()
     }
 
     fun isPrivateLan(host: String): Boolean {
@@ -28,6 +84,12 @@ object AllowedHost {
         if (a == 192 && b == 168) return true
         if (a == 172 && b in 16..31) return true
         return false
+    }
+
+    private fun effectiveSuffixes(suffix: String, savedHosts: List<String>): List<String> {
+        val pinned = suffix.trim().trimStart('.').lowercase()
+        if (pinned.isNotEmpty()) return listOf(pinned)
+        return suffixesFromSaved(savedHosts)
     }
 
     private fun normalize(host: String): String {
@@ -44,11 +106,6 @@ object AllowedHost {
             lower == "::1" ||
             lower == "localhost" ||
             lower == "0:0:0:0:0:0:0:1"
-    }
-
-    private fun isTsNet(host: String): Boolean {
-        val lower = host.lowercase()
-        return lower.endsWith(".ts.net") && lower.length > ".ts.net".length
     }
 
     private fun isTailscaleV4(host: String): Boolean {
@@ -105,5 +162,9 @@ object AllowedHost {
 }
 
 class DisallowedPhonePiHostException(val host: String) : IllegalArgumentException(
-    "PhonePi only connects to Tailscale (*.ts.net / 100.x) or loopback, not $host",
+    "PhonePi only connects to this tailnet, Tailscale IPs, or loopback, not $host",
+)
+
+class LinkTokenNotOnTailnetException(val host: String) : IllegalArgumentException(
+    "Refusing a setup-link token for $host; only this tailnet may supply a token",
 )

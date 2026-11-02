@@ -42,6 +42,7 @@ import dev.phonepi.companion.connection.ConnectionController
 import dev.phonepi.companion.connection.ConnectionPrefs
 import dev.phonepi.companion.connection.ConnectionService
 import dev.phonepi.companion.connection.DisallowedPhonePiHostException
+import dev.phonepi.companion.connection.LinkTokenNotOnTailnetException
 import dev.phonepi.companion.connection.ServerList
 import dev.phonepi.companion.connection.ServerPrefs
 import dev.phonepi.companion.connection.SetupBus
@@ -114,14 +115,15 @@ fun ConnectScreen(modifier: Modifier = Modifier) {
         val app = context.applicationContext
         val trimmed = nextHost.trim()
         if (trimmed.isEmpty()) return
-        if (!AllowedHost.isAllowed(trimmed)) {
-            hostError = "PhonePi only connects to Tailscale (*.ts.net) or loopback, not $trimmed"
+        val saved = ServerPrefs.load(app).servers
+        if (!AllowedHost.isAllowed(trimmed, savedHosts = saved.map { it.host })) {
+            hostError = "PhonePi only connects to this tailnet, Tailscale IPs, or loopback, not $trimmed"
             return
         }
         hostError = null
         val (list, entry) = try {
             ServerList.upsert(
-                ServerPrefs.load(app).servers,
+                saved,
                 name,
                 trimmed,
                 nextPort.toIntOrNull() ?: ConnectionPrefs.DEFAULT_PORT,
@@ -130,6 +132,9 @@ fun ConnectScreen(modifier: Modifier = Modifier) {
                 borrowSharedToken = borrowSharedToken,
             )
         } catch (e: DisallowedPhonePiHostException) {
+            hostError = e.message
+            return
+        } catch (e: LinkTokenNotOnTailnetException) {
             hostError = e.message
             return
         }
@@ -165,8 +170,8 @@ fun ConnectScreen(modifier: Modifier = Modifier) {
         port = target.port.toString()
         if (target.wsToken.isNotEmpty()) wsToken = target.wsToken
         SetupBus.consume()
-        if (!AllowedHost.isAllowed(target.host)) {
-            hostError = "Refusing ${target.host}: PhonePi only connects to Tailscale (*.ts.net) or loopback."
+        if (!AllowedHost.isAllowed(target.host, savedHosts = serverSnap.servers.map { it.host })) {
+            hostError = "Refusing ${target.host}: not on this tailnet."
             pendingSetup = null
             return@LaunchedEffect
         }
