@@ -330,7 +330,7 @@ New APK required: the phone sends `Authorization: Bearer` on the WebSocket and u
 - Strict reads on by default, including snippet/notes tools. `PHONEPI_OPEN_READ_TOOLS` exemptions. Poller scoped token must exist before deploy or Home · Notifications 401s.
 - `restore-after-refresh.sh` / watchdog check the env file and refuse to start open. Health check uses `PHONEPI_HTTP_PORT` (box 11045). Restore and health-check read only the port from the env file; they do not source tokens into child processes.
 - Phone socket listen failure (EADDRINUSE / EADDRNOTAVAIL) exits 1. `/api/health` includes `wsListening`; `ok` is false when the socket is down.
-- Android setup links (`phonepi://setup`) confirm the host, allow only `*.ts.net` / Tailscale / loopback, and never borrow a saved token for a new host. Release cleartext is loopback only (no `10.0.2.2`).
+- Android setup links (`phonepi://setup`) confirm the host, pin MagicDNS to `PHONEPI_TAILNET_SUFFIX` (default `tailcbcc46.ts.net`; override at assemble time), allow Tailscale IPs and loopback, and never borrow a saved token for a new host. A link token on a new host is refused unless that host is on the pinned tailnet. Release builds refuse a blank-token connect. Release cleartext is loopback only (no `10.0.2.2`).
 - MCP `gm_*` reads keep string bodies and add sibling `untrusted` / `provenance`. They do not wrap bodies as `{untrusted, provenance, text}` objects.
 
 ### Privacy / security pass (same 0.3.5)

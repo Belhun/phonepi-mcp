@@ -84,7 +84,7 @@ export PHONEPI_WS_TOKEN=$(openssl rand -hex 32)
 ```powershell
 $env:PHONEPI_HTTP_PORT = "11043"
 $env:PHONEPI_WS_HOST = "127.0.0.1"
-$env:PHONEPI_WS_TOKEN = [Convert]::ToHexString([byte[]](1..32|%{Get-Random -Max 256}))
+$b=New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); $env:PHONEPI_WS_TOKEN=($b|%{$_.ToString('x2')}) -join ''
 ```
 
 Do not commit the WS token, the read token, the wake-hook URL, or the wake-hook secret. The server never logs those values. Sensitive reads (`get_presence`, `get_screen_time`, `get_health_summary`, `get_notification_replies`, `get_inbound_prompts`) need `PHONEPI_READ_TOKEN` as `Authorization: Bearer` or `X-PhonePi-Read-Token` on HTTP. MCP may use the process env token. HTTP never treats the env token as implicit. Optional bots in `PHONEPI_READ_BOTS` / `~/.phonepi/read-bots.json` are `{id, token, tools?, coords?}`. Default-deny: no token is HTTP 401. Loopback POST requires `Content-Type: application/json`. `Host` must be on the allowlist with the bound port. Any `Origin` or `Sec-Fetch-Site: cross-site` is 403. Tailscale Serve still fronts WebSocket 11041, not this HTTP port.
@@ -337,7 +337,7 @@ On the phone WebSocket port (the same host Tailscale Serve publishes):
 Directory: `PHONEPI_UPDATE_DIR` (default `~/.phonepi/updates`). Put a release APK named `phonepi-0.2.7-9.apk` (or `phonepi.apk`) and run `scripts/sign-update-manifest.sh` so `manifest.json` is Ed25519-signed. The APK bytes' sha256 must match the signed `sha256`. See [docs/release-signing.md](../docs/release-signing.md).
 
 ```powershell
-$env:PHONEPI_WS_TOKEN = [Convert]::ToHexString([byte[]](1..32|%{Get-Random -Max 256}))
+$b=New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); $env:PHONEPI_WS_TOKEN=($b|%{$_.ToString('x2')}) -join ''
 
 Invoke-RestMethod -Method Post -Uri http://127.0.0.1:11043/api/command `
   -Headers @{ "X-PhonePi-Token" = $env:PHONEPI_WS_TOKEN } `
@@ -386,7 +386,7 @@ tailscale funnel off
 
 `tailscale serve status` should show a tailnet-only proxy to `http://127.0.0.1:11041`. It should not show Funnel.
 
-In the phone app, set the host to the machine's MagicDNS name (`<machine>.<tailnet>.ts.net`). For a `*.ts.net` host the app uses `wss` on port 443 and the path `/phonepi`. Put the same secret in the app token field and in `PHONEPI_WS_TOKEN`.
+In the phone app, set the host to the machine's MagicDNS name (`<machine>.<tailnet>.ts.net`). The companion pins MagicDNS to `PHONEPI_TAILNET_SUFFIX` (default `tailcbcc46.ts.net`; override at assemble with `-PPHONEPI_TAILNET_SUFFIX=`). For a host on that suffix the app uses `wss` on port 443 and the path `/phonepi`. Put the same secret in the app token field and in `PHONEPI_WS_TOKEN`.
 
 Do not point Serve at port 11043. That HTTP API is for processes on this PC. It shares the phone socket the MCP server already holds.
 
