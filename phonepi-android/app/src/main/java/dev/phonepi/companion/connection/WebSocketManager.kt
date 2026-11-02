@@ -245,9 +245,15 @@ class WebSocketManager(
             ConnectionController.update(ConnectionState.Disconnected)
             return
         }
+        val request = phonePiWsRequest(target)
+        if (!requestMatchesTarget(request, target.host, target.port)) {
+            Log.w(TAG, "refusing connect (url host mismatch)")
+            ActivityLog.logConnection("Connect refused", "${target.host} (url host mismatch)", "warn")
+            ConnectionController.update(ConnectionState.Disconnected)
+            return
+        }
         Log.i(TAG, "opening ${safeUrl()} (sni=${target.host})")
         ActivityLog.logConnection("Connecting", safeUrl(), "info")
-        val request = phonePiWsRequest(target)
         val created = client.newWebSocket(request, listener)
         socket = created
         armAttemptTimeout(created)

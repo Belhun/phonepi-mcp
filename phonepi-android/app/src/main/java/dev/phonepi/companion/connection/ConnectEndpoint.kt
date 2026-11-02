@@ -5,6 +5,11 @@ package dev.phonepi.companion.connection
  *
  * Tailscale Serve uses the UI host on 443 with path /phonepi (wss).
  * Direct loopback / adb reverse uses ws on the UI port (usually 7000).
+ *
+ * The host in [Target.url] is only an ASCII hostname or an IP literal.
+ * Characters OkHttp treats as the end of the host (`@ / \ ? #`) are kept
+ * as-is so [requestMatchesTarget] can refuse the built request; they never
+ * pass [AllowedHost.isAllowed].
  */
 object ConnectEndpoint {
     const val PHONEPI_PATH = "/phonepi"
@@ -43,17 +48,8 @@ object ConnectEndpoint {
         val slash = raw.indexOf('/')
         val hostPort = if (slash >= 0) raw.substring(0, slash) else raw
 
-        var host = hostPort
-        var portFromHost: Int? = null
-        val colon = hostPort.lastIndexOf(':')
-        if (colon > 0) {
-            val maybePort = hostPort.substring(colon + 1).toIntOrNull()
-            if (maybePort != null) {
-                portFromHost = maybePort
-                host = hostPort.substring(0, colon)
-            }
-        }
-        host = TailscaleNet.canonicalHost(host.trim().trimStart('[').trimEnd(']'))
+        val (extractedHost, portFromHost) = splitHostPort(hostPort)
+        var host = TailscaleNet.canonicalHost(extractedHost.trim().trimStart('[').trimEnd(']'))
         if ("&" in host) {
             host = host.substringBefore("&").trim()
         }
@@ -69,7 +65,36 @@ object ConnectEndpoint {
         }
         val tls = schemeHint == "wss" || port == 443 || (schemeHint == null && looksTls)
         val scheme = if (tls) "wss" else "ws"
-        val url = "$scheme://$host:$port$PHONEPI_PATH"
+        val url = "$scheme://${AllowedHost.hostForUrl(host)}:$port$PHONEPI_PATH"
         return Target(host = host, port = port, url = url, wsToken = wsToken)
+    }
+
+    /**
+     * Bracketed IPv6 (`[fd7a:…]:443`), unbracketed IPv6 (host only), or
+     * hostname/IPv4 with an optional `:port`. A numeric last hextet must not
+     * be taken as a port.
+     */
+    internal fun splitHostPort(hostPort: String): Pair<String, Int?> {
+        val text = hostPort.trim()
+        if (text.startsWith("[")) {
+            val close = text.indexOf(']')
+            if (close > 0) {
+                val inner = text.substring(1, close)
+                val rest = text.substring(close + 1)
+                val port = if (rest.startsWith(":")) rest.substring(1).toIntOrNull() else null
+                return inner to port
+            }
+        }
+        if (text.count { it == ':' } >= 2) {
+            return text to null
+        }
+        val colon = text.lastIndexOf(':')
+        if (colon > 0) {
+            val maybePort = text.substring(colon + 1).toIntOrNull()
+            if (maybePort != null) {
+                return text.substring(0, colon) to maybePort
+            }
+        }
+        return text to null
     }
 }

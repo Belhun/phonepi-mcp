@@ -209,4 +209,50 @@ class ServerListTest {
         val server = ServerEntry("evil", "Evil", "evil.example", 443, "secret-token", primary = true)
         assertFalse(ServerProbe.probe(server))
     }
+
+    @Test
+    fun percentEncodedHashHostSetupLinkIsRejected() {
+        val req = SetupLink.parseRequest(
+            "phonepi://setup?host=evil.com%23.tailcbcc46.ts.net&token=x",
+        )
+        assertNotNull(req)
+        assertEquals("evil.com#.tailcbcc46.ts.net", req!!.target.host)
+        val list = ServerList.seed(ConnectionPrefs.Endpoint("grokbot-box.tailcbcc46.ts.net", 443, "keep-secret"))
+        try {
+            ServerList.upsert(
+                list,
+                req.name,
+                req.target.host,
+                req.target.port,
+                req.target.wsToken,
+                req.primary,
+            )
+            throw AssertionError("expected DisallowedPhonePiHostException")
+        } catch (e: DisallowedPhonePiHostException) {
+            assertEquals("evil.com#.tailcbcc46.ts.net", e.host)
+        }
+    }
+
+    @Test
+    fun percentEncodedQuestionUrlSetupLinkIsRejected() {
+        val req = SetupLink.parseRequest(
+            "phonepi://setup?url=https%3A%2F%2Fevil.com%3F.tailcbcc46.ts.net",
+        )
+        assertNotNull(req)
+        assertEquals("evil.com?.tailcbcc46.ts.net", req!!.target.host)
+        val list = ServerList.seed(ConnectionPrefs.Endpoint("hp1.tailcbcc46.ts.net", 443, "keep-secret"))
+        try {
+            ServerList.upsert(
+                list,
+                req.name,
+                req.target.host,
+                req.target.port,
+                req.target.wsToken,
+                req.primary,
+            )
+            throw AssertionError("expected DisallowedPhonePiHostException")
+        } catch (e: DisallowedPhonePiHostException) {
+            assertTrue(e.host.contains("evil.com"))
+        }
+    }
 }

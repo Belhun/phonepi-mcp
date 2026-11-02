@@ -1,6 +1,8 @@
 package dev.phonepi.companion.update
 
 import dev.phonepi.companion.connection.ConnectEndpoint
+import dev.phonepi.companion.connection.requestMatchesTarget
+import okhttp3.Request
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -23,6 +25,16 @@ class UpdateUrlsTest {
         assertTrue(UpdateUrls.manifest(target).startsWith("https://"))
         assertTrue(UpdateUrls.manifest(target).contains("/phonepi/update/manifest"))
         assertTrue(UpdateUrls.apk(target).contains("/phonepi/update/apk"))
+        val request = Request.Builder().url(UpdateUrls.manifest(target)).build()
+        assertTrue(requestMatchesTarget(request, target.host, target.port))
+    }
+
+    @Test
+    fun delimiterHostUpdateUrlDoesNotMatchOkHttpHost() {
+        val target = ConnectEndpoint.parse("evil.com#.tailcbcc46.ts.net", "443", "tok")
+        val request = Request.Builder().url(UpdateUrls.manifest(target)).build()
+        assertFalse(requestMatchesTarget(request, target.host, target.port))
+        assertEquals("evil.com", request.url.host)
     }
 }
 

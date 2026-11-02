@@ -74,4 +74,23 @@ class ConnectEndpointTest {
         assertEquals("dell-mini-pc.tailcbcc46.ts.net", target!!.host)
         assertEquals(443, target.port)
     }
+
+    @Test
+    fun hpBoxAndDellNamesStillParse() {
+        for (name in listOf("hp1", "grokbot-box", "dell-mini-pc")) {
+            val host = "$name.tailcbcc46.ts.net"
+            val target = ConnectEndpoint.parse(host, "443")
+            assertEquals(host, target.host)
+            assertEquals(443, target.port)
+            assertEquals("wss://$host:443/phonepi", target.url)
+            assertTrue(AllowedHost.isAllowed(target.host, debug = false))
+        }
+    }
+
+    @Test
+    fun delimiterHostIsNotAllowedEvenIfParseKeepsIt() {
+        val target = ConnectEndpoint.parse("hp1.tailcbcc46.ts.net.evil.com#.tailcbcc46.ts.net", "443")
+        assertFalse(AllowedHost.isAllowed(target.host, debug = true))
+        assertTrue(target.host.contains("#"))
+    }
 }

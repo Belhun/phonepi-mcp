@@ -46,4 +46,32 @@ class PhonePiWsRequestTest {
         assertNull(request.header("Authorization"))
         assertFalse(request.url.toString().contains("secret-token"))
     }
+
+    @Test
+    fun delimiterHostOmitsAuthorizationAndIsRefused() {
+        val hosts = listOf(
+            "evil.com#.tailcbcc46.ts.net",
+            "evil.com?.tailcbcc46.ts.net",
+            "evil.com\\.tailcbcc46.ts.net",
+            "a@b.tailcbcc46.ts.net",
+            "hp1.tailcbcc46.ts.net.evil.com#.tailcbcc46.ts.net",
+        )
+        for (host in hosts) {
+            val target = ConnectEndpoint.parse(host, "443", "attacker-token-at-least-32-chars-long")
+            val request = phonePiWsRequest(target)
+            assertNull("Authorization for $host", request.header("Authorization"))
+            assertFalse(request.url.toString().contains("attacker-token"))
+            assertFalse("requestMatchesTarget($host)", requestMatchesTarget(request, target.host, target.port))
+        }
+    }
+
+    @Test
+    fun realTailnetHostMatchesOkHttpHostAndKeepsAuthorization() {
+        val target = ConnectEndpoint.parse("hp1.tailcbcc46.ts.net", "443", "secret-token")
+        val request = phonePiWsRequest(target)
+        assertEquals("hp1.tailcbcc46.ts.net", request.url.host)
+        assertEquals(443, request.url.port)
+        assertTrue(requestMatchesTarget(request, target.host, target.port))
+        assertEquals("Bearer secret-token", request.header("Authorization"))
+    }
 }

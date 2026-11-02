@@ -31,13 +31,16 @@ object ServerProbe {
         val target = ConnectEndpoint.parse(server.host, server.port.toString())
         if (!AllowedHost.isAllowed(target.host)) return false
         val scheme = if (target.url.startsWith("wss://")) "https" else "http"
-        val url = "$scheme://${target.host}:${target.port}/phonepi/update/manifest"
-        val builder = Request.Builder().url(url).head()
-        if (AllowedHost.isAllowed(target.host) && server.token.isNotBlank()) {
-            builder.header("Authorization", "Bearer ${server.token}")
+        val url = "$scheme://${AllowedHost.hostForUrl(target.host)}:${target.port}/phonepi/update/manifest"
+        val built = try {
+            Request.Builder().url(url).head().build()
+        } catch (_: Exception) {
+            return false
         }
+        val request = withPhonePiAuthIfHostMatches(built, target.host, target.port, server.token)
+            ?: return false
         return try {
-            client.newCall(builder.build()).execute().use { isHealthyStatus(it.code) }
+            client.newCall(request).execute().use { isHealthyStatus(it.code) }
         } catch (_: Exception) {
             false
         }

@@ -1,5 +1,6 @@
 package dev.phonepi.companion.update
 
+import dev.phonepi.companion.connection.AllowedHost
 import dev.phonepi.companion.connection.ConnectEndpoint
 import net.i2p.crypto.eddsa.EdDSAEngine
 import net.i2p.crypto.eddsa.EdDSAPublicKey
@@ -26,7 +27,7 @@ object UpdateUrls {
     fun httpBase(target: ConnectEndpoint.Target): String {
         val tls = target.url.startsWith("wss://")
         val scheme = if (tls) "https" else "http"
-        return "$scheme://${target.host}:${target.port}"
+        return "$scheme://${AllowedHost.hostForUrl(target.host)}:${target.port}"
     }
 
     fun manifest(target: ConnectEndpoint.Target): String =

@@ -90,4 +90,32 @@ class AllowedHostTest {
     fun defaultSuffixIsAlexTailnet() {
         assertEquals("tailcbcc46.ts.net", AllowedHost.configuredSuffix())
     }
+
+    @Test
+    fun urlDelimitersInHostFailThePin() {
+        val poisoned = listOf(
+            "evil.com#.tailcbcc46.ts.net",
+            "evil.com?.tailcbcc46.ts.net",
+            "evil.com\\.tailcbcc46.ts.net",
+            "a@b.tailcbcc46.ts.net",
+            "hp1.tailcbcc46.ts.net.evil.com#.tailcbcc46.ts.net",
+        )
+        for (host in poisoned) {
+            assertFalse("isAllowed($host)", AllowedHost.isAllowed(host, debug = true))
+            assertFalse("isAllowlisted($host)", AllowedHost.isAllowlisted(host))
+            assertFalse("isOnPinnedTailnet($host)", AllowedHost.isOnPinnedTailnet(host))
+            assertFalse("isValidHostLiteral($host)", AllowedHost.isValidHostLiteral(host))
+        }
+    }
+
+    @Test
+    fun percentSpaceAndNonAsciiHostsAreRejected() {
+        assertFalse(AllowedHost.isValidHostLiteral("evil.com%.tailcbcc46.ts.net"))
+        assertFalse(AllowedHost.isValidHostLiteral("evil.com .tailcbcc46.ts.net"))
+        assertFalse(AllowedHost.isValidHostLiteral("hp1.tailcbcc46.ts.net/evil"))
+        assertFalse(AllowedHost.isAllowed("hétérogène.tailcbcc46.ts.net", debug = true))
+        assertTrue(AllowedHost.isValidHostLiteral("hp1.tailcbcc46.ts.net."))
+        assertTrue(AllowedHost.isValidHostLiteral("HP1.TAILCBCC46.TS.NET"))
+        assertTrue(AllowedHost.isAllowed("hp1.tailcbcc46.ts.net.", debug = false))
+    }
 }

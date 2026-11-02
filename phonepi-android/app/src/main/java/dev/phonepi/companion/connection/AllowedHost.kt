@@ -10,8 +10,44 @@ import dev.phonepi.companion.BuildConfig
  * Debug builds also allow RFC1918 LAN addresses for local testing.
  */
 object AllowedHost {
+    /**
+     * DNS hostname: 1–253 chars, labels 1–63, LDH only. Applied after lowercase
+     * and a single trailing-dot strip. Rejects `@ / \ ? # %`, space, and
+     * non-ASCII so OkHttp cannot end the host early (`HttpUrl` delimiters
+     * `@/\\?#`) and still leave a suffix that matches the tailnet pin.
+     */
+    private val ASCII_HOSTNAME = Regex(
+        "^(?=.{1,253}\$)[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*\$",
+    )
+
     fun configuredSuffix(): String =
         BuildConfig.PHONEPI_TAILNET_SUFFIX.trim().trimStart('.').lowercase()
+
+    /**
+     * ASCII hostname matching [ASCII_HOSTNAME], or a dotted IPv4 / IPv6
+     * literal. Zone IDs (`%`) are refused: PhonePi never needs link-local.
+     */
+    fun isValidHostLiteral(host: String): Boolean {
+        val value = literalKey(host)
+        if (value.isEmpty()) return false
+        for (ch in value) {
+            if (ch.code > 127) return false
+            if (ch.isWhitespace()) return false
+            if (ch == '@' || ch == '/' || ch == '\\' || ch == '?' || ch == '#' || ch == '%') {
+                return false
+            }
+        }
+        if (ASCII_HOSTNAME.matches(value)) return true
+        if (ipv4Parts(value) != null) return true
+        if (expandIpv6(value) != null) return true
+        return false
+    }
+
+    /** Bracket IPv6 so URL parsers do not treat a hextet as the port. */
+    fun hostForUrl(host: String): String {
+        val clean = host.trim().trimStart('[').trimEnd(']')
+        return if (expandIpv6(clean.lowercase()) != null) "[$clean]" else clean
+    }
 
     fun isAllowed(
         host: String,
@@ -20,7 +56,7 @@ object AllowedHost {
         savedHosts: List<String> = emptyList(),
     ): Boolean {
         val clean = normalize(host)
-        if (clean.isEmpty()) return false
+        if (clean.isEmpty() || !isValidHostLiteral(clean)) return false
         if (isAllowlisted(clean, suffix = suffix, savedHosts = savedHosts)) return true
         return debug && isPrivateLan(clean)
     }
@@ -31,6 +67,7 @@ object AllowedHost {
         savedHosts: List<String> = emptyList(),
     ): Boolean {
         val clean = normalize(host)
+        if (!isValidHostLiteral(clean)) return false
         return isLoopback(clean) ||
             isOnPinnedTailnet(clean, suffix = suffix, savedHosts = savedHosts) ||
             isTailscaleV4(clean) ||
@@ -39,7 +76,9 @@ object AllowedHost {
 
     /**
      * MagicDNS name on the pinned tailnet. `hp1.tailcbcc46.ts.net` matches
-     * suffix `tailcbcc46.ts.net`. `x.attacker.ts.net` does not.
+     * suffix `tailcbcc46.ts.net`. `x.attacker.ts.net` does not. A `#`, `?`,
+     * `\` or `@` in the string is not a hostname, even if the text ends with
+     * the suffix (OkHttp would dial the left-hand side).
      */
     fun isOnPinnedTailnet(
         host: String,
@@ -47,6 +86,7 @@ object AllowedHost {
         savedHosts: List<String> = emptyList(),
     ): Boolean {
         val clean = normalize(host).lowercase()
+        if (!isValidHostLiteral(clean)) return false
         val suffixes = effectiveSuffixes(suffix, savedHosts)
         return suffixes.any { s -> clean == s || clean.endsWith(".$s") }
     }
@@ -68,6 +108,7 @@ object AllowedHost {
         val out = linkedSetOf<String>()
         for (host in hosts) {
             val lower = normalize(host).lowercase()
+            if (!isValidHostLiteral(lower)) continue
             if (!lower.endsWith(".ts.net")) continue
             val firstDot = lower.indexOf('.')
             if (firstDot <= 0 || firstDot == lower.length - 1) continue
@@ -92,11 +133,15 @@ object AllowedHost {
         return suffixesFromSaved(savedHosts)
     }
 
+    private fun literalKey(host: String): String {
+        var value = host.trim().trimStart('[').trimEnd(']').lowercase()
+        if (value.endsWith('.')) value = value.dropLast(1)
+        return value
+    }
+
     private fun normalize(host: String): String {
         var value = host.trim().trimStart('[').trimEnd(']')
         if (value.endsWith('.')) value = value.dropLast(1)
-        val zone = value.indexOf('%')
-        if (zone >= 0) value = value.substring(0, zone)
         return TailscaleNet.canonicalHost(value)
     }
 
