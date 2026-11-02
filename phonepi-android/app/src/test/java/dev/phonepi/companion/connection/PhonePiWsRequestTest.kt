@@ -29,4 +29,13 @@ class PhonePiWsRequestTest {
         assertFalse(url.contains("token="))
         assertNull(request.header("Authorization"))
     }
+
+    @Test
+    fun nonAllowlistedHostOmitsAuthorization() {
+        val target = ConnectEndpoint.parse("evil.example", "443", "secret-token")
+        val request = phonePiWsRequest(target)
+        assertNull(request.header("Authorization"))
+        assertFalse(request.url.toString().contains("token="))
+        assertFalse(request.url.toString().contains("secret-token"))
+    }
 }

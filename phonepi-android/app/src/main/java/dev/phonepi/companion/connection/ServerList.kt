@@ -69,8 +69,10 @@ object ServerList {
 
     /**
      * Add or update a server from a setup link or the Connect form.
-     * A blank [token] keeps the existing token (or borrows one from another saved server,
-     * since every PhonePi server shares the same token). [makePrimary] demotes the others.
+     * A blank [token] keeps the existing token for that host. [borrowSharedToken]
+     * (Connect form only) may copy a token from another saved server. Deep links
+     * must pass false so a new host never inherits the saved secret. Hosts outside
+     * the Tailscale/loopback allowlist are rejected. [makePrimary] demotes the others.
      */
     fun upsert(
         servers: List<ServerEntry>,
@@ -79,10 +81,16 @@ object ServerList {
         port: Int,
         token: String?,
         makePrimary: Boolean,
+        borrowSharedToken: Boolean = false,
     ): Pair<List<ServerEntry>, ServerEntry> {
         val cleanHost = TailscaleNet.canonicalHost(host)
+        if (!AllowedHost.isAllowed(cleanHost)) {
+            throw DisallowedPhonePiHostException(cleanHost)
+        }
         val existing = servers.firstOrNull { sameHost(it.host, cleanHost) }
-        val fallbackToken = servers.firstOrNull { it.token.isNotBlank() }?.token.orEmpty()
+        val fallbackToken =
+            if (borrowSharedToken) servers.firstOrNull { it.token.isNotBlank() }?.token.orEmpty()
+            else ""
         val newToken = token?.trim().orEmpty()
         val entry = if (existing != null) {
             existing.copy(

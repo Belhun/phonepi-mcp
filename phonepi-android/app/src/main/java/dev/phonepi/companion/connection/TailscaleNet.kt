@@ -14,6 +14,10 @@ import javax.net.SocketFactory
  * Pixel Private DNS (CleanBrowsing Family) breaks Tailscale MagicDNS.
  * TCP to the 100.x address still works if SNI is the *.ts.net name.
  * Same approach as Odysseus PhoneApp (`ody_http_factory_io.dart`).
+ *
+ * This map is SNI / MagicDNS only. It is not the saved server list.
+ * Dell is leftover: upgrade that server before any 0.3.7 APK, or remove
+ * it from the phone's Servers list. HP stays; it is the primary.
  */
 object TailscaleNet {
     val hostToIp: Map<String, String> = mapOf(

@@ -27,11 +27,15 @@ object ServerProbe {
 
     /** Blocking. Call from Dispatchers.IO. */
     fun probe(server: ServerEntry): Boolean {
+        if (!AllowedHost.isAllowed(server.host)) return false
         val target = ConnectEndpoint.parse(server.host, server.port.toString())
+        if (!AllowedHost.isAllowed(target.host)) return false
         val scheme = if (target.url.startsWith("wss://")) "https" else "http"
         val url = "$scheme://${target.host}:${target.port}/phonepi/update/manifest"
         val builder = Request.Builder().url(url).head()
-        if (server.token.isNotBlank()) builder.header("Authorization", "Bearer ${server.token}")
+        if (AllowedHost.isAllowed(target.host) && server.token.isNotBlank()) {
+            builder.header("Authorization", "Bearer ${server.token}")
+        }
         return try {
             client.newCall(builder.build()).execute().use { isHealthyStatus(it.code) }
         } catch (_: Exception) {

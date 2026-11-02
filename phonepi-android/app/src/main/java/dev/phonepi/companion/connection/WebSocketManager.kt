@@ -237,6 +237,12 @@ class WebSocketManager(
         this.host = target.host
         this.port = target.port
         this.lastUrl = target.url
+        if (!AllowedHost.isAllowed(target.host)) {
+            Log.w(TAG, "refusing connect to non-allowlisted host")
+            ActivityLog.logConnection("Connect refused", target.host, "warn")
+            ConnectionController.update(ConnectionState.Disconnected)
+            return
+        }
         Log.i(TAG, "opening ${safeUrl()} (sni=${target.host})")
         ActivityLog.logConnection("Connecting", safeUrl(), "info")
         val request = phonePiWsRequest(target)
