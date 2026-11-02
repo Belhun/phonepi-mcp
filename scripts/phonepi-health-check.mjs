@@ -14,6 +14,7 @@ import { pathToFileURL } from "node:url";
 
 const HEALTH_KEYS = [
   "ok",
+  "wsListening",
   "phoneConnected",
   "wsPort",
   "httpPort",

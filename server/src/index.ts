@@ -118,6 +118,8 @@ class PhonePiMCPServer {
   private requestCounter = 0;
   private _pingIntervalId: NodeJS.Timeout | null = null;
   private httpApi: Promise<LoopbackHttpHandle | null> | null = null;
+  private wsListening = false;
+  private listenExited = false;
   private locationLog = openLocationLog();
   private presenceLog = openPresenceLog();
   private presenceConfig = openPresenceConfig();
@@ -190,6 +192,7 @@ class PhonePiMCPServer {
         healthDetails: () => this.session.healthDetails(),
         noteActivity: (entry) => this.notePhoneActivity(entry),
       },
+      wsListening: () => this.wss != null && this.wsListening,
       locationLog: this.locationLog,
       locationReadLimiter: commandRateLimiter,
       presenceLog: this.presenceLog,
@@ -575,17 +578,11 @@ class PhonePiMCPServer {
       });
 
       this.wss.on("error", (error: any) => {
-        if (error.code === "EADDRINUSE") {
-          console.error(
-            `Port ${this.serverPort} already in use; not starting a phone WebSocket. Refusing tokenless fallback.`
-          );
-          if (this.wss) {
-            this.wss.close();
-            this.wss = null;
-          }
-        } else {
-          console.error("WebSocket Server Error:", error);
+        if (!this.wsListening) {
+          this.failPhoneSocketListen(error);
+          return;
         }
+        console.error("WebSocket Server Error:", error?.code || error);
       });
 
       this.wss.on("connection", (ws, req) => {
@@ -599,6 +596,7 @@ class PhonePiMCPServer {
       });
 
       this.wss.on("listening", () => {
+        this.wsListening = true;
         console.error(
           `WebSocket server is listening on ${this.wsHost}:${this.serverPort}`
         );
@@ -607,13 +605,25 @@ class PhonePiMCPServer {
       });
 
       this.wss.on("close", () => {
+        this.wsListening = false;
         if (DEBUG_WEBSOCKET) {
           console.error("[WebSocket] Server closed");
         }
       });
     } catch (error) {
-      console.error("Failed to start WebSocket server", error);
+      this.failPhoneSocketListen(error);
     }
+  }
+
+  private failPhoneSocketListen(error: unknown): void {
+    if (this.listenExited) return;
+    this.listenExited = true;
+    const err = error as { code?: string; message?: string };
+    const code = err?.code || "error";
+    console.error(
+      `Phone WebSocket failed to listen on ${this.wsHost}:${this.serverPort} (${code}). Exiting.`
+    );
+    process.exit(1);
   }
 
   private setupErrorHandling() {

@@ -32,4 +32,9 @@ if [[ ${#token} -lt $MIN_CHARS ]]; then
   echo "PHONEPI_WS_TOKEN is too short (need ${MIN_CHARS}+ chars); refusing to start" >&2
   exit 1
 fi
+# Placeholder / example tokens. Match on the value, never print it.
+if printf '%s' "$token" | grep -qiE 'placeholder|choose-a-long|changeme|example|secret-at-least'; then
+  echo "PHONEPI_WS_TOKEN looks like a placeholder; refusing to start" >&2
+  exit 1
+fi
 exit 0

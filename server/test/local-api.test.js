@@ -292,8 +292,10 @@ test("GET /api/health reports ports, phone state, and empty history", async () =
         "phoneConnected",
         "phonePermissions",
         "wakeHookEnabled",
+        "wsListening",
         "wsPort",
       ]);
+      assert.equal(res.json.wsListening, true);
       assert.equal(res.json.wakeHookEnabled, false);
       assert.equal(res.json.hookFailed, 0);
       assert.equal(res.json.ok, true);
@@ -309,6 +311,43 @@ test("GET /api/health reports ports, phone state, and empty history", async () =
       assert.deepEqual(res.json.missingPermissions, []);
       assert.doesNotMatch(res.raw, /contact|snippet|token|battery/i);
     }
+  );
+});
+
+test("snippet tools on /api/tool need a read token", async () => {
+  await withHttp(
+    {
+      isPhoneConnected: () => true,
+      callPhoneTool: async () => ({ leaked: true }),
+    },
+    async ({ port }) => {
+      const denied = await postTool(port, { tool: "get_all_snippets" });
+      assert.equal(denied.status, 401);
+      assert.equal(denied.json.isError, true);
+      const ok = await postTool(
+        port,
+        { tool: "get_all_snippets" },
+        readHeaders()
+      );
+      assert.equal(ok.status, 200);
+    },
+    { readAuth: TEST_READ_AUTH }
+  );
+});
+
+test("GET /api/health ok is false when the phone socket is not listening", async () => {
+  await withHttp(
+    {
+      isPhoneConnected: () => false,
+      callPhoneTool: async () => ({}),
+    },
+    async ({ port }) => {
+      const res = await getHealth(port);
+      assert.equal(res.status, 200);
+      assert.equal(res.json.ok, false);
+      assert.equal(res.json.wsListening, false);
+    },
+    { wsListening: () => false }
   );
 });
 

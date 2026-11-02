@@ -21,6 +21,19 @@ test("duration formatting and offline age", () => {
   assert.equal(offlineForMs(null, now), null);
 });
 
+test("evaluateHealth treats ok false as server down", () => {
+  const down = evaluateHealth(
+    {
+      ok: false,
+      wsListening: false,
+      phoneConnected: false,
+    },
+    Date.parse("2026-10-17T06:10:00.000Z")
+  );
+  assert.equal(down.exitCode, 2);
+  assert.match(down.line, /unreachable/);
+});
+
 test("evaluateHealth exit codes do not echo a token", () => {
   const connected = evaluateHealth(
     {

@@ -7,12 +7,15 @@
 import fs from "fs";
 import path from "path";
 import { tokenMatches } from "./ws-token.js";
+import { tokenContainsWeakMarker } from "./weak-token.js";
 import {
   atomicAppendLine,
   phonepiHome,
   resolveBoxDir,
   rotateJsonlIfNeeded,
 } from "./atomic-file.js";
+
+export { WEAK_TOKEN_MARKERS } from "./weak-token.js";
 
 export const READ_TOKEN_ENV = "PHONEPI_READ_TOKEN";
 export const READ_BOTS_ENV = "PHONEPI_READ_BOTS";
@@ -46,6 +49,10 @@ export const STRICT_READ_TOOLS = new Set<string>([
   "search_contacts",
   "get_contact_by_id",
   "get_recent_photos",
+  "get_all_snippets",
+  "get_snippet_by_id",
+  "get_snippets_by_type",
+  "search_snippets",
 ]);
 
 const SCOPED_TOOL_NAMES = new Set<string>([
@@ -55,7 +62,6 @@ const SCOPED_TOOL_NAMES = new Set<string>([
 
 export const DEFAULT_READ_BOT_ID = "default";
 export const MIN_READ_TOKEN_CHARS = 32;
-const WEAK_TOKEN_MARKERS = ["placeholder", "choose-a-long", "changeme"];
 
 export interface ReadBot {
   id: string;
@@ -263,8 +269,7 @@ export function appendReadAudit(entry: {
 export function isWeakReadToken(token: string): boolean {
   const trimmed = token.trim();
   if (trimmed.length < MIN_READ_TOKEN_CHARS) return true;
-  const lower = trimmed.toLowerCase();
-  return WEAK_TOKEN_MARKERS.some((marker) => lower.includes(marker));
+  return tokenContainsWeakMarker(trimmed);
 }
 
 function matchBot(bots: ReadBot[], provided: string): ReadBot | null {

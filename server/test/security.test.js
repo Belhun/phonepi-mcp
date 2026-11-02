@@ -670,6 +670,8 @@ test("read-auth refuses short and placeholder tokens", () => {
   assert.equal(isWeakReadToken("replace-with-a-placeholder-token-xx"), true);
   assert.equal(isWeakReadToken("please-choose-a-long-random-value"), true);
   assert.equal(isWeakReadToken("this-is-changeme-and-long-enough"), true);
+  assert.equal(isWeakReadToken("this-is-an-example-token-32-chars!"), true);
+  assert.equal(isWeakReadToken("my-secret-at-least-32-chars-long!"), true);
   assert.equal(isWeakReadToken("a".repeat(32)), false);
   const skipped = parseBotsJson(
     JSON.stringify([

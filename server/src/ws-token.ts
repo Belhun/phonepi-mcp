@@ -1,5 +1,6 @@
 import { createHash, timingSafeEqual } from "crypto";
 import { isLoopbackHost } from "./bind-host.js";
+import { tokenContainsWeakMarker } from "./weak-token.js";
 
 export const MIN_WS_TOKEN_CHARS = 32;
 export const ALLOW_QUERY_TOKEN_ENV = "PHONEPI_ALLOW_QUERY_TOKEN";
@@ -14,7 +15,7 @@ let lastQueryTokenLogMs = 0;
 
 export type WsTokenParse =
   | { ok: true; token: string }
-  | { ok: false; reason: "missing" | "too_short" };
+  | { ok: false; reason: "missing" | "too_short" | "weak" };
 
 export type ListenAuth =
   | { ok: true; token: string | null }
@@ -33,6 +34,9 @@ export function parseWsToken(
   if (trimmed === "") return { ok: false, reason: "missing" };
   if (trimmed.length < MIN_WS_TOKEN_CHARS) {
     return { ok: false, reason: "too_short" };
+  }
+  if (tokenContainsWeakMarker(trimmed)) {
+    return { ok: false, reason: "weak" };
   }
   return { ok: true, token: trimmed };
 }
@@ -64,6 +68,12 @@ export function requireWsTokenForListen(
     return {
       ok: false,
       message: "PHONEPI_WS_TOKEN must be at least 32 characters",
+    };
+  }
+  if (parsed.reason === "weak") {
+    return {
+      ok: false,
+      message: "PHONEPI_WS_TOKEN looks like a placeholder",
     };
   }
   return { ok: false, message: "PHONEPI_WS_TOKEN required" };

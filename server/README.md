@@ -75,10 +75,16 @@ Stdout stays the MCP channel. HTTP logs go to stderr. If port 11043 is already t
 node dist/index.js --stdio --http-port 11043
 ```
 
+```bash
+export PHONEPI_HTTP_PORT=11043
+export PHONEPI_WS_HOST=127.0.0.1
+export PHONEPI_WS_TOKEN=$(openssl rand -hex 32)
+```
+
 ```powershell
 $env:PHONEPI_HTTP_PORT = "11043"
 $env:PHONEPI_WS_HOST = "127.0.0.1"
-$env:PHONEPI_WS_TOKEN = "choose-a-long-secret-at-least-32-chars"
+$env:PHONEPI_WS_TOKEN = [Convert]::ToHexString([byte[]](1..32|%{Get-Random -Max 256}))
 ```
 
 Do not commit the WS token, the read token, the wake-hook URL, or the wake-hook secret. The server never logs those values. Sensitive reads (`get_presence`, `get_screen_time`, `get_health_summary`, `get_notification_replies`, `get_inbound_prompts`) need `PHONEPI_READ_TOKEN` as `Authorization: Bearer` or `X-PhonePi-Read-Token` on HTTP. MCP may use the process env token. HTTP never treats the env token as implicit. Optional bots in `PHONEPI_READ_BOTS` / `~/.phonepi/read-bots.json` are `{id, token, tools?, coords?}`. Default-deny: no token is HTTP 401. Loopback POST requires `Content-Type: application/json`. `Host` must be on the allowlist with the bound port. Any `Origin` or `Sec-Fetch-Site: cross-site` is 403. Tailscale Serve still fronts WebSocket 11041, not this HTTP port.
@@ -88,6 +94,7 @@ Do not commit the WS token, the read token, the wake-hook URL, or the wake-hook 
 ```json
 {
   "ok": true,
+  "wsListening": true,
   "phoneConnected": false,
   "wsPort": 11041,
   "httpPort": 11043,
@@ -330,7 +337,7 @@ On the phone WebSocket port (the same host Tailscale Serve publishes):
 Directory: `PHONEPI_UPDATE_DIR` (default `~/.phonepi/updates`). Put a release APK named `phonepi-0.2.7-9.apk` (or `phonepi.apk`) and run `scripts/sign-update-manifest.sh` so `manifest.json` is Ed25519-signed. The APK bytes' sha256 must match the signed `sha256`. See [docs/release-signing.md](../docs/release-signing.md).
 
 ```powershell
-$env:PHONEPI_WS_TOKEN = "choose-a-long-secret"
+$env:PHONEPI_WS_TOKEN = [Convert]::ToHexString([byte[]](1..32|%{Get-Random -Max 256}))
 
 Invoke-RestMethod -Method Post -Uri http://127.0.0.1:11043/api/command `
   -Headers @{ "X-PhonePi-Token" = $env:PHONEPI_WS_TOKEN } `
@@ -360,9 +367,9 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:11043/api/command `
 
 ### Phone WebSocket token
 
-`PHONEPI_WS_TOKEN` is required (32+ characters). The server refuses to start if it is missing, empty, or too short. The only escape is `PHONEPI_INSECURE_NO_TOKEN=1`, and that only works with a loopback bind.
+`PHONEPI_WS_TOKEN` is required (32+ characters). The server refuses to start if it is missing, empty, too short, or looks like a placeholder (`placeholder`, `choose-a-long`, `changeme`, `example`, `secret-at-least`). Generate one with `openssl rand -hex 32`. The only escape is `PHONEPI_INSECURE_NO_TOKEN=1`, and that only works with a loopback bind.
 
-The upgrade accepts, in order: `Authorization: Bearer`, `X-PhonePi-Token`, `Sec-WebSocket-Protocol: phonepi.v1, phonepi.token.<t>` (the server echoes only `phonepi.v1`), then `?token=` while `PHONEPI_ALLOW_QUERY_TOKEN` is not `0`. Query-token use is counted and logged as `query token used (deprecated)` with no value. The comparison is constant-time. The Android app (0.3.7+) sends `Authorization: Bearer` and does not put the token in the URL.
+The upgrade accepts, in order: `Authorization: Bearer`, `X-PhonePi-Token`, then `Sec-WebSocket-Protocol`. Subprotocol-only clients must send **both** `phonepi.v1` and `phonepi.token.<t>`. The server authorizes from `phonepi.token.<t>` but `handleProtocols` echoes only `phonepi.v1`; a client that sends only the token protocol is RFC-rejected. Use hex tokens (`openssl rand -hex 32`). Base64 tokens with `/+=` are not valid `Sec-WebSocket-Protocol` tokens. Then `?token=` while `PHONEPI_ALLOW_QUERY_TOKEN` is not `0`. Query-token use is counted and logged as `query token used (deprecated)` with no value. The comparison is constant-time. The Android app (0.3.7+) sends `Authorization: Bearer` and does not put the token in the URL.
 
 Default bind is `127.0.0.1`. Loopback and Tailscale addresses (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`) are allowed. `0.0.0.0` / LAN requires `PHONEPI_ALLOW_WIDE_BIND=1`. On the box, Tailscale userspace-networking still delivers tailnet traffic to a loopback bind, so the phone keeps working through Serve (`wss://<node>.ts.net`).
 

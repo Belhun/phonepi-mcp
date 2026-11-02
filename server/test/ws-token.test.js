@@ -79,6 +79,26 @@ test("startup exits without a token except insecure loopback", () => {
   assert.match(insecureWide.message, /loopback/);
 });
 
+test("placeholder and README example WS tokens are rejected", () => {
+  const example = parseWsToken({
+    PHONEPI_WS_TOKEN: "choose-a-long-secret-at-least-32-chars",
+  });
+  assert.equal(example.ok, false);
+  assert.equal(example.reason, "weak");
+
+  const listen = requireWsTokenForListen("127.0.0.1", {
+    PHONEPI_WS_TOKEN: "choose-a-long-secret-at-least-32-chars",
+  });
+  assert.equal(listen.ok, false);
+  assert.match(listen.message, /placeholder/);
+
+  const exampleWord = parseWsToken({
+    PHONEPI_WS_TOKEN: "this-is-an-example-token-32-chars!",
+  });
+  assert.equal(exampleWord.ok, false);
+  assert.equal(exampleWord.reason, "weak");
+});
+
 test("Bearer, X-PhonePi-Token, and subprotocol are accepted", () => {
   resetQueryTokenUseForTests();
   const env = { PHONEPI_WS_TOKEN: TOKEN };
