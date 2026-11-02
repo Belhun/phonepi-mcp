@@ -84,15 +84,11 @@ fi
 
 # 5) PhonePi server
 http_port=11043
-if [[ -f "$PP/env" ]]; then
-  set -a
-  # shellcheck disable=SC1090
-  source "$PP/env"
-  set +a
-  if [[ "${PHONEPI_HTTP_PORT:-}" =~ ^[0-9]+$ ]]; then
-    http_port="$PHONEPI_HTTP_PORT"
+if [[ -f "$PP/env" && -r "$PP/env" ]]; then
+  extracted=$(sed -n 's/^\(export \)\{0,1\}PHONEPI_HTTP_PORT=\([0-9]\{1,5\}\).*/\2/p' "$PP/env" | tail -1)
+  if [[ "${extracted}" =~ ^[0-9]+$ ]]; then
+    http_port="$extracted"
   fi
-  unset PHONEPI_WS_TOKEN PHONEPI_READ_TOKEN PHONEPI_READ_BOTS || true
 fi
 health_url="http://127.0.0.1:${http_port}/api/health"
 

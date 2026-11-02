@@ -12,10 +12,10 @@ if [[ -z "${PHONEPI_ENV_FILE:-}" ]]; then
   fi
 fi
 ENV_FILE="$PHONEPI_ENV_FILE"
-if [[ -f "$ENV_FILE" ]]; then
-  set -a
-  # shellcheck disable=SC1090
-  source "$ENV_FILE"
-  set +a
+if [[ -f "$ENV_FILE" && -r "$ENV_FILE" ]]; then
+  extracted=$(sed -n 's/^\(export \)\{0,1\}PHONEPI_HTTP_PORT=\([0-9]\{1,5\}\).*/\2/p' "$ENV_FILE" | tail -1)
+  if [[ "${extracted}" =~ ^[0-9]+$ ]]; then
+    export PHONEPI_HTTP_PORT="$extracted"
+  fi
 fi
 exec node "$SCRIPT_DIR/phonepi-health-check.mjs" "$@"

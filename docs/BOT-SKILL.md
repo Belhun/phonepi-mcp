@@ -39,7 +39,7 @@ Responses are always `{"text": "<JSON string>", "isError": bool}`. **HTTP 200 do
 POST bodies must be `Content-Type: application/json`. The loopback listener only accepts `Host` `127.0.0.1:<port>` or `localhost:<port>` (and `[::1]`). Extra names go in `PHONEPI_HTTP_HOSTS` if a Tailscale Serve / failover path needs them. Any `Origin` header or `Sec-Fetch-Site: cross-site` is 403. Tailscale Serve still fronts the **WebSocket** on 11041, not this HTTP port.
 
 ### a) Read tools — `POST /api/tool`
-Reads fail closed. The **sensitive tier is default-deny**: `get_presence`, `get_screen_time`, `get_health_summary`, `get_notification_replies`, `get_inbound_prompts`, `get_location_history`, `search_places`, `get_location`, `phone_list_locations`. The **strict tier is also on by default**: `get_notification_log`, `get_notifications`, `list_notification_apps`, `get_recent_calls`, `get_contacts`, `search_contacts`, `get_contact_by_id`, `get_recent_photos`. Send `PHONEPI_READ_TOKEN` as `Authorization: Bearer` or `X-PhonePi-Read-Token`. MCP tool calls send the same value as a top-level `token` argument declared on those tool schemas (the server strips it before the tool runs, including before `gm_*`). Do not send it as a query string. Do not reuse `PHONEPI_WS_TOKEN`. Optional per-bot tokens live in `PHONEPI_READ_BOTS` (JSON) or `~/.phonepi/read-bots.json` (mode 0600) as `{id, token, tools, coords?}`. A scoped bot with a missing or invalid `tools` list is deny-all. Default bot (`PHONEPI_READ_TOKEN`) is `coords: false`. Raw coordinates and street address only when that bot has `coords: true`. The phone log records caller **id**, never the token. MCP does **not** fall back to the process env token unless `PHONEPI_MCP_USE_ENV_READ_TOKEN=1`. `PHONEPI_REQUIRE_READ_TOKEN_ALL` defaults on; set `=0` to restore the old open strict reads. `PHONEPI_OPEN_READ_TOOLS` is a comma list of strict tools that may stay token-free (default empty). **Give the Home · Notifications poller its scoped read token before this server starts**, or that poller 401s. Notification log text is wrapped as untrusted in both modes. **Known trade-off:** the flag does **not** add `get_photo` or `gm_*`. `get_photo` already needs `PHONEPI_WS_TOKEN` on `/api/command`. Putting `gm_*` on the strict tier would break the Phone & Texts bot, which reads and sends texts without a read token. MCP `gm_*` **reads keep string `text` / `body` / `snippet` fields** and add sibling `untrusted: true` plus `provenance` on the message object. They are not `{untrusted, provenance, text}` wrappers (that shape is live notifications only). HTTP `/api/tool` does not serve `gm_*`. Tokens shorter than 32 characters, or containing `placeholder` / `choose-a-long` / `changeme`, are refused.
+Reads fail closed. The **sensitive tier is default-deny**: `get_presence`, `get_screen_time`, `get_health_summary`, `get_notification_replies`, `get_inbound_prompts`, `get_location_history`, `search_places`, `get_location`, `phone_list_locations`. The **strict tier is also on by default**: `get_notification_log`, `get_notifications`, `list_notification_apps`, `get_recent_calls`, `get_contacts`, `search_contacts`, `get_contact_by_id`, `get_recent_photos`, `get_all_snippets`, `get_snippet_by_id`, `get_snippets_by_type`, `search_snippets`. Send `PHONEPI_READ_TOKEN` as `Authorization: Bearer` or `X-PhonePi-Read-Token`. MCP tool calls send the same value as a top-level `token` argument declared on those tool schemas (the server strips it before the tool runs, including before `gm_*`). Do not send it as a query string. Do not reuse `PHONEPI_WS_TOKEN`. Optional per-bot tokens live in `PHONEPI_READ_BOTS` (JSON) or `~/.phonepi/read-bots.json` (mode 0600) as `{id, token, tools, coords?}`. A scoped bot with a missing or invalid `tools` list is deny-all. Default bot (`PHONEPI_READ_TOKEN`) is `coords: false`. Raw coordinates and street address only when that bot has `coords: true`. The phone log records caller **id**, never the token. MCP does **not** fall back to the process env token unless `PHONEPI_MCP_USE_ENV_READ_TOKEN=1`. `PHONEPI_REQUIRE_READ_TOKEN_ALL` defaults on; set `=0` to restore the old open strict reads. `PHONEPI_OPEN_READ_TOOLS` is a comma list of strict tools that may stay token-free (default empty). **Give the Home · Notifications poller its scoped read token before this server starts**, or that poller 401s. Notification log text is wrapped as untrusted in both modes. **Known trade-off:** the flag does **not** add `get_photo` or `gm_*`. `get_photo` already needs `PHONEPI_WS_TOKEN` on `/api/command`. Putting `gm_*` on the strict tier would break the Phone & Texts bot, which reads and sends texts without a read token. MCP `gm_*` **reads keep string `text` / `body` / `snippet` fields** and add sibling `untrusted: true` plus `provenance` on the message object. They are not `{untrusted, provenance, text}` wrappers (that shape is live notifications only). HTTP `/api/tool` does not serve `gm_*`. Tokens shorter than 32 characters, or containing `placeholder` / `choose-a-long` / `changeme` / `example` / `secret-at-least`, are refused.
 
 Every agent running as the same box user can read `~/.phonepi/env` and `read-bots.json`. Real isolation needs separate OS users or containers. **MCP is the full-trust channel** (it can call the listed phone tools). Per-bot coordinate limits still apply on MCP for `get_location`, `phone_list_locations`, `get_location_history`, and `search_places`; unlisted MCP names are denied. HTTP `/api/tool` is how you give each bot its own token. Merge a 10-minute notification poller bot into the existing `read-bots.json` (do not overwrite other bots), then you can turn the strict flag on at deploy time:
 
@@ -57,13 +57,15 @@ if path.exists() and path.stat().st_size:
         loaded = json.loads(path.read_text())
         if isinstance(loaded, list):
             bots = loaded
-    except json.JSONDecodeError:
-        bots = []
+        else:
+            sys.exit("read-bots.json is not a JSON list; refusing to overwrite")
+    except json.JSONDecodeError as e:
+        sys.exit(f"read-bots.json is corrupt; refusing to overwrite: {e}")
 bots = [b for b in bots if not (isinstance(b, dict) and b.get("id") == "notif-poller")]
 bots.append({
     "id": "notif-poller",
     "token": token,
-    "tools": ["get_notification_log"],
+    "tools": ["get_notification_log", "get_notifications"],
     "coords": False,
 })
 if not path.exists():
@@ -72,7 +74,13 @@ os.chmod(path, 0o600)
 path.write_text(json.dumps(bots, indent=2) + "\n")
 os.chmod(path, 0o600)
 PY
+umask 077
+TOKEN_FILE="${HOME}/.phonepi/notif-poller.token"
+printf '%s\n' "$TOKEN" > "$TOKEN_FILE"
+chmod 600 "$TOKEN_FILE"
 ```
+Do not print `$TOKEN`. Point the poller at that 0600 file or the bot's secret store.
+
 ```bash
 READ=$(sed -n 's/^\(export \)\{0,1\}PHONEPI_READ_TOKEN=//p' /home/box/.phonepi/env)
 curl -s -X POST http://127.0.0.1:11043/api/tool \
@@ -80,12 +88,12 @@ curl -s -X POST http://127.0.0.1:11043/api/tool \
   -H "Authorization: Bearer $READ" \
   -d '{"tool":"get_presence","arguments":{}}'
 ```
-No-token example (battery, volumes, snippets, `list_alarms` stay as they were):
+No-token example (battery, volumes, `list_alarms` stay as they were):
 ```bash
 curl -s -X POST http://127.0.0.1:11043/api/tool -H 'Content-Type: application/json' \
   -d '{"tool":"get_battery_level","arguments":{}}'
 ```
-Allowlist (exact): `get_battery_level`, `get_volumes`, `get_contacts` (**read token**), `search_contacts` {query, limit≤50} (**read token**), `get_contact_by_id` {id} (**read token**), `get_recent_calls` {limit, hours (default 168) | since (epoch ms), type/types, number, includeContactNames} (**read token**), `get_notifications` {package, since (epoch ms), limit default 50 cap 200} (**read token**), `list_notification_apps` (**read token**), `get_recent_photos` {limit default 5, hard cap 20, since (epoch ms)} (**read token**), `list_alarms`, `get_location_history` (**read token**), `search_places` (**read token**), `get_presence` (**read token**), `get_screen_time` {days default 7 cap 90, from/to YYYY-MM-DD local dates, top default 10 cap 25} (**read token**), `get_health_summary` (**read token**), `get_notification_log` {since, until, postedSince, postedUntil, package, query, limit default 100 cap 500} (**read token**), `get_notification_replies` {since, until, messageId, limit default 50 cap 200} (**read token**), `get_inbound_prompts` {since, until, limit default 50 cap 200} (**read token**), `get_all_snippets`, `get_snippet_by_id`, `get_snippets_by_type`, `search_snippets`.
+Allowlist (exact): `get_battery_level`, `get_volumes`, `get_contacts` (**read token**), `search_contacts` {query, limit≤50} (**read token**), `get_contact_by_id` {id} (**read token**), `get_recent_calls` {limit, hours (default 168) | since (epoch ms), type/types, number, includeContactNames} (**read token**), `get_notifications` {package, since (epoch ms), limit default 50 cap 200} (**read token**), `list_notification_apps` (**read token**), `get_recent_photos` {limit default 5, hard cap 20, since (epoch ms)} (**read token**), `list_alarms`, `get_location_history` (**read token**), `search_places` (**read token**), `get_presence` (**read token**), `get_screen_time` {days default 7 cap 90, from/to YYYY-MM-DD local dates, top default 10 cap 25} (**read token**), `get_health_summary` (**read token**), `get_notification_log` {since, until, postedSince, postedUntil, package, query, limit default 100 cap 500} (**read token**), `get_notification_replies` {since, until, messageId, limit default 50 cap 200} (**read token**), `get_inbound_prompts` {since, until, limit default 50 cap 200} (**read token**), `get_all_snippets` (**read token**), `get_snippet_by_id` (**read token**), `get_snippets_by_type` (**read token**), `search_snippets` (**read token**).
 - Battery → `level`, `isCharging`, `chargingStatus`.
 - Volumes → per-stream `current`/`max`, `ringerMode`, `dnd`, `notificationPolicyAccess`, `exactAlarmsAllowed`, `midnightMaxEnabled`.
 - Notifications: only apps Alex allowlisted in the app (default: none). Unshared apps are counted in `omittedUnsharedCount`. Live `get_notifications` `title`, `text`, and `appName` are `{untrusted:true, provenance, text}` objects (same shape as the notification log). This is a breaking shape change for string parsers.

@@ -163,7 +163,7 @@ With the phone linked and Maps installed:
 
 ```powershell
 # PC
-$env:PHONEPI_WS_TOKEN = "choose-a-long-secret"
+$env:PHONEPI_WS_TOKEN = $(openssl rand -hex 32)
 cd server
 npm test
 node dist/index.js --stdio --http-port 11043
