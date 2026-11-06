@@ -9,8 +9,13 @@ import {
   READ_ONLY_TOOL_RATE_LIMITS,
 } from "../dist/read-only-tools.js";
 import {
+  STRICT_READ_TOOLS,
+} from "../dist/read-auth.js";
+import { TEST_READ_AUTH, readHeaders } from "./read-auth-fixture.js";
+import {
   authorizeWsConnection,
   createPhoneVerifyClient,
+  resetQueryTokenUseForTests,
   wsTokenFromEnv,
 } from "../dist/ws-token.js";
 import { requestPhoneTool } from "../dist/phone-request.js";
@@ -105,11 +110,12 @@ function getHealth(port) {
   });
 }
 
-async function withHttp(bridge, fn) {
+async function withHttp(bridge, fn, extra = {}) {
   const started = await startLoopbackHttp({
     port: 0,
     wsPort: 11041,
     bridge,
+    ...extra,
   });
   assert.ok(started, "HTTP API should listen");
   try {
@@ -230,7 +236,8 @@ test("each allowlisted tool can be called when the phone answers", async () => {
           tool === "get_screen_time" ||
           tool === "get_health_summary" ||
           tool === "get_notification_replies" ||
-          tool === "get_inbound_prompts"
+          tool === "get_inbound_prompts" ||
+          STRICT_READ_TOOLS.has(tool)
         ) {
           continue;
         }
@@ -254,7 +261,7 @@ test("phone not connected returns 503 and does not send a phone request", async 
       },
     },
     async ({ port }) => {
-      const res = await postTool(port, { tool: "get_contacts" });
+      const res = await postTool(port, { tool: "get_battery_level" });
       assert.equal(res.status, 503);
       assert.equal(res.json.isError, true);
       assert.match(res.json.text, /not connected/i);
@@ -285,8 +292,10 @@ test("GET /api/health reports ports, phone state, and empty history", async () =
         "phoneConnected",
         "phonePermissions",
         "wakeHookEnabled",
+        "wsListening",
         "wsPort",
       ]);
+      assert.equal(res.json.wsListening, true);
       assert.equal(res.json.wakeHookEnabled, false);
       assert.equal(res.json.hookFailed, 0);
       assert.equal(res.json.ok, true);
@@ -302,6 +311,43 @@ test("GET /api/health reports ports, phone state, and empty history", async () =
       assert.deepEqual(res.json.missingPermissions, []);
       assert.doesNotMatch(res.raw, /contact|snippet|token|battery/i);
     }
+  );
+});
+
+test("snippet tools on /api/tool need a read token", async () => {
+  await withHttp(
+    {
+      isPhoneConnected: () => true,
+      callPhoneTool: async () => ({ leaked: true }),
+    },
+    async ({ port }) => {
+      const denied = await postTool(port, { tool: "get_all_snippets" });
+      assert.equal(denied.status, 401);
+      assert.equal(denied.json.isError, true);
+      const ok = await postTool(
+        port,
+        { tool: "get_all_snippets" },
+        readHeaders()
+      );
+      assert.equal(ok.status, 200);
+    },
+    { readAuth: TEST_READ_AUTH }
+  );
+});
+
+test("GET /api/health ok is false when the phone socket is not listening", async () => {
+  await withHttp(
+    {
+      isPhoneConnected: () => false,
+      callPhoneTool: async () => ({}),
+    },
+    async ({ port }) => {
+      const res = await getHealth(port);
+      assert.equal(res.status, 200);
+      assert.equal(res.json.ok, false);
+      assert.equal(res.json.wsListening, false);
+    },
+    { wsListening: () => false }
   );
 });
 
@@ -434,38 +480,44 @@ test("resolveHttpPort prefers the flag, then PHONEPI_HTTP_PORT, then 11043", () 
 
 test("ws token check is off when unset and constant-time when set", () => {
   const previous = process.env.PHONEPI_WS_TOKEN;
+  const previousInsecure = process.env.PHONEPI_INSECURE_NO_TOKEN;
+  const secret = "s3cret-value-token-32-chars-okay!";
+  resetQueryTokenUseForTests();
   delete process.env.PHONEPI_WS_TOKEN;
+  delete process.env.PHONEPI_INSECURE_NO_TOKEN;
   assert.equal(wsTokenFromEnv(), null);
   process.env.PHONEPI_WS_TOKEN = "";
   assert.equal(wsTokenFromEnv(), null);
-  assert.equal(authorizeWsConnection("/phonepi", null), true);
-  assert.equal(authorizeWsConnection(undefined, null), true);
+  assert.equal(authorizeWsConnection("/phonepi", null), false);
+  assert.equal(authorizeWsConnection(undefined, null), false);
 
-  process.env.PHONEPI_WS_TOKEN = "s3cret-value";
-  assert.equal(wsTokenFromEnv(), "s3cret-value");
-  assert.equal(authorizeWsConnection("/phonepi", "s3cret-value"), false);
+  process.env.PHONEPI_WS_TOKEN = secret;
+  assert.equal(wsTokenFromEnv(), secret);
+  assert.equal(authorizeWsConnection("/phonepi", secret), false);
   assert.equal(
-    authorizeWsConnection("/phonepi?token=nope", "s3cret-value"),
+    authorizeWsConnection("/phonepi?token=nope", secret),
     false
   );
   assert.equal(
-    authorizeWsConnection("/phonepi?token=s3cret-value", "s3cret-value"),
+    authorizeWsConnection(`/phonepi?token=${secret}`, secret),
     true
   );
   assert.equal(
-    authorizeWsConnection("/phonepi?token=s3cret-value&x=1", "s3cret-value"),
+    authorizeWsConnection(`/phonepi?token=${secret}&x=1`, secret),
     true
   );
-  assert.equal(authorizeWsConnection("/?token=s3cret-value", "s3cret-value"), true);
-  assert.equal(authorizeWsConnection("/phonepi?token=", "s3cret-value"), false);
-  assert.equal(authorizeWsConnection(undefined, "s3cret-value"), false);
+  assert.equal(authorizeWsConnection(`/?token=${secret}`, secret), true);
+  assert.equal(authorizeWsConnection("/phonepi?token=", secret), false);
+  assert.equal(authorizeWsConnection(undefined, secret), false);
   assert.equal(
-    authorizeWsConnection("/phonepi?token=short", "much-longer-secret"),
+    authorizeWsConnection("/phonepi?token=short", "much-longer-secret-32-chars-ok!!"),
     false
   );
 
   if (previous === undefined) delete process.env.PHONEPI_WS_TOKEN;
   else process.env.PHONEPI_WS_TOKEN = previous;
+  if (previousInsecure === undefined) delete process.env.PHONEPI_INSECURE_NO_TOKEN;
+  else process.env.PHONEPI_INSECURE_NO_TOKEN = previousInsecure;
 });
 
 function onceMessage(ws) {
@@ -504,7 +556,8 @@ function startUpgradeProxy(targetPort) {
 
 test("phone websocket accepts /phonepi upgrades behind a reverse proxy", async () => {
   const previous = process.env.PHONEPI_WS_TOKEN;
-  process.env.PHONEPI_WS_TOKEN = "proxy-token";
+  const proxyToken = "proxy-token-value-32-chars-okay!!";
+  process.env.PHONEPI_WS_TOKEN = proxyToken;
   const logs = [];
   const wss = createPhoneWebSocketServer({
     port: 0,
@@ -530,14 +583,14 @@ test("phone websocket accepts /phonepi upgrades behind a reverse proxy", async (
   assert.equal(rejectedCode, 401);
 
   const accepted = new WebSocket(
-    `ws://127.0.0.1:${proxyPort}/phonepi?token=proxy-token`
+    `ws://127.0.0.1:${proxyPort}/phonepi?token=${proxyToken}`
   );
   const ping = await onceMessage(accepted);
   assert.match(ping, /ping/);
   accepted.close();
 
   const direct = new WebSocket(
-    `ws://127.0.0.1:${backendPort}/phonepi?token=proxy-token`
+    `ws://127.0.0.1:${backendPort}/phonepi?token=${proxyToken}`
   );
   const directPing = await onceMessage(direct);
   assert.match(directPing, /ping/);
@@ -545,7 +598,8 @@ test("phone websocket accepts /phonepi upgrades behind a reverse proxy", async (
 
   const joined = logs.join("\n");
   assert.match(joined, /rejected/);
-  assert.equal(joined.includes("proxy-token"), false);
+  assert.equal(joined.includes(proxyToken), false);
+  assert.equal(joined.includes("proxy-token-value"), false);
 
   await new Promise((resolve) => proxy.close(resolve));
   await new Promise((resolve) => wss.close(resolve));
@@ -596,15 +650,23 @@ test("notification read tools are on the HTTP allowlist and rate-limited", async
       },
     },
     async ({ port }) => {
-      const listed = await postTool(port, {
-        tool: "list_notification_apps",
-        arguments: {},
-      });
+      const listed = await postTool(
+        port,
+        {
+          tool: "list_notification_apps",
+          arguments: {},
+        },
+        readHeaders()
+      );
       assert.equal(listed.status, 200);
-      const notes = await postTool(port, {
-        tool: "get_notifications",
-        arguments: { package: "com.google.android.gm", limit: 10 },
-      });
+      const notes = await postTool(
+        port,
+        {
+          tool: "get_notifications",
+          arguments: { package: "com.google.android.gm", limit: 10 },
+        },
+        readHeaders()
+      );
       assert.equal(notes.status, 200);
       assert.equal(JSON.parse(notes.json.text).status, "success");
       assert.deepEqual(calls, [
@@ -614,7 +676,8 @@ test("notification read tools are on the HTTP allowlist and rate-limited", async
           args: { package: "com.google.android.gm", limit: 10 },
         },
       ]);
-    }
+    },
+    { readAuth: TEST_READ_AUTH }
   );
 
   await withHttp(
@@ -625,13 +688,18 @@ test("notification read tools are on the HTTP allowlist and rate-limited", async
       },
     },
     async ({ port }) => {
-      const res = await postTool(port, {
-        tool: "get_notifications",
-        arguments: {},
-      });
+      const res = await postTool(
+        port,
+        {
+          tool: "get_notifications",
+          arguments: {},
+        },
+        readHeaders()
+      );
       assert.equal(res.status, 429);
       assert.match(res.json.text, /Rate limited/);
-    }
+    },
+    { readAuth: TEST_READ_AUTH }
   );
 });
 
@@ -652,10 +720,14 @@ test("live get_notifications wraps title and text as untrusted objects", async (
       }),
     },
     async ({ port }) => {
-      const res = await postTool(port, {
-        tool: "get_notifications",
-        arguments: {},
-      });
+      const res = await postTool(
+        port,
+        {
+          tool: "get_notifications",
+          arguments: {},
+        },
+        readHeaders()
+      );
       assert.equal(res.status, 200);
       const body = JSON.parse(res.json.text);
       assert.equal(body.notifications[0].text.untrusted, true);
@@ -665,6 +737,7 @@ test("live get_notifications wraps title and text as untrusted objects", async (
       );
       assert.match(body.notifications[0].text.text, /Ignore previous instructions/);
       assert.equal(typeof body.notifications[0].title, "object");
-    }
+    },
+    { readAuth: TEST_READ_AUTH }
   );
 });

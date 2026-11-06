@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 /**
  * Read-only PhonePi health check.
- * Talks only to http://127.0.0.1:11043/api/health (loopback, that path).
- * Does not read the token, call /api/command, or open the phone WebSocket.
+ * Talks only to http://127.0.0.1:<PHONEPI_HTTP_PORT>/api/health (loopback).
+ * Default port is 11043. Does not read the token, call /api/command, or
+ * open the phone WebSocket.
  *
  * Exit 0: phone connected
  * Exit 1: server up, phone offline
@@ -13,6 +14,7 @@ import { pathToFileURL } from "node:url";
 
 const HEALTH_KEYS = [
   "ok",
+  "wsListening",
   "phoneConnected",
   "wsPort",
   "httpPort",
@@ -25,11 +27,17 @@ const HEALTH_KEYS = [
   "missingPermissions",
 ];
 
-export function resolveHealthUrl(raw) {
+function defaultHealthUrl(env = process.env) {
+  const rawPort = env.PHONEPI_HTTP_PORT && String(env.PHONEPI_HTTP_PORT).trim();
+  const parsed = rawPort ? Number(rawPort) : 11043;
+  const port =
+    Number.isInteger(parsed) && parsed > 0 && parsed <= 65535 ? parsed : 11043;
+  return `http://127.0.0.1:${port}/api/health`;
+}
+
+export function resolveHealthUrl(raw, env = process.env) {
   const value =
-    raw && String(raw).trim()
-      ? String(raw).trim()
-      : "http://127.0.0.1:11043/api/health";
+    raw && String(raw).trim() ? String(raw).trim() : defaultHealthUrl(env);
   let url;
   try {
     url = new URL(value);
@@ -156,7 +164,7 @@ async function main() {
   const jsonFlag = process.argv.includes("--json");
   let url;
   try {
-    url = resolveHealthUrl(process.env.PHONEPI_HEALTH_URL);
+    url = resolveHealthUrl(process.env.PHONEPI_HEALTH_URL, process.env);
   } catch {
     console.log("phonepi server unreachable");
     if (jsonFlag) console.log(JSON.stringify({ status: "server_down" }));

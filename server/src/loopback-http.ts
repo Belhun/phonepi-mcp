@@ -108,6 +108,8 @@ export interface StartLoopbackHttpOptions {
   httpHosts?: string[];
   /** Env for PHONEPI_REQUIRE_READ_TOKEN_ALL and related flags. Defaults to process.env. */
   env?: NodeJS.ProcessEnv;
+  /** Phone WebSocket listen state. Health `ok` is false when this returns false. */
+  wsListening?: () => boolean;
 }
 
 type ToolBody = {
@@ -233,8 +235,10 @@ async function handleRequest(
       wakeHookEnabled: false,
       hookFailed: 0,
     };
+    const wsListening = options.wsListening?.() ?? true;
     sendJson(res, 200, {
-      ok: true,
+      ok: wsListening,
+      wsListening,
       phoneConnected: options.bridge.isPhoneConnected(),
       wsPort: options.wsPort,
       httpPort: boundPort(server, options.port),
@@ -527,11 +531,12 @@ async function handleCommand(
   res: ServerResponse,
   options: StartLoopbackHttpOptions
 ): Promise<void> {
+  const env = options.env ?? process.env;
   const expected =
     options.commandToken !== undefined
       ? options.commandToken
-      : wsTokenFromEnv();
-  const auth = authorizeCommandToken(tokenFromHttpRequest(req), expected);
+      : wsTokenFromEnv(env);
+  const auth = authorizeCommandToken(tokenFromHttpRequest(req, env), expected);
   if (!auth.ok) {
     sendJson(res, auth.status, { text: auth.text, isError: true });
     return;

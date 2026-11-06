@@ -1,6 +1,7 @@
 import { IncomingMessage, ServerResponse, createServer } from "http";
 import { WebSocketServer } from "ws";
 import { handleUpdateRequest } from "./update-http.js";
+import { selectWsProtocol } from "./ws-token.js";
 
 export function createPhoneWebSocketServer(options: {
   port: number;
@@ -28,12 +29,12 @@ export function createPhoneWebSocketServer(options: {
 
   const wss = new WebSocketServer({
     server: httpServer,
-    // Leave the path unrestricted. The Android app upgrades `/phonepi`
-    // (with an optional `?token=`). `tailscale serve` to
-    // http://127.0.0.1:<wsPort> forwards that path and the WebSocket
-    // upgrade through unchanged. Filtering on `/phonepi` would also reject
-    // older clients that connect at `/`.
+    // Leave the path unrestricted. The Android app upgrades `/phonepi`.
+    // `tailscale serve` to http://127.0.0.1:<wsPort> forwards that path,
+    // headers, and the WebSocket upgrade through unchanged. Filtering on
+    // `/phonepi` would also reject older clients that connect at `/`.
     verifyClient: options.verifyClient,
+    handleProtocols: (protocols) => selectWsProtocol(protocols),
     clientTracking: true,
     perMessageDeflate: {
       zlibDeflateOptions: {

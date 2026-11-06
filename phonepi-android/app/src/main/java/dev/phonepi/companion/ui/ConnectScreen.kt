@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -21,6 +22,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -35,12 +37,16 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import dev.phonepi.companion.connection.ActiveServer
+import dev.phonepi.companion.connection.AllowedHost
 import dev.phonepi.companion.connection.ConnectionController
 import dev.phonepi.companion.connection.ConnectionPrefs
 import dev.phonepi.companion.connection.ConnectionService
+import dev.phonepi.companion.connection.DisallowedPhonePiHostException
+import dev.phonepi.companion.connection.LinkTokenNotOnTailnetException
 import dev.phonepi.companion.connection.ServerList
 import dev.phonepi.companion.connection.ServerPrefs
 import dev.phonepi.companion.connection.SetupBus
+import dev.phonepi.companion.connection.SetupRequest
 import dev.phonepi.companion.connection.statusLabel
 import dev.phonepi.companion.log.ActivityLog
 import dev.phonepi.companion.privacy.PhonePiQuiet
@@ -67,6 +73,8 @@ fun ConnectScreen(modifier: Modifier = Modifier) {
     var serverSnap by remember { mutableStateOf(ServerPrefs.load(context.applicationContext)) }
     var sharingStopped by remember { mutableStateOf(SharingMaster.allPaused(context.applicationContext)) }
     var quietOn by remember { mutableStateOf(PhonePiQuiet.isActive(context.applicationContext)) }
+    var pendingSetup by remember { mutableStateOf<SetupRequest?>(null) }
+    var hostError by remember { mutableStateOf<String?>(null) }
     fun reloadServers() {
         serverSnap = ServerPrefs.load(context.applicationContext)
     }
@@ -102,18 +110,34 @@ fun ConnectScreen(modifier: Modifier = Modifier) {
         nextToken: String,
         name: String? = null,
         makePrimary: Boolean = false,
+        borrowSharedToken: Boolean = false,
     ) {
         val app = context.applicationContext
         val trimmed = nextHost.trim()
         if (trimmed.isEmpty()) return
-        val (list, entry) = ServerList.upsert(
-            ServerPrefs.load(app).servers,
-            name,
-            trimmed,
-            nextPort.toIntOrNull() ?: ConnectionPrefs.DEFAULT_PORT,
-            nextToken,
-            makePrimary,
-        )
+        val saved = ServerPrefs.load(app).servers
+        if (!AllowedHost.isAllowed(trimmed, savedHosts = saved.map { it.host })) {
+            hostError = "PhonePi only connects to this tailnet, Tailscale IPs, or loopback, not $trimmed"
+            return
+        }
+        hostError = null
+        val (list, entry) = try {
+            ServerList.upsert(
+                saved,
+                name,
+                trimmed,
+                nextPort.toIntOrNull() ?: ConnectionPrefs.DEFAULT_PORT,
+                nextToken,
+                makePrimary,
+                borrowSharedToken = borrowSharedToken,
+            )
+        } catch (e: DisallowedPhonePiHostException) {
+            hostError = e.message
+            return
+        } catch (e: LinkTokenNotOnTailnetException) {
+            hostError = e.message
+            return
+        }
         ServerPrefs.saveServers(app, list)
         ServerPrefs.setPinned(app, if (makePrimary) null else entry.id)
         ActivityLog.logConnection(
@@ -144,14 +168,15 @@ fun ConnectScreen(modifier: Modifier = Modifier) {
         val target = request.target
         host = target.host
         port = target.port.toString()
-        saveAndConnect(
-            target.host,
-            target.port.toString(),
-            target.wsToken,
-            name = request.name,
-            makePrimary = request.primary,
-        )
+        if (target.wsToken.isNotEmpty()) wsToken = target.wsToken
         SetupBus.consume()
+        if (!AllowedHost.isAllowed(target.host, savedHosts = serverSnap.servers.map { it.host })) {
+            hostError = "Refusing ${target.host}: not on this tailnet."
+            pendingSetup = null
+            return@LaunchedEffect
+        }
+        hostError = null
+        pendingSetup = request
     }
 
     Box(modifier = modifier.fillMaxSize()) {
@@ -170,6 +195,13 @@ fun ConnectScreen(modifier: Modifier = Modifier) {
             ) {
             Text("PhonePi companion", style = MaterialTheme.typography.headlineSmall)
             Text("Status: ${state.statusLabel()}", style = MaterialTheme.typography.bodyLarge)
+            if (hostError != null) {
+                Text(
+                    hostError!!,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
             val activeLine = active?.let { a ->
                 val role = if (a.isPrimary) "primary" else "fallback"
                 val mode = when {
@@ -272,7 +304,7 @@ fun ConnectScreen(modifier: Modifier = Modifier) {
             )
 
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button(onClick = { saveAndConnect(host, port, wsToken) }) {
+                Button(onClick = { saveAndConnect(host, port, wsToken, borrowSharedToken = true) }) {
                     Text("Connect")
                 }
 
@@ -383,6 +415,35 @@ fun ConnectScreen(modifier: Modifier = Modifier) {
             NotificationSharePanel()
             HorizontalDivider()
             ActivityLogPanel()
+        }
+        val confirm = pendingSetup
+        if (confirm != null) {
+            AlertDialog(
+                onDismissRequest = { pendingSetup = null },
+                title = { Text("Add this server?") },
+                text = {
+                    val primaryNote =
+                        if (confirm.primary) " and make it the primary" else ""
+                    Text("Connect to ${confirm.target.host}:${confirm.target.port}$primaryNote?")
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        val request = pendingSetup ?: return@TextButton
+                        pendingSetup = null
+                        saveAndConnect(
+                            request.target.host,
+                            request.target.port.toString(),
+                            request.target.wsToken,
+                            name = request.name,
+                            makePrimary = request.primary,
+                            borrowSharedToken = false,
+                        )
+                    }) { Text("Connect") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { pendingSetup = null }) { Text("Cancel") }
+                },
+            )
         }
     }
 }

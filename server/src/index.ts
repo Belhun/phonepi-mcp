@@ -62,8 +62,9 @@ import { installTimestampedConsole } from "./log.js";
 import { requestPhoneTool } from "./phone-request.js";
 import { PhoneSession, bindPhoneConnection } from "./phone-session.js";
 import { createPhoneWebSocketServer } from "./phone-ws.js";
-import { createPhoneVerifyClient } from "./ws-token.js";
+import { createPhoneVerifyClient, requireWsTokenForListen } from "./ws-token.js";
 import { loadReadAuth } from "./read-auth.js";
+import { BindHostError, resolveWsHost } from "./bind-host.js";
 import {
   GET_LOCATION_SCHEMA,
   handleMcpToolCall,
@@ -117,6 +118,8 @@ class PhonePiMCPServer {
   private requestCounter = 0;
   private _pingIntervalId: NodeJS.Timeout | null = null;
   private httpApi: Promise<LoopbackHttpHandle | null> | null = null;
+  private wsListening = false;
+  private listenExited = false;
   private locationLog = openLocationLog();
   private presenceLog = openPresenceLog();
   private presenceConfig = openPresenceConfig();
@@ -130,7 +133,8 @@ class PhonePiMCPServer {
 
   constructor(
     private serverPort: number = 11041,
-    private httpApiPort: number = 11043
+    private httpApiPort: number = 11043,
+    private wsHost: string = "127.0.0.1"
   ) {
     // Initialize MCP Server
     this.server = new Server(
@@ -145,7 +149,6 @@ class PhonePiMCPServer {
       }
     );
 
-    // Try to initialize WebSocket Server, or connect to existing one
     this.initializeWebSocketServer();
     this.startLocalHttpApi();
     this.setupMcpHandlers();
@@ -189,6 +192,7 @@ class PhonePiMCPServer {
         healthDetails: () => this.session.healthDetails(),
         noteActivity: (entry) => this.notePhoneActivity(entry),
       },
+      wsListening: () => this.wss != null && this.wsListening,
       locationLog: this.locationLog,
       locationReadLimiter: commandRateLimiter,
       presenceLog: this.presenceLog,
@@ -561,32 +565,24 @@ class PhonePiMCPServer {
   }
 
   private initializeWebSocketServer() {
-    // Set up error handling
     this.setupErrorHandling();
 
     try {
-      // Initialize WebSocket Server with debug logging
-      console.error(`Starting WebSocket server on port ${this.serverPort}...`);
+      console.error(
+        `Starting WebSocket server on ${this.wsHost}:${this.serverPort}...`
+      );
       this.wss = createPhoneWebSocketServer({
         port: this.serverPort,
-        host: "0.0.0.0", // Explicitly listen on all interfaces
+        host: this.wsHost,
         verifyClient: createPhoneVerifyClient(),
       });
 
       this.wss.on("error", (error: any) => {
-        if (error.code === "EADDRINUSE") {
-          console.error(
-            `Port ${this.serverPort} already in use, connecting to existing server...`
-          );
-          // Close our server instance that failed
-          if (this.wss) {
-            this.wss.close();
-            this.wss = null;
-          }
-          this.connectToExistingServer();
-        } else {
-          console.error("WebSocket Server Error:", error);
+        if (!this.wsListening) {
+          this.failPhoneSocketListen(error);
+          return;
         }
+        console.error("WebSocket Server Error:", error?.code || error);
       });
 
       this.wss.on("connection", (ws, req) => {
@@ -600,78 +596,34 @@ class PhonePiMCPServer {
       });
 
       this.wss.on("listening", () => {
+        this.wsListening = true;
         console.error(
-          `WebSocket server is listening on port ${this.serverPort}`
+          `WebSocket server is listening on ${this.wsHost}:${this.serverPort}`
         );
         this.setupWebSocket();
         this.startNotificationCapture();
       });
 
-      // Additional error handling for the server
       this.wss.on("close", () => {
+        this.wsListening = false;
         if (DEBUG_WEBSOCKET) {
           console.error("[WebSocket] Server closed");
         }
       });
     } catch (error) {
-      console.error(
-        "Failed to start WebSocket server, connecting to existing one...",
-        error
-      );
-      this.connectToExistingServer();
+      this.failPhoneSocketListen(error);
     }
   }
 
-  private connectToExistingServer() {
+  private failPhoneSocketListen(error: unknown): void {
+    if (this.listenExited) return;
+    this.listenExited = true;
+    const err = error as { code?: string; message?: string };
+    const code = err?.code || "error";
     console.error(
-      `Attempting to connect to existing WebSocket server on port ${this.serverPort}...`
+      `Phone WebSocket failed to listen on ${this.wsHost}:${this.serverPort} (${code}). Exiting.`
     );
-
-    // Create a WebSocket client to connect to the existing server
-    const ws = new WebSocket(`ws://localhost:${this.serverPort}`, {
-      handshakeTimeout: 10000, // 10 seconds timeout for initial handshake
-    });
-
-    // Set a connection timeout
-    const connectionTimeout = setTimeout(() => {
-      if (ws.readyState !== WebSocket.OPEN) {
-        if (DEBUG_WEBSOCKET) {
-          console.error("[WebSocket] Connection attempt timed out");
-        }
-        ws.terminate();
-
-        // After timeout, wait a bit and try to start our own server
-        setTimeout(() => {
-          if (DEBUG_WEBSOCKET) {
-            console.error(
-              "[WebSocket] Attempting to start our own server after connection timeout"
-            );
-          }
-          this.initializeWebSocketServer();
-        }, 5000);
-      }
-    }, 15000);
-
-    ws.on("open", () => {
-      clearTimeout(connectionTimeout);
-      console.error("Connected to existing WebSocket server");
-      bindPhoneConnection(this.session, ws, (line) => console.error(line), {
-        onMessage: (socket, data) => {
-          void this.processIncomingMessage(socket, data);
-        },
-        onCleared: () => {
-          setTimeout(() => this.connectToExistingServer(), 5000);
-        },
-      });
-      this.startPingInterval();
-    });
-
-    ws.on("error", (error) => {
-      console.error("Error connecting to existing WebSocket server:", error);
-    });
-
-    // Set up error handling
-    this.setupErrorHandling();
+    process.exit(1);
   }
 
   private setupErrorHandling() {
@@ -1916,8 +1868,30 @@ class PhonePiMCPServer {
   }
 }
 
-// Create server instance with the specified port
-const server = new PhonePiMCPServer(port, httpPort);
+let wsHost: string;
+try {
+  wsHost = resolveWsHost(args, process.env);
+} catch (error) {
+  const message =
+    error instanceof BindHostError || error instanceof Error
+      ? error.message
+      : String(error);
+  console.error(message);
+  process.exit(1);
+}
+
+const listenAuth = requireWsTokenForListen(wsHost, process.env);
+if (!listenAuth.ok) {
+  console.error(listenAuth.message);
+  process.exit(1);
+}
+if (listenAuth.token == null) {
+  console.error(
+    "WARNING: PHONEPI_INSECURE_NO_TOKEN=1; WebSocket connections are accepted without a token (loopback only)"
+  );
+}
+
+const server = new PhonePiMCPServer(port, httpPort, wsHost);
 
 // Run the server
 async function main() {

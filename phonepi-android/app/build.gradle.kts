@@ -24,6 +24,14 @@ fun phonepiProp(name: String): String? {
     return prop.takeIf { it.isNotEmpty() }
 }
 
+/** MagicDNS suffix the companion will connect to. Override with PHONEPI_TAILNET_SUFFIX. */
+fun phonepiTailnetSuffix(): String {
+    val raw = (phonepiProp("PHONEPI_TAILNET_SUFFIX") ?: "tailcbcc46.ts.net")
+        .trim()
+        .trimStart('.')
+    return raw.filter { it.isLetterOrDigit() || it == '.' || it == '-' }
+}
+
 fun phonepiUpdatePubKey(): String {
     phonepiProp("PHONEPI_UPDATE_PUBKEY")?.lowercase()?.removePrefix("0x")?.let { return it }
     val fromFile = phonepiProp("PHONEPI_UPDATE_PUBKEY_FILE")
@@ -65,12 +73,14 @@ android {
         applicationId = "dev.phonepi.companion"
         minSdk = 26
         targetSdk = 36
-        versionCode = 18
-        versionName = "0.3.6"
+        versionCode = 19
+        versionName = "0.3.7"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "PINNED_RELEASE_CERT_SHA256", "\"$pinnedReleaseCert\"")
         buildConfigField("boolean", "REQUIRE_RELEASE_CERT_PIN", "false")
         buildConfigField("String", "UPDATE_MANIFEST_PUBLIC_KEY", "\"$updateManifestPublicKey\"")
+        val tailnetSuffix = phonepiTailnetSuffix().replace("\\", "\\\\").replace("\"", "\\\"")
+        buildConfigField("String", "PHONEPI_TAILNET_SUFFIX", "\"$tailnetSuffix\"")
     }
 
     signingConfigs {
@@ -154,6 +164,7 @@ dependencies {
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.play.services.wearable)
     implementation(libs.kotlinx.coroutines.play.services)
+    implementation(libs.androidx.fragment.ktx)
 
     testImplementation("junit:junit:4.13.2")
 }

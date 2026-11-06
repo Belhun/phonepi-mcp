@@ -7,6 +7,7 @@
 import fs from "fs";
 import path from "path";
 import { tokenMatches } from "./ws-token.js";
+import { tokenContainsWeakMarker } from "./weak-token.js";
 import {
   atomicAppendLine,
   phonepiHome,
@@ -14,10 +15,13 @@ import {
   rotateJsonlIfNeeded,
 } from "./atomic-file.js";
 
+export { WEAK_TOKEN_MARKERS } from "./weak-token.js";
+
 export const READ_TOKEN_ENV = "PHONEPI_READ_TOKEN";
 export const READ_BOTS_ENV = "PHONEPI_READ_BOTS";
 export const READ_TOKEN_HEADER = "x-phonepi-read-token";
 export const REQUIRE_READ_TOKEN_ALL_ENV = "PHONEPI_REQUIRE_READ_TOKEN_ALL";
+export const OPEN_READ_TOOLS_ENV = "PHONEPI_OPEN_READ_TOOLS";
 export const MCP_ENV_READ_TOKEN_FALLBACK_ENV = "PHONEPI_MCP_USE_ENV_READ_TOKEN";
 
 export const SENSITIVE_READ_TOOLS = new Set<string>([
@@ -32,7 +36,10 @@ export const SENSITIVE_READ_TOOLS = new Set<string>([
   "phone_list_locations",
 ]);
 
-/** Extra reads that stay token-free unless PHONEPI_REQUIRE_READ_TOKEN_ALL=1. */
+/**
+ * Extra reads that require the read token unless PHONEPI_REQUIRE_READ_TOKEN_ALL=0
+ * or the tool is listed in PHONEPI_OPEN_READ_TOOLS.
+ */
 export const STRICT_READ_TOOLS = new Set<string>([
   "get_notification_log",
   "get_notifications",
@@ -42,6 +49,10 @@ export const STRICT_READ_TOOLS = new Set<string>([
   "search_contacts",
   "get_contact_by_id",
   "get_recent_photos",
+  "get_all_snippets",
+  "get_snippet_by_id",
+  "get_snippets_by_type",
+  "search_snippets",
 ]);
 
 const SCOPED_TOOL_NAMES = new Set<string>([
@@ -51,7 +62,6 @@ const SCOPED_TOOL_NAMES = new Set<string>([
 
 export const DEFAULT_READ_BOT_ID = "default";
 export const MIN_READ_TOKEN_CHARS = 32;
-const WEAK_TOKEN_MARKERS = ["placeholder", "choose-a-long", "changeme"];
 
 export interface ReadBot {
   id: string;
@@ -71,7 +81,20 @@ export type ReadAuthResult =
 export function requireReadTokenAll(
   env: NodeJS.ProcessEnv = process.env
 ): boolean {
-  return env[REQUIRE_READ_TOKEN_ALL_ENV] === "1";
+  return env[REQUIRE_READ_TOKEN_ALL_ENV] !== "0";
+}
+
+export function openReadTools(
+  env: NodeJS.ProcessEnv = process.env
+): Set<string> {
+  const raw = env[OPEN_READ_TOOLS_ENV]?.trim();
+  if (!raw) return new Set();
+  return new Set(
+    raw
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean)
+  );
 }
 
 export function mcpEnvReadTokenFallback(
@@ -85,7 +108,9 @@ export function isSensitiveReadTool(
   env: NodeJS.ProcessEnv = process.env
 ): boolean {
   if (SENSITIVE_READ_TOOLS.has(name)) return true;
-  return requireReadTokenAll(env) && STRICT_READ_TOOLS.has(name);
+  if (!STRICT_READ_TOOLS.has(name)) return false;
+  if (openReadTools(env).has(name)) return false;
+  return requireReadTokenAll(env);
 }
 
 export function loadReadAuth(
@@ -244,8 +269,7 @@ export function appendReadAudit(entry: {
 export function isWeakReadToken(token: string): boolean {
   const trimmed = token.trim();
   if (trimmed.length < MIN_READ_TOKEN_CHARS) return true;
-  const lower = trimmed.toLowerCase();
-  return WEAK_TOKEN_MARKERS.some((marker) => lower.includes(marker));
+  return tokenContainsWeakMarker(trimmed);
 }
 
 function matchBot(bots: ReadBot[], provided: string): ReadBot | null {

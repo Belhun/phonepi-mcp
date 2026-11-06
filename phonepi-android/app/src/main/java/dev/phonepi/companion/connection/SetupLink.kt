@@ -9,7 +9,8 @@ import java.nio.charset.StandardCharsets
 
 /**
  * A parsed setup link. [name] and [primary] come from the 0.3.3 `name=` / `primary=true`
- * params. A blank target token means "keep the token already saved".
+ * params. A blank target token keeps the token already saved for that same host.
+ * It does not borrow a token from another saved server.
  */
 data class SetupRequest(
     val target: ConnectEndpoint.Target,
@@ -19,7 +20,9 @@ data class SetupRequest(
 
 /**
  * phonepi://setup?host=&port=&token=&name=&primary=true (Odysseus Settings QR).
- * Also accepts wss/ws/https paste. `token` is optional: when missing, the saved token is kept.
+ * Also accepts wss/ws/https paste. `token` is optional: when missing, the token
+ * already saved for that host is kept. A new host from a deep link does not
+ * inherit another server's token.
  */
 object SetupLink {
     const val SCHEME = "phonepi"

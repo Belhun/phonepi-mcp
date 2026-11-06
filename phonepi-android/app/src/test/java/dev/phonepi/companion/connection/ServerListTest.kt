@@ -77,13 +77,102 @@ class ServerListTest {
     }
 
     @Test
-    fun upsertNewServerBorrowsSharedToken() {
+    fun upsertNewServerBorrowsSharedTokenFromConnectForm() {
         val list = ServerList.seed(ConnectionPrefs.Endpoint("grokbot-box.tailcbcc46.ts.net", 443, "k"))
-        val (out, entry) = ServerList.upsert(list, null, "dell-mini-pc.tailcbcc46.ts.net", 443, "", false)
+        val (out, entry) = ServerList.upsert(
+            list,
+            null,
+            "dell-mini-pc.tailcbcc46.ts.net",
+            443,
+            "",
+            false,
+            borrowSharedToken = true,
+        )
         assertEquals(3, out.size)
         assertEquals("dell-mini-pc", entry.name)
         assertEquals("k", entry.token)
         assertFalse(entry.primary)
+    }
+
+    @Test
+    fun deepLinkWithoutTokenDoesNotInheritSavedToken() {
+        val list = ServerList.seed(ConnectionPrefs.Endpoint("grokbot-box.tailcbcc46.ts.net", 443, "keep-secret"))
+        val (out, entry) = ServerList.upsert(
+            list,
+            null,
+            "dell-mini-pc.tailcbcc46.ts.net",
+            443,
+            "",
+            makePrimary = true,
+            borrowSharedToken = false,
+        )
+        assertEquals("", entry.token)
+        assertTrue(entry.primary)
+        assertEquals("keep-secret", out.first { it.id == "hp" }.token)
+        assertEquals("keep-secret", out.first { it.id == "box" }.token)
+    }
+
+    @Test
+    fun deepLinkNonAllowlistedHostIsRejected() {
+        val list = ServerList.seed(ConnectionPrefs.Endpoint("grokbot-box.tailcbcc46.ts.net", 443, "keep-secret"))
+        try {
+            ServerList.upsert(list, null, "evil.example", 443, "", makePrimary = true)
+            throw AssertionError("expected DisallowedPhonePiHostException")
+        } catch (e: DisallowedPhonePiHostException) {
+            assertEquals("evil.example", e.host)
+        }
+    }
+
+    @Test
+    fun deepLinkOtherTailnetIsRejected() {
+        val list = ServerList.seed(ConnectionPrefs.Endpoint("grokbot-box.tailcbcc46.ts.net", 443, "keep-secret"))
+        try {
+            ServerList.upsert(
+                list,
+                null,
+                "x.attacker.ts.net",
+                443,
+                "attacker-token",
+                makePrimary = true,
+            )
+            throw AssertionError("expected DisallowedPhonePiHostException")
+        } catch (e: DisallowedPhonePiHostException) {
+            assertEquals("x.attacker.ts.net", e.host)
+        }
+    }
+
+    @Test
+    fun deepLinkTokenOnNewLoopbackHostIsRefused() {
+        val list = ServerList.seed(ConnectionPrefs.Endpoint("grokbot-box.tailcbcc46.ts.net", 443, "keep-secret"))
+        try {
+            ServerList.upsert(
+                list,
+                null,
+                "127.0.0.1",
+                7000,
+                "attacker-token",
+                makePrimary = false,
+                borrowSharedToken = false,
+            )
+            throw AssertionError("expected LinkTokenNotOnTailnetException")
+        } catch (e: LinkTokenNotOnTailnetException) {
+            assertEquals("127.0.0.1", e.host)
+        }
+    }
+
+    @Test
+    fun deepLinkTokenOnThisTailnetIsKept() {
+        val (_, entry) = ServerList.upsert(
+            emptyList(),
+            "HP",
+            "hp1.tailcbcc46.ts.net",
+            443,
+            "from-qr",
+            makePrimary = true,
+            borrowSharedToken = false,
+        )
+        assertEquals("from-qr", entry.token)
+        assertEquals("hp1.tailcbcc46.ts.net", entry.host)
     }
 
     @Test
@@ -113,5 +202,57 @@ class ServerListTest {
         assertTrue(ServerProbe.isHealthyStatus(404))
         assertFalse(ServerProbe.isHealthyStatus(401))
         assertFalse(ServerProbe.isHealthyStatus(502))
+    }
+
+    @Test
+    fun probeRejectsNonAllowlistedHostWithoutConnecting() {
+        val server = ServerEntry("evil", "Evil", "evil.example", 443, "secret-token", primary = true)
+        assertFalse(ServerProbe.probe(server))
+    }
+
+    @Test
+    fun percentEncodedHashHostSetupLinkIsRejected() {
+        val req = SetupLink.parseRequest(
+            "phonepi://setup?host=evil.com%23.tailcbcc46.ts.net&token=x",
+        )
+        assertNotNull(req)
+        assertEquals("evil.com#.tailcbcc46.ts.net", req!!.target.host)
+        val list = ServerList.seed(ConnectionPrefs.Endpoint("grokbot-box.tailcbcc46.ts.net", 443, "keep-secret"))
+        try {
+            ServerList.upsert(
+                list,
+                req.name,
+                req.target.host,
+                req.target.port,
+                req.target.wsToken,
+                req.primary,
+            )
+            throw AssertionError("expected DisallowedPhonePiHostException")
+        } catch (e: DisallowedPhonePiHostException) {
+            assertEquals("evil.com#.tailcbcc46.ts.net", e.host)
+        }
+    }
+
+    @Test
+    fun percentEncodedQuestionUrlSetupLinkIsRejected() {
+        val req = SetupLink.parseRequest(
+            "phonepi://setup?url=https%3A%2F%2Fevil.com%3F.tailcbcc46.ts.net",
+        )
+        assertNotNull(req)
+        assertEquals("evil.com?.tailcbcc46.ts.net", req!!.target.host)
+        val list = ServerList.seed(ConnectionPrefs.Endpoint("hp1.tailcbcc46.ts.net", 443, "keep-secret"))
+        try {
+            ServerList.upsert(
+                list,
+                req.name,
+                req.target.host,
+                req.target.port,
+                req.target.wsToken,
+                req.primary,
+            )
+            throw AssertionError("expected DisallowedPhonePiHostException")
+        } catch (e: DisallowedPhonePiHostException) {
+            assertTrue(e.host.contains("evil.com"))
+        }
     }
 }

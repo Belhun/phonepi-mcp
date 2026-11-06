@@ -8,10 +8,12 @@ import android.net.Uri
 import android.os.Build
 import androidx.core.content.FileProvider
 import dev.phonepi.companion.BuildConfig
+import dev.phonepi.companion.connection.AllowedHost
 import dev.phonepi.companion.connection.ConnectEndpoint
 import dev.phonepi.companion.connection.ConnectionPrefs
 import dev.phonepi.companion.connection.TailscaleDns
 import dev.phonepi.companion.connection.TailscaleSocketFactory
+import dev.phonepi.companion.connection.withPhonePiAuthIfHostMatches
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -58,16 +60,16 @@ class UpdateEngine(context: Context) {
 
     fun endpoint(): ConnectEndpoint.Target? {
         val saved = ConnectionPrefs.getLastSuccessful(app) ?: return null
-        return ConnectEndpoint.parse(saved.host, saved.port.toString(), saved.wsToken)
+        val target = ConnectEndpoint.parse(saved.host, saved.port.toString(), saved.wsToken)
+        if (!AllowedHost.mayConnect(target.host, target.wsToken)) return null
+        return target
     }
 
     suspend fun fetchManifest(): UpdateManifest {
         val target = endpoint() ?: error("Not connected — set host and Connect first")
-        val request = Request.Builder()
-            .url(UpdateUrls.manifest(target))
-            .header("Authorization", "Bearer ${target.wsToken}")
-            .get()
-            .build()
+        val built = Request.Builder().url(UpdateUrls.manifest(target)).get().build()
+        val request = withPhonePiAuthIfHostMatches(built, target.host, target.port, target.wsToken)
+            ?: error("Refusing update: request host does not match ${target.host}")
         return withContext(Dispatchers.IO) {
             client.newCall(request).execute().use { response ->
                 val body = response.body?.string().orEmpty()
@@ -206,11 +208,9 @@ class UpdateEngine(context: Context) {
         val dir = File(app.cacheDir, "updates").apply { mkdirs() }
         val file = File(dir, "phonepi-update.apk")
         if (file.exists()) file.delete()
-        val request = Request.Builder()
-            .url(UpdateUrls.apk(target))
-            .header("Authorization", "Bearer ${target.wsToken}")
-            .get()
-            .build()
+        val built = Request.Builder().url(UpdateUrls.apk(target)).get().build()
+        val request = withPhonePiAuthIfHostMatches(built, target.host, target.port, target.wsToken)
+            ?: error("Refusing update: request host does not match ${target.host}")
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
                 error(parseError(response.body?.string().orEmpty(), response.code))

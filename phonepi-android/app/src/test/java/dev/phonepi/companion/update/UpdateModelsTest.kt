@@ -1,6 +1,8 @@
 package dev.phonepi.companion.update
 
 import dev.phonepi.companion.connection.ConnectEndpoint
+import dev.phonepi.companion.connection.requestMatchesTarget
+import okhttp3.Request
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -8,10 +10,12 @@ import org.junit.Test
 
 class UpdateUrlsTest {
     @Test
-    fun loopbackHttpPathsIncludeToken() {
+    fun loopbackHttpPathsDoNotIncludeToken() {
         val target = ConnectEndpoint.parse("127.0.0.1", "11041", "secret")
-        assertEquals("http://127.0.0.1:11041/phonepi/update/manifest?token=secret", UpdateUrls.manifest(target))
-        assertTrue(UpdateUrls.apk(target).endsWith("/phonepi/update/apk?token=secret"))
+        assertEquals("http://127.0.0.1:11041/phonepi/update/manifest", UpdateUrls.manifest(target))
+        assertTrue(UpdateUrls.apk(target).endsWith("/phonepi/update/apk"))
+        assertFalse(UpdateUrls.manifest(target).contains("token="))
+        assertFalse(UpdateUrls.apk(target).contains("token="))
         assertTrue(UpdateUrls.httpBase(target).startsWith("http://"))
     }
 
@@ -21,6 +25,16 @@ class UpdateUrlsTest {
         assertTrue(UpdateUrls.manifest(target).startsWith("https://"))
         assertTrue(UpdateUrls.manifest(target).contains("/phonepi/update/manifest"))
         assertTrue(UpdateUrls.apk(target).contains("/phonepi/update/apk"))
+        val request = Request.Builder().url(UpdateUrls.manifest(target)).build()
+        assertTrue(requestMatchesTarget(request, target.host, target.port))
+    }
+
+    @Test
+    fun delimiterHostUpdateUrlDoesNotMatchOkHttpHost() {
+        val target = ConnectEndpoint.parse("evil.com#.tailcbcc46.ts.net", "443", "tok")
+        val request = Request.Builder().url(UpdateUrls.manifest(target)).build()
+        assertFalse(requestMatchesTarget(request, target.host, target.port))
+        assertEquals("evil.com", request.url.host)
     }
 }
 

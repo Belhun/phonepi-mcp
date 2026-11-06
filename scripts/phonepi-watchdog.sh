@@ -23,6 +23,11 @@ cmd_run() {
   local child=0
   trap 'rm -f "$PIDFILE" "$CHILD_PIDFILE"; if [[ "${child:-0}" != "0" ]]; then kill "$child" 2>/dev/null || true; fi; exit 0' INT TERM
   while true; do
+    if ! "$SCRIPT_DIR/phonepi-env-check.sh" >> "$LOG" 2>&1; then
+      echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) phonepi env check failed; not starting open. Retrying in 60s" >> "$LOG"
+      sleep 60
+      continue
+    fi
     "$SCRIPT_DIR/phonepi-server.sh" >> "$LOG" 2>&1 &
     child=$!
     echo "$child" > "$CHILD_PIDFILE"

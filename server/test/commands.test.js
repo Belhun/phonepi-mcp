@@ -161,11 +161,25 @@ test("HTTP command token comes from Bearer, header, or query", () => {
     "from-header"
   );
   assert.equal(
-    tokenFromHttpRequest({
-      url: "/api/command?token=from-query",
-      headers: {},
-    }),
+    tokenFromHttpRequest(
+      {
+        url: "/api/command?token=from-query",
+        headers: {},
+      },
+      {},
+      () => {}
+    ),
     "from-query"
+  );
+  assert.equal(
+    tokenFromHttpRequest(
+      {
+        url: "/api/command?token=from-query",
+        headers: {},
+      },
+      { PHONEPI_ALLOW_QUERY_TOKEN: "0" }
+    ),
+    null
   );
 });
 

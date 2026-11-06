@@ -237,15 +237,29 @@ class WebSocketManager(
         this.host = target.host
         this.port = target.port
         this.lastUrl = target.url
+        val savedHosts = machine?.servers?.map { it.host }.orEmpty()
+        if (!AllowedHost.mayConnect(target.host, target.wsToken, savedHosts = savedHosts)) {
+            val why = if (target.wsToken.isBlank()) "missing token" else "host not on this tailnet"
+            Log.w(TAG, "refusing connect ($why)")
+            ActivityLog.logConnection("Connect refused", "${target.host} ($why)", "warn")
+            ConnectionController.update(ConnectionState.Disconnected)
+            return
+        }
+        val request = phonePiWsRequest(target)
+        if (!requestMatchesTarget(request, target.host, target.port)) {
+            Log.w(TAG, "refusing connect (url host mismatch)")
+            ActivityLog.logConnection("Connect refused", "${target.host} (url host mismatch)", "warn")
+            ConnectionController.update(ConnectionState.Disconnected)
+            return
+        }
         Log.i(TAG, "opening ${safeUrl()} (sni=${target.host})")
         ActivityLog.logConnection("Connecting", safeUrl(), "info")
-        val request = Request.Builder().url(target.url).build()
         val created = client.newWebSocket(request, listener)
         socket = created
         armAttemptTimeout(created)
     }
 
-    /** URL without the ?token= query, for logs and Recent activity. */
+    /** URL without a query string, for logs and Recent activity. */
     private fun safeUrl(): String = lastUrl.substringBefore('?')
 
     private fun setTarget(server: ServerEntry) {

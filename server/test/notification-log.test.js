@@ -9,6 +9,7 @@ import { NotificationLog } from "../dist/notification-log.js";
 import { runNotificationLogRead } from "../dist/notification-log-tools.js";
 import { NotificationPoller } from "../dist/notification-poller.js";
 import { startLoopbackHttp } from "../dist/loopback-http.js";
+import { TEST_READ_AUTH, readHeaders } from "./read-auth-fixture.js";
 
 const NOW = Date.UTC(2026, 9, 20, 14, 0, 0);
 const MIN = 60_000;
@@ -189,12 +190,13 @@ test("HTTP /api/tool serves get_notification_log while the phone is offline", as
     log: () => {},
     notificationLog: log,
     locationReadLimiter: new CommandRateLimiter(),
+    readAuth: TEST_READ_AUTH,
   });
   try {
     const res = await new Promise((resolve, reject) => {
       const payload = JSON.stringify({ tool: "get_notification_log", arguments: { since: 0 } });
       const req = http.request(
-        { host: "127.0.0.1", port: handle.port, path: "/api/tool", method: "POST", headers: { "Content-Type": "application/json" } },
+        { host: "127.0.0.1", port: handle.port, path: "/api/tool", method: "POST", headers: { "Content-Type": "application/json", ...readHeaders() } },
         (r) => {
           const chunks = [];
           r.on("data", (c) => chunks.push(c));

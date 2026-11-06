@@ -1,6 +1,6 @@
 # What Alex does on the phone, watch, and server
 
-Companion **0.3.6** (versionCode **18**). Wear **0.1.0** (versionCode **1**). Same `applicationId` `dev.phonepi.companion` and the same release key. PhonePi never flips Do Not Disturb. Never print `PHONEPI_WS_TOKEN`, `PHONEPI_READ_TOKEN`, `PHONEPI_WAKE_HOOK_URL`, or `PHONEPI_WAKE_HOOK_SECRET`.
+Companion **0.3.7** (versionCode **19**). Wear **0.1.0** (versionCode **1**). Same `applicationId` `dev.phonepi.companion` and the same release key. PhonePi never flips Do Not Disturb. Never print `PHONEPI_WS_TOKEN`, `PHONEPI_READ_TOKEN`, `PHONEPI_WAKE_HOOK_URL`, or `PHONEPI_WAKE_HOOK_SECRET`.
 
 Presence, screen time, location history, and sleep/health sharing start **on**. Bots still only read through the allowlisted loopback tools. Sensitive reads (`get_presence`, `get_screen_time`, `get_health_summary`, `get_notification_replies`, `get_inbound_prompts`, `get_location_history`, `search_places`) need `PHONEPI_READ_TOKEN`. Pause and delete stay on the phone and as token commands. Resume of paused location, presence, usage, and health is phone-only.
 
@@ -62,12 +62,20 @@ Edit `/home/box/.phonepi/env` (mode 600). Restart the PhonePi server after savin
 
 Set these names (values stay in that file):
 
-- `PHONEPI_WS_TOKEN` — phone socket and `/api/command` (already there).
-- `PHONEPI_READ_TOKEN` — sensitive reads (`get_presence`, `get_screen_time`, `get_health_summary`, `get_notification_replies`, `get_inbound_prompts`, `get_location_history`, `search_places`, `get_location`, `phone_list_locations`). Separate from the WS token. Default bot is place labels only (`coords: false`). Optional `PHONEPI_READ_BOTS` JSON or `~/.phonepi/read-bots.json` (mode 0600) for per-bot scoped tokens (`coords: true` only for bots allowed raw coordinates). Optional `PHONEPI_REQUIRE_READ_TOKEN_ALL=1` also gates notification log, notifications, call log, contacts, and photos list. It does not add `get_photo` or `gm_*` (known trade-off: gating `gm_*` would break Phone & Texts). Tokens must be 32+ characters and must not contain `placeholder`, `choose-a-long`, or `changeme`. Optional `PHONEPI_MCP_USE_ENV_READ_TOKEN=1` lets a single-bot MCP process reuse the env token.
+- `PHONEPI_WS_TOKEN` — phone socket, `/api/command`, and update HTTP. Required, 32+ characters. The server will not start without it.
+- `PHONEPI_WS_HOST` — phone WebSocket bind. Default `127.0.0.1`. Loopback and Tailscale (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`) are allowed. Anything else needs `PHONEPI_ALLOW_WIDE_BIND=1`.
+- `PHONEPI_ALLOW_QUERY_TOKEN` — Phase A leave unset or `1` so old APKs can still send `?token=`. Set `0` in Phase B after logs show zero `query token used (deprecated)` for about 7 days.
+- `PHONEPI_READ_TOKEN` — sensitive reads (`get_presence`, `get_screen_time`, `get_health_summary`, `get_notification_replies`, `get_inbound_prompts`, `get_location_history`, `search_places`, `get_location`, `phone_list_locations`) **and**, by default, the strict reads (notification log, live notifications, call log, contacts, photos list, snippets/notes). Separate from the WS token. Default bot is place labels only (`coords: false`). Optional `PHONEPI_READ_BOTS` JSON or `~/.phonepi/read-bots.json` (mode 0600) for per-bot scoped tokens (`coords: true` only for bots allowed raw coordinates). `PHONEPI_REQUIRE_READ_TOKEN_ALL` defaults on; set `=0` only to restore the old open reads. `PHONEPI_OPEN_READ_TOOLS` is a comma list of strict tools that may stay token-free (default empty). It does not add `get_photo` or `gm_*` (known trade-off: gating `gm_*` would break Phone & Texts). Tokens must be 32+ characters and must not contain `placeholder`, `choose-a-long`, `changeme`, `example`, or `secret-at-least`. Optional `PHONEPI_MCP_USE_ENV_READ_TOKEN=1` lets a single-bot MCP process reuse the env token.
+- `PHONEPI_WAKE_HOOK_URL` — `https` URL (http only for loopback `127.0.0.0/8` or tailnet `100.64.0.0/10` / `*.ts.net`). Unset disables the hook.
+- `PHONEPI_WAKE_HOOK_SECRET` — optional. Sent as `X-PhonePi-Wake-Secret`.
+- Optional: `PHONEPI_HTTP_HOSTS` if loopback HTTP must accept extra `Host` values. Default is `127.0.0.1`, `localhost`, `[::1]`. Tailscale Serve still fronts WebSocket 11041, not `/api/tool`.
+- Optional: `PHONEPI_WAKE_HOOK_TIMEOUT_MS` (default 2000, clamp 200–10000).
+
+Do not print the values. `GET /api/health` shows `wakeHookEnabled`, `hookFailed`, and `wsListening`. It never includes the URL or secret. `ok` is false when the phone socket is not listening.
 
 Every process running as the same box user can read `~/.phonepi/env` and `read-bots.json`. Real isolation needs separate OS users or containers. MCP is the full-trust channel; per-bot coordinate limits are enforced on MCP for `get_location` / `phone_list_locations` / history, but any MCP client that can spawn the server still shares that user. HTTP `/api/tool` is the place to give each bot its own token.
 
-To turn on `PHONEPI_REQUIRE_READ_TOKEN_ALL=1` later without breaking the 10-minute notification poller, give it a scoped file bot (mode 0600):
+**Do this before deploying this build.** Strict reads are on by default. The Home · Notifications bot's poller will 401 unless it already has a scoped read token. Merge a poller bot into the existing `read-bots.json` (mode 0600) first:
 
 ```bash
 TOKEN=$(openssl rand -hex 32)
@@ -83,13 +91,15 @@ if path.exists() and path.stat().st_size:
         loaded = json.loads(path.read_text())
         if isinstance(loaded, list):
             bots = loaded
-    except json.JSONDecodeError:
-        bots = []
+        else:
+            sys.exit("read-bots.json is not a JSON list; refusing to overwrite")
+    except json.JSONDecodeError as e:
+        sys.exit(f"read-bots.json is corrupt; refusing to overwrite: {e}")
 bots = [b for b in bots if not (isinstance(b, dict) and b.get("id") == "notif-poller")]
 bots.append({
     "id": "notif-poller",
     "token": token,
-    "tools": ["get_notification_log"],
+    "tools": ["get_notification_log", "get_notifications"],
     "coords": False,
 })
 if not path.exists():
@@ -98,13 +108,32 @@ os.chmod(path, 0o600)
 path.write_text(json.dumps(bots, indent=2) + "\n")
 os.chmod(path, 0o600)
 PY
+umask 077
+TOKEN_FILE="${HOME}/.phonepi/notif-poller.token"
+printf '%s\n' "$TOKEN" > "$TOKEN_FILE"
+chmod 600 "$TOKEN_FILE"
 ```
 
-Keep `PHONEPI_REQUIRE_READ_TOKEN_ALL` unset (off) until that poller sends `X-PhonePi-Read-Token`. Notification text is wrapped as untrusted even while the flag is off.
-- `PHONEPI_WAKE_HOOK_URL` — `https` URL (http only for loopback `127.0.0.0/8` or tailnet `100.64.0.0/10` / `*.ts.net`). Unset disables the hook.
-- `PHONEPI_WAKE_HOOK_SECRET` — optional. Sent as `X-PhonePi-Wake-Secret`.
-- Optional: `PHONEPI_HTTP_HOSTS` if loopback HTTP must accept extra `Host` values. Default is `127.0.0.1`, `localhost`, `[::1]`. Tailscale Serve still fronts WebSocket 11041, not `/api/tool`.
+Give that poller token to the Home · Notifications bot **before** restarting the new server. Do not print `$TOKEN`. Point the bot at `~/.phonepi/notif-poller.token` (mode 0600) or store the value in the bot's secret store. Watch `~/.phonepi/server.log` for 401s on `get_notification_log` / `get_notifications` after restart. The box has no `PHONEPI_READ_TOKEN` and no `read-bots.json` today, so this step is mandatory. Notification text is wrapped as untrusted either way.
 
-Do not print the values. `GET /api/health` shows `wakeHookEnabled` and `hookFailed` only. It never includes the URL or secret.
+## Deploy notes: network hardening (HP + box)
 
-Optional: `PHONEPI_WAKE_HOOK_TIMEOUT_MS` (default 2000, clamp 200–10000).
+Do not deploy or merge from this PR; Alex and the Security bot review it first. After merge, about 10 minutes on each machine. Order matters.
+
+1. **Poller token first** (box, and HP if a poller runs there). Create/update `~/.phonepi/read-bots.json` as above. Point the Home · Notifications bot at `~/.phonepi/notif-poller.token` or its secret store. A poll on the current (pre-upgrade) server does not prove the token works; after restart, watch `server.log` for 401s.
+2. **Record the running code and back up dist.** Box is on `4575109`. `cd /workspace/phonepi/server && git rev-parse HEAD` and `cp -a dist dist.bak` before building the new tree.
+3. **Env files.** Keep a `.bak` of each file.
+   - **HP** `/etc/phonepi/env`: keep `PHONEPI_WS_HOST=127.0.0.1`. Add `PHONEPI_ALLOW_QUERY_TOKEN=1`. Leave `PHONEPI_REQUIRE_READ_TOKEN_ALL` unset (defaults on) or set `=1`. Keep `PHONEPI_HTTP_PORT` as it is (failover front 11043). Confirm the systemd user unit's user can **read** `/etc/phonepi/env`. `tailscale serve --https=443 → 127.0.0.1:11041` stays. No MCP client may start `node dist/index.js` without `PHONEPI_WS_TOKEN`; the server now exits 1.
+   - **Box** `~/.phonepi/env`: add `PHONEPI_WS_HOST=127.0.0.1`, `PHONEPI_ALLOW_QUERY_TOKEN=1`. Leave `PHONEPI_REQUIRE_READ_TOKEN_ALL` unset or `=1`. Keep `PHONEPI_HTTP_PORT=11045`. Serve `/ → 127.0.0.1:11041` stays.
+4. **Restart the new binary.** HP: systemd user unit from `scripts/install-phonepi-user-service.sh`. Box: `scripts/phonepi-watchdog.sh` (stop/start). A missing env file, short token, or placeholder token now **refuses to start** instead of running open. If the phone socket cannot listen, the process exits 1 so the watchdog/systemd restarts it. Before the HP restart, check that the phone-socket token and any read tokens do **not** contain the placeholder words `placeholder`, `choose-a-long`, `changeme`, `example`, or `secret-at-least`. Match only (grep -qi); never print the values. The box WS token was already checked clean and it has no read tokens. An MCP `--stdio` launch while the main server holds 11041 now **exits 1** instead of idling; do not start a second copy.
+5. **Check.** `ss -ltnp | grep 11041` shows `127.0.0.1:11041`. WS upgrade without a token is 401; with `Authorization: Bearer` it is 101. `/api/tool get_notifications` without a read token is 401; the poller still succeeds. `/api/health` includes `wsListening` and `ok` is false if the phone socket is down. Health check uses `PHONEPI_HTTP_PORT` (box 11045, not 11043).
+6. **Upgrade every server before any phone gets 0.3.7.** 0.3.7 sends only the header; old servers accept only `?token=`. That covers HP, box, and **dell-mini-pc** if it is still in the phone's Servers list (`TailscaleNet.kt` keeps a MagicDNS SNI map for Dell; it is not auto-added). Upgrade or Forget Dell first, or failover to it 401s.
+7. **Phone last.** Sideload companion **0.3.7** (versionCode **19**) when you want the header-only WS token. Same version as this PR; it has not been sideloaded yet, so no 0.3.8 bump. Old APKs keep working during Phase A because `?token=` is still accepted. Release APKs only allow cleartext to loopback (not `10.0.2.2`), so the phone stays on `wss://<node>.ts.net`. Setup links (`phonepi://setup`) confirm the host, pin MagicDNS to **this** tailnet (`PHONEPI_TAILNET_SUFFIX`, default `tailcbcc46.ts.net`), never reuse a saved token for a new host, and refuse a blank-token connect in release. HP, box, and Dell MagicDNS names on that suffix still work. To use another tailnet, assemble with `-PPHONEPI_TAILNET_SUFFIX=other.ts.net` (or the env of the same name). A blank suffix falls back to suffixes of already-saved servers.
+
+**Phase B** (after about 7 days of zero `query token used (deprecated)` in the logs): set `PHONEPI_ALLOW_QUERY_TOKEN=0` on HP and box and restart. Old APKs will fail to connect until they update.
+
+**Rollback:** restore env `.bak`, then restore **code** too: `git checkout 4575109 && npm run build` (or copy `dist.bak` back to `dist`) and restart. Env-only rollback is not enough. To restore the old bind: `PHONEPI_WS_HOST=0.0.0.0` plus `PHONEPI_ALLOW_WIDE_BIND=1`. To restore open reads: `PHONEPI_REQUIRE_READ_TOKEN_ALL=0`. `PHONEPI_ALLOW_QUERY_TOKEN=1` plus a restart keeps old APKs working.
+
+**Could break:** Home · Notifications poller (401 if its token is missing); any bot that reads snippets/notes over `/api/tool` without a read token (401 — give it a scoped `read-bots.json` entry, or list `get_all_snippets,get_snippet_by_id,get_snippets_by_type,search_snippets` in `PHONEPI_OPEN_READ_TOOLS`); any client still dialing `hp1:11041` instead of the ts.net Serve name; a box refresh with no env file (server stays down until env is restored); an MCP client on the HP that spawned the server without `PHONEPI_WS_TOKEN`, or a second `--stdio` copy while 11041 is already bound (now exits 1); a setup link to some other `*.ts.net` tailnet (now refused). Untested on a real phone: OkHttp `Authorization` through Tailscale Serve / wss (expected to pass; confirm on device during Phase A). Docker `:2375` is platform-managed and is not changed here.
+
+**Verify the header on device (Phase A):** after sideloading 0.3.7, `adb logcat -s PhonePiWS:*` should show `wss://<node>.ts.net:443/phonepi` with no `?token=`. The server log should accept the connection without `query token used (deprecated)`. A `curl` to the Serve URL with `Authorization: Bearer` (never print the value) should 101 on upgrade. If Serve dropped the header, the phone would 401 and you would still see query-token lines from the old APK only.

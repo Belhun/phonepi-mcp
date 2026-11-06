@@ -7,7 +7,11 @@ import path from "node:path";
 import test from "node:test";
 import { WebSocket } from "ws";
 import { createPhoneWebSocketServer } from "../dist/phone-ws.js";
-import { createPhoneVerifyClient } from "../dist/ws-token.js";
+import {
+  ALLOW_QUERY_TOKEN_ENV,
+  createPhoneVerifyClient,
+  resetQueryTokenUseForTests,
+} from "../dist/ws-token.js";
 import {
   DEFAULT_UPDATE_DIR,
   loadUpdateBundle,
@@ -21,6 +25,8 @@ import {
   verifyManifestSignature,
 } from "../dist/update-sign.js";
 import { isPhoneCommand, PHONE_COMMAND_NAMES } from "../dist/commands.js";
+
+const UPDATE_TOKEN = "phonepi-update-token-32-chars-ok!";
 
 function get(port, urlPath, headers = {}) {
   return new Promise((resolve, reject) => {
@@ -139,7 +145,7 @@ test("GET /phonepi/update requires the WS token and serves a signed manifest plu
   const previousToken = process.env.PHONEPI_WS_TOKEN;
   const previousDir = process.env.PHONEPI_UPDATE_DIR;
   const previousPub = process.env.PHONEPI_UPDATE_PUBKEY;
-  process.env.PHONEPI_WS_TOKEN = "upd-secret";
+  process.env.PHONEPI_WS_TOKEN = UPDATE_TOKEN;
   process.env.PHONEPI_UPDATE_DIR = dir;
   process.env.PHONEPI_UPDATE_PUBKEY = publicKeyHex;
 
@@ -158,7 +164,7 @@ test("GET /phonepi/update requires the WS token and serves a signed manifest plu
     const wrong = await get(port, "/phonepi/update/manifest?token=nope");
     assert.equal(wrong.status, 401);
 
-    const manifest = await get(port, "/phonepi/update/manifest?token=upd-secret");
+    const manifest = await get(port, `/phonepi/update/manifest?token=${UPDATE_TOKEN}`);
     assert.equal(manifest.status, 200);
     const json = JSON.parse(manifest.text);
     assert.equal(json.versionCode, 8);
@@ -169,7 +175,7 @@ test("GET /phonepi/update requires the WS token and serves a signed manifest plu
     assert.equal(json.signature.length, 128);
 
     const apk = await get(port, "/phonepi/update/apk", {
-      Authorization: "Bearer upd-secret",
+      Authorization: `Bearer ${UPDATE_TOKEN}`,
     });
     assert.equal(apk.status, 200);
     assert.equal(apk.buf.equals(bytes), true);
@@ -178,7 +184,7 @@ test("GET /phonepi/update requires the WS token and serves a signed manifest plu
       /android\.package-archive/
     );
 
-    const ws = new WebSocket(`ws://127.0.0.1:${port}/phonepi?token=upd-secret`);
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/phonepi?token=${UPDATE_TOKEN}`);
     await new Promise((resolve, reject) => {
       ws.on("open", resolve);
       ws.on("error", reject);
@@ -198,4 +204,53 @@ test("GET /phonepi/update requires the WS token and serves a signed manifest plu
 test("phone_push_update is an allowlisted write command", () => {
   assert.equal(isPhoneCommand("phone_push_update"), true);
   assert.equal(PHONE_COMMAND_NAMES.includes("phone_push_update"), true);
+});
+
+test("update endpoint rejects the query token when PHONEPI_ALLOW_QUERY_TOKEN=0", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "phonepi-upd-"));
+  const bytes = Buffer.from("pkg-bytes-for-query-flag");
+  const { publicKeyHex } = writeSignedBundle(dir, bytes, {
+    apkName: "phonepi-0.2.6-8.apk",
+    versionCode: 8,
+    versionName: "0.2.6",
+  });
+
+  const previousToken = process.env.PHONEPI_WS_TOKEN;
+  const previousDir = process.env.PHONEPI_UPDATE_DIR;
+  const previousPub = process.env.PHONEPI_UPDATE_PUBKEY;
+  const previousFlag = process.env[ALLOW_QUERY_TOKEN_ENV];
+  process.env.PHONEPI_WS_TOKEN = UPDATE_TOKEN;
+  process.env.PHONEPI_UPDATE_DIR = dir;
+  process.env.PHONEPI_UPDATE_PUBKEY = publicKeyHex;
+  process.env[ALLOW_QUERY_TOKEN_ENV] = "0";
+  resetQueryTokenUseForTests();
+
+  const wss = createPhoneWebSocketServer({
+    port: 0,
+    host: "127.0.0.1",
+    verifyClient: createPhoneVerifyClient(() => {}),
+  });
+  await new Promise((resolve) => wss.once("listening", resolve));
+  const port = wss.address().port;
+
+  try {
+    const query = await get(port, `/phonepi/update/manifest?token=${UPDATE_TOKEN}`);
+    assert.equal(query.status, 401);
+
+    const header = await get(port, "/phonepi/update/manifest", {
+      Authorization: `Bearer ${UPDATE_TOKEN}`,
+    });
+    assert.equal(header.status, 200);
+    assert.equal(header.text.includes(UPDATE_TOKEN), false);
+  } finally {
+    await new Promise((resolve) => wss.close(resolve));
+    if (previousToken === undefined) delete process.env.PHONEPI_WS_TOKEN;
+    else process.env.PHONEPI_WS_TOKEN = previousToken;
+    if (previousDir === undefined) delete process.env.PHONEPI_UPDATE_DIR;
+    else process.env.PHONEPI_UPDATE_DIR = previousDir;
+    if (previousPub === undefined) delete process.env.PHONEPI_UPDATE_PUBKEY;
+    else process.env.PHONEPI_UPDATE_PUBKEY = previousPub;
+    if (previousFlag === undefined) delete process.env[ALLOW_QUERY_TOKEN_ENV];
+    else process.env[ALLOW_QUERY_TOKEN_ENV] = previousFlag;
+  }
 });
